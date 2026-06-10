@@ -186,6 +186,7 @@ The standing instructions the pipeline reads every night. The only object that i
 
 ```jsonc
 {
+  "user_id": "<cognitoSub>",
   "areas": [
     {
       "id": "person-clone-personality",
@@ -235,19 +236,22 @@ The standing instructions the pipeline reads every night. The only object that i
 ### 2. `profile_history` — append-only journal
 
 ```jsonc
-[
-  { "ts": "2026-06-10", "type": "area_added",
-    "area_id": "person-clone-personality",
-    "reason": "Seeded from onboarding interview" },
-  { "ts": "2026-08-15", "type": "frontier_moved",
-    "area_id": "person-clone-personality",
-    "old_frontier": "Hasn't read Generative Agents",
-    "new_frontier": "Read GenAgents + MemGPT; exploring reflection architectures",
-    "evidence": "Asked 4 questions about memory consolidation this week" },
-  { "ts": "2027-01-10", "type": "area_deprioritized",
-    "area_id": "adversarial-security",
-    "reason": "No engagement in 6 weeks; moved to dormant" }
-]
+{ "user_id": "<cognitoSub>",
+  "ts": "2026-06-10", "type": "area_added",
+  "area_id": "person-clone-personality",
+  "reason": "Seeded from onboarding interview" }
+
+{ "user_id": "<cognitoSub>",
+  "ts": "2026-08-15", "type": "frontier_moved",
+  "area_id": "person-clone-personality",
+  "old_frontier": "Hasn't read Generative Agents",
+  "new_frontier": "Read GenAgents + MemGPT; exploring reflection architectures",
+  "evidence": "Asked 4 questions about memory consolidation this week" }
+
+{ "user_id": "<cognitoSub>",
+  "ts": "2027-01-10", "type": "area_deprioritized",
+  "area_id": "adversarial-security",
+  "reason": "No engagement in 6 weeks; moved to dormant" }
 ```
 
 Raw source of truth. Never deleted. Powers the "intellectual journey" narrative for the future paper. Summaries compress it; the nightly pipeline reads summaries, not this.
@@ -256,6 +260,7 @@ Raw source of truth. Never deleted. Powers the "intellectual journey" narrative 
 
 ```jsonc
 {
+  "user_id": "<cognitoSub>",
   "id": "2304.03442",
   "source": "arxiv",
   "title": "Generative Agents: Interactive Simulacra of Human Behavior",
@@ -268,7 +273,8 @@ Raw source of truth. Never deleted. Powers the "intellectual journey" narrative 
   "triage_reasoning": "Directly hits spine; he built this cold and hasn't read it.
                        Sweet-spot level. Hypothesis-relevant (memory architecture).",
   "worth_my_hours": true,
-  "status": "candidate"    // candidate | surfaced | skipped | graduated
+  "status": "candidate",    // candidate | surfaced | skipped | graduated
+  "discovered_at": "2026-06-15T02:00:00Z"
 }
 ```
 
@@ -276,10 +282,13 @@ Raw source of truth. Never deleted. Powers the "intellectual journey" narrative 
 
 ```jsonc
 {
+  "user_id": "<cognitoSub>",
+  "card_id": "card_20260615_001",
   "paper_id": "2304.03442",
   "source_url": "https://arxiv.org/abs/2304.03442",
-  "full_text_s3_key": "papers/2304.03442/full_text.txt",
+  "full_text_s3_key": "papers/<cognitoSub>/2304.03442/full_text.txt",
   "card_type": "new_paper",    // new_paper | resurface | connect | brainstorm | revisit_hypothesis | challenge
+  "created_at": "2026-06-15T02:30:00Z",
   "hook": "You built this cold two years ago. Stanford published it first — and
            they added the one piece you were missing: reflection.",
   "why_you_now": "This is the formal version of your cloning prototype. Read it to
@@ -319,11 +328,11 @@ Raw source of truth. Never deleted. Powers the "intellectual journey" narrative 
 
 ```jsonc
 {
+  "user_id": "<cognitoSub>",
   "paper_id": "2304.03442",
   "source_url": "https://arxiv.org/abs/2304.03442",
-  "full_text_s3_key": "papers/2304.03442/full_text.txt",
-  "rewrite": "<the full paper, re-explained at your altitude, with your product
-              and hypothesis woven in as anchors throughout>",
+  "full_text_s3_key": "papers/<cognitoSub>/2304.03442/full_text.txt",
+  "rewrite_s3_key": "papers/<cognitoSub>/2304.03442/rewrite.txt",
   "read_at": "2026-06-20",
   "my_reactions": ["The reflection trees are basically what I wanted to build"],
   "extracted_claims": ["Reflection = periodic synthesis of observations into higher-level memories"],
@@ -332,14 +341,18 @@ Raw source of truth. Never deleted. Powers the "intellectual journey" narrative 
 }
 ```
 
+Note: `rewrite` text is stored in S3 (can be 20-50KB) rather than DDB to avoid item size pressure. DDB holds metadata + structured fields; S3 holds large blobs.
+
 **`rewrite` vs. `feed_card.digest`:** the digest *teases* (short, to provoke engagement). The rewrite *teaches* (long, full paper at your altitude with your product/hypothesis woven in). Most expensive single generation — triggered only by your explicit engagement.
 
 ### 6. `engagement_event` — behavioral signal (DynamoDB)
 
 ```jsonc
 {
+  "user_id": "<cognitoSub>",
   "ts": "2026-06-20T10:30:00Z",
   "paper_id": "2304.03442",
+  "card_id": "card_20260615_001",
   "action": "read",        // view | expand | read | rate | ask | dismiss | bookmark
   "active_ms": 210000,     // tab-visible + interactions (NOT raw dwell)
   "scroll_depth_pct": 85,
@@ -378,39 +391,100 @@ v0 = single-paper Q&A only. No vector store needed. Area/library scopes added wh
 
 ---
 
-## DynamoDB Design (Single-Table, Paired Turns)
+## DynamoDB Design (Single-Table, All Entities)
 
-Conversations use **paired request+response turns** — a response without its request is meaningless; they're a unit.
+**One table holds everything.** All PKs are prefixed with `USER#<cognitoSub>` for tenant isolation from day one. `user_id` is also stored as an attribute on every item (for GSI projections and application-layer clarity). Cost: zero (sub is already in the JWT). Cost of adding later: full table migration. This is "engineer the internals clean," not multi-tenancy.
 
-### Schema
+### Storage split: what lives in DDB vs S3
 
-All PKs are prefixed with `USER#<cognitoSub>` for tenant isolation from day one. Cost: zero (sub is already in the JWT). Cost of adding later: full table migration to rewrite every PK. This is "engineer the internals clean," not multi-tenancy — no user management UI, no stranger onboarding, no multi-tenant features. Just means the data *could* be isolated later without a migration.
+| Object | DDB | S3 | Why |
+|---|---|---|---|
+| paper (triage) | All fields (item <10KB) | — | Query by status, date, area |
+| feed_card | Metadata + hook + digest + glossary | full_text (blob, ~50KB) | Cards need querying/pagination; text is blob |
+| library_entry | Metadata + reactions + claims + divergence | full_text + rewrite (large blobs) | Structured fields queryable; blobs are 20-50KB each |
+| engagement_event | All fields (item <1KB) | — | Time-range queries for nightly learning |
+| profile_history | All fields (item <2KB each) | — | Time-range append + query for summarization |
+| conversation | Turns + META (paired, per-turn items) | paper full_text (referenced) | Already designed below |
+| profile.json | — | S3 only | Pipeline reads/writes as single doc; no query patterns |
+
+### Full schema
 
 ```
-PK                                          SK              Attributes
-─────────────────────────────────────────── ─────────────── ──────────────────────────────────
-USER#<sub>#CONV#conv_abc123                 META            scope, paper_id, created_at,
-                                                            last_active, full_text_s3_key
+PK                                              SK                  Entity      Key Attributes
+─────────────────────────────────────────────── ─────────────────── ─────────── ─────────────────────────────────────
+USER#<sub>#PAPER#<paper_id>                     META                paper       source, title, authors, abstract, url,
+                                                                                published, areas_matched[], triage_score,
+                                                                                triage_reasoning, worth_my_hours, status,
+                                                                                discovered_at
 
-USER#<sub>#CONV#conv_abc123                 TURN#00001      request, request_ts, response,
-                                                            response_ts, citations[],
-                                                            tokens_in, tokens_out
+USER#<sub>#FEED                                 CARD#<card_id>      feed_card   paper_id, source_url, full_text_s3_key,
+                                                                                card_type, hook, why_you_now, time_estimate,
+                                                                                digest{}, glossary[], math_notes[],
+                                                                                hypothesis_relevance, honesty_note,
+                                                                                suggested_questions[], created_at
 
-USER#<sub>#CONV#conv_abc123                 TURN#00002      (same shape)
-...
-USER#<sub>#CONV#conv_abc123                 TURN#00015      type: "summary", content,
-                                                            batch_id: "batch_001",
-                                                            covers: "TURN#001-014"
+USER#<sub>#LIBRARY#<paper_id>                   META                library     source_url, full_text_s3_key, rewrite_s3_key,
+                                                                                read_at, my_reactions[], extracted_claims[],
+                                                                                potential_citation, divergence_notes
 
-USER#<sub>#CONV#conv_abc123                 TURN#00016      (recent turn, verbatim)
-...
+USER#<sub>#ENGAGEMENT                           TS#<iso_timestamp>  event       paper_id, card_id, action, active_ms,
+                                                                                scroll_depth_pct, interactions
 
-USER#<sub>#CONV_ARCHIVE#conv_abc123#batch_001  TURN#00001   (original paired turn)
-USER#<sub>#CONV_ARCHIVE#conv_abc123#batch_001  TURN#00002   (original paired turn)
-...
+USER#<sub>#PROFILE_HISTORY                      TS#<iso_timestamp>  history     type, area_id, reason, old_frontier,
+                                                                                new_frontier, evidence, ...
+
+USER#<sub>#CONV#<conv_id>                       META                conv_meta   scope, paper_id, created_at, last_active,
+                                                                                full_text_s3_key
+
+USER#<sub>#CONV#<conv_id>                       TURN#<seq>          conv_turn   request, request_ts, response, response_ts,
+                                                                                citations[], tokens_in, tokens_out
+                                                                                (OR: type: "summary", content, batch_id, covers)
+
+USER#<sub>#CONV_ARCHIVE#<conv_id>#<batch_id>    TURN#<seq>          conv_arch   (original paired turn, preserved verbatim)
 ```
 
-**GSI consideration:** a `GSI1` with `PK = USER#<sub>` and `SK = CONV#<conv_id>` enables "list all conversations for a user" without a table scan. Cheap to add from the start; project the META attributes only (sparse projection = minimal GSI cost).
+### Access patterns
+
+| Access pattern | Query |
+|---|---|
+| Get all papers for a user (by status) | PK = `USER#<sub>#PAPER#<paper_id>` per paper, or use GSI1 (see below) |
+| Get the feed (paginated, newest first) | PK = `USER#<sub>#FEED`, SK begins_with `CARD#`, ScanIndexForward=false |
+| Get library entry for a paper | PK = `USER#<sub>#LIBRARY#<paper_id>`, SK = `META` |
+| Get engagement events (time range) | PK = `USER#<sub>#ENGAGEMENT`, SK between `TS#<start>` and `TS#<end>` |
+| Get profile history (time range) | PK = `USER#<sub>#PROFILE_HISTORY`, SK between `TS#<start>` and `TS#<end>` |
+| Get conversation + turns | PK = `USER#<sub>#CONV#<conv_id>`, all SKs |
+| Get archived turns for a batch | PK = `USER#<sub>#CONV_ARCHIVE#<conv_id>#<batch_id>`, all SKs |
+| List all conversations for a user | GSI1 (see below) |
+| List all papers by status | GSI2 (see below) |
+
+### GSIs
+
+| GSI | PK | SK | Projected | Purpose |
+|---|---|---|---|---|
+| GSI1 | `USER#<sub>` | `CONV#<conv_id>` | conv META attrs only | List all conversations for a user |
+| GSI2 | `USER#<sub>#PAPER_STATUS#<status>` | `TS#<discovered_at>` | paper META attrs | List papers by status (surfaced/graduated/skipped), newest first |
+
+GSI1 uses a sparse projection (only items with entity type `conv_meta` emit to it). GSI2 enables "show me all surfaced papers" without scanning the whole table.
+
+### S3 key structure
+
+```
+s3://<bucket>/
+  users/<cognitoSub>/
+    profile.json                              ← the brain (pipeline reads/writes)
+    profile_history_export/                   ← optional bulk export for paper writing
+    papers/<paper_id>/
+      full_text.txt                           ← fetched at digest time, always stored
+      rewrite.txt                             ← generated on library graduation
+    feed/
+      feed.json                               ← current feed (SPA reads this)
+      cards/<card_id>.json                    ← individual card detail (progressive load)
+    experiments/
+      bakeoff_results.jsonl                   ← LLM bake-off logs
+  static/                                     ← SPA assets (HTML/JS/CSS)
+```
+
+All user data under `users/<cognitoSub>/` — tenant isolation at the storage layer too.
 
 
 ### Why paired turns (not separate req/res items)
@@ -459,8 +533,9 @@ USER#<sub>#CONV_ARCHIVE#conv_abc123#batch_001  TURN#00002   (original paired tur
 ```
 User sends message
   → Lambda Function URL invoked (SSE connection opened)
-  → Query DDB: PK = CONV#<id> (returns META + summaries + recent turns)
-  → GetObject S3: paper full text
+  → Extract user_id from Cognito JWT
+  → Query DDB: PK = USER#<sub>#CONV#<conv_id> (returns META + summaries + recent turns)
+  → GetObject S3: users/<sub>/papers/<paper_id>/full_text.txt
   → Assemble: system prompt + paper text + [summaries in order] + [recent turns] + new request
   → PutItem: new turn with request, response: null
   → Call Anthropic streaming API
