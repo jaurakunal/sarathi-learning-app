@@ -22,11 +22,12 @@ The concrete technical architecture for Sārathi v0. Everything here was decided
 ┌─────────────────────────────────────────────────────────────────────────┐
 │  SERVING (always available)                                              │
 │                                                                          │
-│  CloudFront ──► S3 (static SPA + feed.json + digests + paper texts)      │
-│       │                                                                  │
-│       └──► API Gateway ──► Lambda (engagement logging)                   │
+│  CloudFront ──► S3 (static SPA assets only: HTML/JS/CSS)                 │
 │                                                                          │
-│  Lambda Function URL (SSE streaming) ──► DynamoDB (conversations)        │
+│  API Gateway ──► Lambda (feed reads, profile reads, engagement logging,  │
+│                          library reads, conversation listing)             │
+│                                                                          │
+│  Lambda Function URL (SSE streaming) ──► DynamoDB (live Q&A chat)        │
 │                                                                          │
 │  Cognito (auth — one user pool, Hosted UI, JWT authorizer)               │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -34,8 +35,8 @@ The concrete technical architecture for Sārathi v0. Everything here was decided
 ┌─────────────────────────────────────────────────────────────────────────┐
 │  STORAGE                                                                 │
 │                                                                          │
-│  S3:  static site / feed.json / paper full texts / profile.json          │
-│  DDB: engagement events / conversations (single-table)                   │
+│  DDB: profile / papers / feed cards / library / engagement / convos      │
+│  S3:  static site assets / paper full texts / rewrites / experiments     │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -80,7 +81,7 @@ class InternalSource(PaperSource):
 | Component | Cost | Notes |
 |---|---|---|
 | Fargate (nightly, ~30 min, 1 vCPU/2GB) | ~$1-3 | On-demand |
-| S3 | cents | feed + papers + site |
+| S3 | cents | paper texts + static site assets |
 | DynamoDB (on-demand) | cents | tiny event volume |
 | Lambda | pennies | within/near free tier |
 | CloudFront | $0 | 1TB/mo free tier |
@@ -95,13 +96,13 @@ class InternalSource(PaperSource):
 ## Pipeline Steps (nightly)
 
 ```
-1. DISCOVER    Read profile areas → query sources → candidate papers
+1. DISCOVER    Read profile (DDB) areas → query sources → candidate papers
 2. TRIAGE      LLM reads each abstract + profile → rank by relevance/level/hypothesis fit
 3. SELECT      Budget-cap (best N for ~2-4 hrs) + quality floor
 4. DIGEST      Fetch full text → store in S3 → generate hook + multi-level digest + glossary
 5. LENS        Tag hypothesis relevance (supports/refutes/refines)
-6. PUBLISH     Write feed.json + per-paper digests to S3
-7. LEARN       Read engagement events → update profile.json → regenerate ALL summaries
+6. PUBLISH     Write feed cards to DDB + store paper full texts in S3
+7. LEARN       Read engagement events → update profile (DDB) → regenerate ALL summaries
 ```
 
 ### Pipeline details
@@ -127,7 +128,7 @@ The bot is transparent: "Dry week. Nothing new worth your time. Let's go deeper 
 
 **Digest (the expensive step):** full paper text fetched and stored in S3 at this stage — always, regardless of later engagement. Cost: ~$0.01/mo for a year of papers. Already paying LLM inference; storing text = free resilience + enables Q&A grounding without re-fetching from arXiv.
 
-**Learn (nightly):** reads engagement events → LLM updates profile.json. Regenerates ALL tiered summaries (yesterday/3d/7d/month/quarter) if there was activity. Cost: fractions of a cent.
+**Learn (nightly):** reads engagement events → LLM updates profile (DDB items). Regenerates ALL tiered summaries (yesterday/3d/7d/month/quarter) if there was activity. Cost: fractions of a cent.
 
 ---
 
@@ -163,7 +164,7 @@ Six data objects + one journal. A paper progresses through them as it earns its 
 ### The lifecycle (one paper's journey through the system)
 
 ```
-profile.json ──reads──► [200 papers] ──triage──► paper records (machine, abstract)
+profile (DDB) ──reads──► [200 papers] ──triage──► paper records (machine, abstract)
      ▲                                                │ top ~5 survive
      │                                                ▼
      │                                        feed_card (hook + glossary + digest)
@@ -421,7 +422,7 @@ Note: `rewrite` text is stored in S3 (can be 20-50KB) rather than DDB to avoid i
 **Adaptive idle threshold:**
 - **Bootstrap (first 2 weeks):** P50 average reading speed (~250 wpm for technical content).
 - **Calibrate:** after ~20 engagement events, calculate *your* actual reading pace from `active_ms` + `scroll_depth_pct`.
-- **Update:** drift with you as you speed up in an area. Stored in `profile.json → reading_speed`.
+- **Update:** drift with you as you speed up in an area. Stored in the profile META item (`reading_speed` field).
 
 **Noise filtering:**
 - Tab visibility API: stop counting when browser backgrounded / phone locked.
@@ -450,15 +451,15 @@ v0 = single-paper Q&A only. No vector store needed. Area/library scopes added wh
 
 | Object | DDB | S3 | Why |
 |---|---|---|---|
-| profile | All fields (~5-15KB, one item) | — | GetItem/PutItem; atomic updates; no read-modify-write races. Pipeline already reads DDB for engagement — same place. |
+| profile | Item collection (META + AREAs + HYPOTHESIS + SUMMARYs, ~5-15KB total) | — | Query for full read; surgical updates per item. No 400KB ceiling. Pipeline already reads DDB for engagement — same table. |
 | paper (triage) | All fields (item <10KB) | — | Query by status, date, area |
-| feed_card | Metadata + hook + digest + glossary (<50KB) | — | Cards need querying/pagination; fits within DDB item limit |
+| feed_card | Metadata + hook + digest + glossary (typically 10-30KB; `deep` digest bounded to fit 400KB) | — | Cards need querying/pagination; deep digest truncated/paginated if needed |
 | library_entry | Metadata + reactions + claims + divergence | full_text + rewrite (large blobs, 20-50KB each) | Structured fields queryable in DDB; large text blobs → S3 |
 | engagement_event | All fields (item <1KB) | — | Time-range queries for nightly learning |
 | profile_history | All fields (item <2KB each) | — | Time-range append + query for summarization |
 | conversation | Turns + META (paired, per-turn items) | paper full_text (referenced) | Designed below |
 
-**Why profile moved from S3 to DDB:** originally S3 because "no query patterns." But: (1) everything else is already in DDB — consistency; (2) DDB gives atomic PutItem vs S3 read-modify-write race conditions on concurrent updates; (3) profile IS queried ("get current profile for this user" = GetItem); (4) pipeline already reads DDB for engagement events — same table, same connection. Profile is ~5-15KB, well within 400KB item limit.
+**Why profile moved from S3 to DDB:** originally S3 because "no query patterns." But: (1) everything else is already in DDB — consistency; (2) DDB gives atomic updates per item vs S3 read-modify-write race conditions; (3) profile IS queried ("get full profile" = one Query, "get one area" = GetItem); (4) pipeline already reads DDB for engagement events — same table, same connection. Profile is an item collection (~5-15KB total) with no single-item ceiling.
 
 ### Full schema
 
@@ -536,7 +537,7 @@ USER#<sub>#CONV_ARCHIVE#<conv_id>#<batch_id>    TURN#<seq>          conv_arch   
 | Get feed (paginated, newest first) | `Query` | PK=`USER#<sub>#FEED`, SK begins_with `CARD#`, ScanIndexForward=false | card_id includes timestamp prefix for natural sort |
 | Get single card | `GetItem` | PK=`USER#<sub>#FEED`, SK=`CARD#<card_id>` | Progressive load of deep digest |
 | Write new card (pipeline) | `PutItem` | PK=`USER#<sub>#FEED`, SK=`CARD#<card_id>` | — |
-| Delete old cards (optional cleanup) | `DeleteItem` | PK=`USER#<sub>#FEED`, SK=`CARD#<card_id>` | If feed grows too large over months |
+| Delete old cards (TTL cleanup) | `DeleteItem` | PK=`USER#<sub>#FEED`, SK=`CARD#<card_id>` | DDB TTL on `expires_at` attr; default 90 days. Cards stay queryable until expired; graduated papers persist in Library regardless. |
 
 #### Library
 
@@ -605,7 +606,7 @@ s3://<bucket>/
 
 All user data under `users/<cognitoSub>/` — tenant isolation at the storage layer too.
 
-**What moved to DDB:** profile.json (now `PROFILE#CURRENT`), feed.json / individual cards (now `FEED#CARD#<id>` — SPA reads from API, not direct S3). This means the SPA always goes through API Gateway to read feed data, which means auth is enforced consistently and the feed is always fresh (no S3 cache invalidation).
+**What moved to DDB:** profile (now item collection under `PK=USER#<sub>#PROFILE`), feed cards (now `PK=USER#<sub>#FEED`, `SK=CARD#<card_id>`). The SPA always goes through API Gateway to read data (feed, profile, library, conversations), which means auth is enforced consistently and data is always fresh (no S3 cache invalidation needed).
 
 
 ### Why paired turns (not separate req/res items)
@@ -657,7 +658,7 @@ User sends message
   → Extract user_id from Cognito JWT
   → Parallel reads:
       • Query DDB: PK = USER#<sub>#CONV#<conv_id> (returns META + summaries + recent turns)
-      • GetItem DDB: PK = USER#<sub>#PROFILE, SK = CURRENT (for tone/style context)
+      • GetItem DDB: PK = USER#<sub>#PROFILE, SK = META (for tone/style context)
       • GetObject S3: users/<sub>/papers/<paper_id>/full_text.txt
   → Assemble: system prompt + profile context + paper text + [summaries in order] + [recent turns] + new request
   → PutItem: new turn with request, response: null
