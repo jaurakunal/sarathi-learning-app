@@ -180,9 +180,9 @@ profile.json ──reads──► [200 papers] ──triage──► paper recor
                                             profile_history (the journey log)
 ```
 
-### 1. `profile.json` — the brain (current state)
+### 1. `profile` — the brain (current state, stored in DDB)
 
-The standing instructions the pipeline reads every night. The only object that isn't about a paper.
+The standing instructions the pipeline reads every night. Stored as a single DDB item (`PK=USER#<sub>#PROFILE, SK=CURRENT`). The only object that isn't about a paper.
 
 ```jsonc
 {
@@ -399,19 +399,25 @@ v0 = single-paper Q&A only. No vector store needed. Area/library scopes added wh
 
 | Object | DDB | S3 | Why |
 |---|---|---|---|
+| profile | All fields (~5-15KB, one item) | — | GetItem/PutItem; atomic updates; no read-modify-write races. Pipeline already reads DDB for engagement — same place. |
 | paper (triage) | All fields (item <10KB) | — | Query by status, date, area |
-| feed_card | Metadata + hook + digest + glossary | full_text (blob, ~50KB) | Cards need querying/pagination; text is blob |
-| library_entry | Metadata + reactions + claims + divergence | full_text + rewrite (large blobs) | Structured fields queryable; blobs are 20-50KB each |
+| feed_card | Metadata + hook + digest + glossary (<50KB) | — | Cards need querying/pagination; fits within DDB item limit |
+| library_entry | Metadata + reactions + claims + divergence | full_text + rewrite (large blobs, 20-50KB each) | Structured fields queryable in DDB; large text blobs → S3 |
 | engagement_event | All fields (item <1KB) | — | Time-range queries for nightly learning |
 | profile_history | All fields (item <2KB each) | — | Time-range append + query for summarization |
-| conversation | Turns + META (paired, per-turn items) | paper full_text (referenced) | Already designed below |
-| profile.json | — | S3 only | Pipeline reads/writes as single doc; no query patterns |
+| conversation | Turns + META (paired, per-turn items) | paper full_text (referenced) | Designed below |
+
+**Why profile moved from S3 to DDB:** originally S3 because "no query patterns." But: (1) everything else is already in DDB — consistency; (2) DDB gives atomic PutItem vs S3 read-modify-write race conditions on concurrent updates; (3) profile IS queried ("get current profile for this user" = GetItem); (4) pipeline already reads DDB for engagement events — same table, same connection. Profile is ~5-15KB, well within 400KB item limit.
 
 ### Full schema
 
 ```
 PK                                              SK                  Entity      Key Attributes
 ─────────────────────────────────────────────── ─────────────────── ─────────── ─────────────────────────────────────
+USER#<sub>#PROFILE                              CURRENT             profile     areas[], hypothesis{}, learning_style{},
+                                                                                reading_speed{}, summaries{}, paper_goal,
+                                                                                last_updated
+
 USER#<sub>#PAPER#<paper_id>                     META                paper       source, title, authors, abstract, url,
                                                                                 published, areas_matched[], triage_score,
                                                                                 triage_reasoning, worth_my_hours, status,
@@ -443,48 +449,101 @@ USER#<sub>#CONV#<conv_id>                       TURN#<seq>          conv_turn   
 USER#<sub>#CONV_ARCHIVE#<conv_id>#<batch_id>    TURN#<seq>          conv_arch   (original paired turn, preserved verbatim)
 ```
 
-### Access patterns
+### Access patterns (complete)
 
-| Access pattern | Query |
-|---|---|
-| Get all papers for a user (by status) | PK = `USER#<sub>#PAPER#<paper_id>` per paper, or use GSI1 (see below) |
-| Get the feed (paginated, newest first) | PK = `USER#<sub>#FEED`, SK begins_with `CARD#`, ScanIndexForward=false |
-| Get library entry for a paper | PK = `USER#<sub>#LIBRARY#<paper_id>`, SK = `META` |
-| Get engagement events (time range) | PK = `USER#<sub>#ENGAGEMENT`, SK between `TS#<start>` and `TS#<end>` |
-| Get profile history (time range) | PK = `USER#<sub>#PROFILE_HISTORY`, SK between `TS#<start>` and `TS#<end>` |
-| Get conversation + turns | PK = `USER#<sub>#CONV#<conv_id>`, all SKs |
-| Get archived turns for a batch | PK = `USER#<sub>#CONV_ARCHIVE#<conv_id>#<batch_id>`, all SKs |
-| List all conversations for a user | GSI1 (see below) |
-| List all papers by status | GSI2 (see below) |
+#### Profile
+
+| Pattern | Operation | Key | Notes |
+|---|---|---|---|
+| Get current profile | `GetItem` | PK=`USER#<sub>#PROFILE`, SK=`CURRENT` | Single item, ~5-15KB |
+| Update profile (nightly learn) | `PutItem` | PK=`USER#<sub>#PROFILE`, SK=`CURRENT` | Full replace (atomic) |
+
+#### Paper (triage records)
+
+| Pattern | Operation | Key | Notes |
+|---|---|---|---|
+| Get one paper | `GetItem` | PK=`USER#<sub>#PAPER#<paper_id>`, SK=`META` | — |
+| Write/update paper | `PutItem` | PK=`USER#<sub>#PAPER#<paper_id>`, SK=`META` | Status transitions: candidate→surfaced→graduated |
+| List papers by status (newest first) | `Query` on **GSI2** | PK=`USER#<sub>#PAPER_STATUS#<status>`, SK desc | "Show me all surfaced papers" |
+| Check if paper already seen (dedup) | `GetItem` | PK=`USER#<sub>#PAPER#<paper_id>`, SK=`META` | Pipeline dedup before creating new candidate |
+
+#### Feed
+
+| Pattern | Operation | Key | Notes |
+|---|---|---|---|
+| Get feed (paginated, newest first) | `Query` | PK=`USER#<sub>#FEED`, SK begins_with `CARD#`, ScanIndexForward=false | card_id includes timestamp prefix for natural sort |
+| Get single card | `GetItem` | PK=`USER#<sub>#FEED`, SK=`CARD#<card_id>` | Progressive load of deep digest |
+| Write new card (pipeline) | `PutItem` | PK=`USER#<sub>#FEED`, SK=`CARD#<card_id>` | — |
+| Delete old cards (optional cleanup) | `DeleteItem` | PK=`USER#<sub>#FEED`, SK=`CARD#<card_id>` | If feed grows too large over months |
+
+#### Library
+
+| Pattern | Operation | Key | Notes |
+|---|---|---|---|
+| Get library entry for a paper | `GetItem` | PK=`USER#<sub>#LIBRARY#<paper_id>`, SK=`META` | — |
+| List all library entries | `Query` on **GSI3** | PK=`USER#<sub>#LIBRARY`, SK=`TS#<read_at>` desc | "Show my library, newest first" |
+| Graduate paper to library | `PutItem` | PK=`USER#<sub>#LIBRARY#<paper_id>`, SK=`META` | Triggered by engagement |
+| Update reactions/claims | `UpdateItem` | PK=`USER#<sub>#LIBRARY#<paper_id>`, SK=`META` | Append to list attrs |
+
+#### Engagement events
+
+| Pattern | Operation | Key | Notes |
+|---|---|---|---|
+| Log an event | `PutItem` | PK=`USER#<sub>#ENGAGEMENT`, SK=`TS#<iso_ts>` | High-resolution timestamp avoids collisions |
+| Get events for time range (nightly learn) | `Query` | PK=`USER#<sub>#ENGAGEMENT`, SK between `TS#<start>` and `TS#<end>` | — |
+| Get events for a specific paper | `Query` on **GSI4** | PK=`USER#<sub>#PAPER_ENGAGEMENT#<paper_id>`, SK=`TS#<iso_ts>` | "How did I engage with this paper over time?" |
+
+#### Profile history
+
+| Pattern | Operation | Key | Notes |
+|---|---|---|---|
+| Append event | `PutItem` | PK=`USER#<sub>#PROFILE_HISTORY`, SK=`TS#<iso_ts>` | — |
+| Get history for time range (for summarization) | `Query` | PK=`USER#<sub>#PROFILE_HISTORY`, SK between `TS#<start>` and `TS#<end>` | — |
+| Get full history (for paper journey narrative) | `Query` | PK=`USER#<sub>#PROFILE_HISTORY`, all SKs | Paginate if large |
+
+#### Conversations
+
+| Pattern | Operation | Key | Notes |
+|---|---|---|---|
+| List all conversations for user | `Query` on **GSI1** | PK=`USER#<sub>`, SK begins_with `CONV#` | Returns META items only (sparse projection) |
+| List conversations for a paper | `Query` on **GSI1** | PK=`USER#<sub>`, SK begins_with `CONV#`, filter: paper_id=X | — |
+| Get conversation + all turns | `Query` | PK=`USER#<sub>#CONV#<conv_id>`, all SKs | Returns META + summary nodes + recent turns |
+| Write new turn (request phase) | `PutItem` | PK=`USER#<sub>#CONV#<conv_id>`, SK=`TURN#<seq>` | response=null initially |
+| Complete turn (response phase) | `UpdateItem` | PK=`USER#<sub>#CONV#<conv_id>`, SK=`TURN#<seq>` | Fill response, response_ts, citations, tokens |
+| Get archived turns | `Query` | PK=`USER#<sub>#CONV_ARCHIVE#<conv_id>#<batch_id>`, all SKs | Drill into summarized detail |
+| Write summary + archive | `TransactWriteItems` | PutItem summary turn + BatchWriteItem archive + DeleteItem originals | Atomic: summary appears iff archive succeeds |
 
 ### GSIs
 
 | GSI | PK | SK | Projected | Purpose |
 |---|---|---|---|---|
-| GSI1 | `USER#<sub>` | `CONV#<conv_id>` | conv META attrs only | List all conversations for a user |
-| GSI2 | `USER#<sub>#PAPER_STATUS#<status>` | `TS#<discovered_at>` | paper META attrs | List papers by status (surfaced/graduated/skipped), newest first |
+| GSI1 | `USER#<sub>` | `entity_type#entity_id` | META attrs | List all conversations (filter by paper_id). Uses `gsi1pk` / `gsi1sk` attributes written to conv META items. |
+| GSI2 | `USER#<sub>#PAPER_STATUS#<status>` | `TS#<discovered_at>` | paper core attrs | List papers by status, newest first. Maintained by writing `gsi2pk` on paper items; status change = update `gsi2pk`. |
+| GSI3 | `USER#<sub>#LIBRARY` | `TS#<read_at>` | library core attrs | List all library entries, newest first. Written on library_entry items. |
+| GSI4 | `USER#<sub>#PAPER_ENGAGEMENT#<paper_id>` | `TS#<iso_ts>` | event attrs | Get engagement timeline for a specific paper. Written on engagement_event items. |
 
-GSI1 uses a sparse projection (only items with entity type `conv_meta` emit to it). GSI2 enables "show me all surfaced papers" without scanning the whole table.
+**GSI mechanics:** each GSI uses dedicated `gsiNpk` / `gsiNsk` attributes on the relevant items. Items that shouldn't appear in a GSI simply don't have those attributes (sparse index — no storage/write cost for irrelevant items).
 
-### S3 key structure
+### S3 key structure (blobs + static assets only)
+
+Profile and all metadata live in DDB. S3 holds only large text blobs and static assets.
 
 ```
 s3://<bucket>/
   users/<cognitoSub>/
-    profile.json                              ← the brain (pipeline reads/writes)
-    profile_history_export/                   ← optional bulk export for paper writing
     papers/<paper_id>/
       full_text.txt                           ← fetched at digest time, always stored
       rewrite.txt                             ← generated on library graduation
-    feed/
-      feed.json                               ← current feed (SPA reads this)
-      cards/<card_id>.json                    ← individual card detail (progressive load)
+    exports/
+      profile_history.jsonl                   ← optional bulk export for paper writing
     experiments/
       bakeoff_results.jsonl                   ← LLM bake-off logs
   static/                                     ← SPA assets (HTML/JS/CSS)
 ```
 
 All user data under `users/<cognitoSub>/` — tenant isolation at the storage layer too.
+
+**What moved to DDB:** profile.json (now `PROFILE#CURRENT`), feed.json / individual cards (now `FEED#CARD#<id>` — SPA reads from API, not direct S3). This means the SPA always goes through API Gateway to read feed data, which means auth is enforced consistently and the feed is always fresh (no S3 cache invalidation).
 
 
 ### Why paired turns (not separate req/res items)
@@ -534,9 +593,11 @@ All user data under `users/<cognitoSub>/` — tenant isolation at the storage la
 User sends message
   → Lambda Function URL invoked (SSE connection opened)
   → Extract user_id from Cognito JWT
-  → Query DDB: PK = USER#<sub>#CONV#<conv_id> (returns META + summaries + recent turns)
-  → GetObject S3: users/<sub>/papers/<paper_id>/full_text.txt
-  → Assemble: system prompt + paper text + [summaries in order] + [recent turns] + new request
+  → Parallel reads:
+      • Query DDB: PK = USER#<sub>#CONV#<conv_id> (returns META + summaries + recent turns)
+      • GetItem DDB: PK = USER#<sub>#PROFILE, SK = CURRENT (for tone/style context)
+      • GetObject S3: users/<sub>/papers/<paper_id>/full_text.txt
+  → Assemble: system prompt + profile context + paper text + [summaries in order] + [recent turns] + new request
   → PutItem: new turn with request, response: null
   → Call Anthropic streaming API
   → Forward chunks as SSE events to client
