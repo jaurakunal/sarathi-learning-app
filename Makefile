@@ -1,0 +1,29 @@
+.PHONY: help install test lint deploy synth build-backend build-frontend
+
+help: ## Show this help
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
+
+install: ## Install all dependencies
+	pip install -r requirements.txt
+	cd infra && pip install -r requirements.txt
+
+test: ## Run all tests
+	python -m pytest tests/ -v
+
+lint: ## Run linting
+	python -m ruff check backend/ infra/
+
+build-backend: ## Package backend for deployment
+	@echo "Backend packaging — handled by CDK asset bundling"
+
+build-frontend: ## Build frontend SPA
+	@echo "Frontend build — TODO: wire up once framework chosen"
+
+synth: ## Synthesize CDK CloudFormation template
+	cd infra && cdk synth
+
+deploy: ## Deploy infrastructure via CDK
+	cd infra && cdk deploy --require-approval never
+
+diff: ## Show CDK diff against deployed stack
+	cd infra && cdk diff
