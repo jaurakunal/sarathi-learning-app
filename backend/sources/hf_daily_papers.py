@@ -208,11 +208,8 @@ class HFDailyPapersSource:
                 logger.warning("HF API returned unexpected data type: %s", type(data))
                 return []
 
-        except requests.RequestException:
+        except Exception:
             logger.exception("Failed to fetch HF Daily Papers")
-            return []
-        except ValueError:
-            logger.exception("Failed to parse HF Daily Papers JSON response")
             return []
 
     def _parse_datetime(self, dt_str: str) -> Optional[datetime]:

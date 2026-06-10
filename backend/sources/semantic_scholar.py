@@ -86,7 +86,7 @@ class SemanticScholarSource:
         for query in queries:
             papers = self._search(query, since)
             for paper in papers:
-                paper_id = paper.get("paperId")
+                paper_id = paper.get("id")
                 if paper_id and paper_id not in seen_ids:
                     seen_ids.add(paper_id)
                     results.append(paper)
@@ -147,7 +147,10 @@ class SemanticScholarSource:
             # Check if there are more results
             total = data.get("total", 0)
             offset += page_size
-            if offset >= total:
+            try:
+                if offset >= int(total):
+                    break
+            except (TypeError, ValueError):
                 break
 
         return results
