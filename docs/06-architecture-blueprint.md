@@ -720,6 +720,29 @@ Test before locking. ~8 papers × 3-4 models × tasks (triage/hook/digest). Blin
 
 ---
 
+## Repo Structure (monorepo)
+
+One repo, atomic commits, one `cdk deploy`. Split only if a real human asks for independent deploy cadence — until then, separate repos is the rabbit hole wearing a "clean architecture" costume.
+
+```
+sarathi/
+  docs/                ← design docs (already exists)
+  infra/               ← CDK (Python CDK, same language as backend)
+  backend/
+    pipeline/          ← Step Functions steps (discover, triage, digest, etc.)
+    api/               ← Lambda handlers (feed reads, engagement, profile, library, conversations)
+    streaming/         ← Lambda Function URL (chat SSE)
+    sources/           ← PaperSource implementations (arXiv, S2, OpenReview, HF)
+    shared/            ← models, DDB access patterns, config
+  frontend/            ← SPA
+  experiments/         ← bake-off scripts + results
+  Makefile             ← deploy, build-backend, build-frontend, test targets
+```
+
+**Why monorepo:** one developer, one atomic deploy. "Add engagement event" touches CDK (DDB schema) + backend (handler) + frontend (event emission) — that's one commit in a monorepo, three coordinated PRs across three repos otherwise. Independent build/test per layer is handled by Makefile targets, not repo boundaries.
+
+---
+
 ## What's deferred (stubs exist, not implemented)
 
 | Capability | When to add | Stub location |
