@@ -180,33 +180,39 @@ profile.json ──reads──► [200 papers] ──triage──► paper recor
                                             profile_history (the journey log)
 ```
 
-### 1. `profile` — the brain (current state, stored in DDB)
+### 1. `profile` — the brain (current state, stored as a DDB item collection)
 
-The standing instructions the pipeline reads every night. Stored as a single DDB item (`PK=USER#<sub>#PROFILE, SK=CURRENT`). The only object that isn't about a paper.
+The standing instructions the pipeline reads every night. Stored as **multiple items under one PK** (`USER#<sub>#PROFILE`) — NOT a single item. Same principle as conversations: a single item would hit 400KB ceiling as areas/hypothesis/summaries grow, and every small update (one area's frontier) would rewrite the entire profile.
 
+**Reading the full profile = one Query** (PK=`USER#<sub>#PROFILE`, all SKs). Same latency and read cost as a single item for the same data volume. But writes are surgical — touch only the item that changed.
+
+```
+PK                          SK                      Item contents
+────────────────────────── ─────────────────────── ───────────────────────────────────────
+USER#<sub>#PROFILE          META                    user_id, learning_style{}, reading_speed{},
+                                                    paper_goal, last_updated
+
+USER#<sub>#PROFILE          AREA#person-clone       label, status, role, links[], frontier,
+                                                    too_basic[], just_right[], added_at
+
+USER#<sub>#PROFILE          AREA#agent-memory       (same shape — one item per area)
+
+USER#<sub>#PROFILE          HYPOTHESIS              statement, status, supporting[],
+                                                    refuting[], refining[]
+
+USER#<sub>#PROFILE          SUMMARY#yesterday       content, updated_at
+USER#<sub>#PROFILE          SUMMARY#3_day           content, updated_at
+USER#<sub>#PROFILE          SUMMARY#7_day           content, updated_at
+USER#<sub>#PROFILE          SUMMARY#month           content, updated_at
+USER#<sub>#PROFILE          SUMMARY#quarter         content, updated_at
+```
+
+**Item examples:**
+
+META (~1-2KB, stable):
 ```jsonc
 {
   "user_id": "<cognitoSub>",
-  "areas": [
-    {
-      "id": "person-clone-personality",
-      "label": "Person-cloning / mental models",
-      "status": "active",           // active | dormant | archived
-      "role": "spine",              // spine | secondary | seam
-      "links": ["agent-memory", "contemplative-memory"],
-      "frontier": "Built a cloning prototype cold; hasn't read Generative Agents;
-                   doesn't know 'reflection' formally.",
-      "too_basic": ["intro to RAG", "what are agents"],
-      "just_right": ["memory architectures", "agent personas"],
-      "added_at": "2026-06-10"
-    }
-    // Adding 'physics' or 'learn-rust' = just another record, zero code change.
-  ],
-  "hypothesis": {
-    "statement": "Brain-structure + agentic harness >> the LLM.",
-    "status": "untested",
-    "supporting": [], "refuting": [], "refining": []
-  },
   "learning_style": {
     "math": "route-around; tap-to-reveal only; never gate",
     "lead_with": "applied / can-I-use-this",
@@ -219,19 +225,64 @@ The standing instructions the pipeline reads every night. Stored as a single DDB
     "confidence": "low",
     "last_calibrated": null
   },
-  "summaries": {
-    "yesterday": "...",
-    "3_day": "...",
-    "7_day": "...",
-    "month": "...",
-    "quarter": "..."
-  },
   "paper_goal": "Accumulate citations/claims/gaps toward my own paper.",
-  "last_updated": "..."
+  "last_updated": "2026-06-10"
 }
 ```
 
-**Tiered summaries:** ALL regenerated nightly if there was any activity that day. The agent reads these for context — NOT the raw history. These are the agent's working memory: pre-digested, bounded. Each tier compresses raw events into what matters for the profile.
+AREA item (~2-5KB each, grows slowly):
+```jsonc
+{
+  "user_id": "<cognitoSub>",
+  "id": "person-clone-personality",
+  "label": "Person-cloning / mental models",
+  "status": "active",           // active | dormant | archived
+  "role": "spine",              // spine | secondary | seam
+  "links": ["agent-memory", "contemplative-memory"],
+  "frontier": "Built a cloning prototype cold; hasn't read Generative Agents;
+               doesn't know 'reflection' formally.",
+  "too_basic": ["intro to RAG", "what are agents"],
+  "just_right": ["memory architectures", "agent personas"],
+  "added_at": "2026-06-10"
+}
+// Adding 'physics' or 'learn-rust' = PutItem a new AREA item. Zero code change.
+```
+
+HYPOTHESIS item (grows as papers are read, ~200 bytes per reference):
+```jsonc
+{
+  "user_id": "<cognitoSub>",
+  "statement": "Brain-structure + agentic harness >> the LLM.",
+  "status": "untested",
+  "supporting": [
+    {"paper_id": "2304.03442", "note": "Architecture drives behavior, not model size"}
+  ],
+  "refuting": [],
+  "refining": [
+    {"paper_id": "2401.xxxxx", "note": "Harness dominates above a capability floor"}
+  ]
+}
+```
+
+SUMMARY item (~2-8KB each, regenerated nightly):
+```jsonc
+{
+  "user_id": "<cognitoSub>",
+  "tier": "7_day",
+  "content": "Read 2 papers fully (MemGPT, Reflexion). Both support the thesis
+              but suggest a capability floor. New term learned: 'memory consolidation.'",
+  "updated_at": "2026-06-20"
+}
+```
+
+**Why this scales indefinitely:**
+- 10 areas? 10 AREA items. 50 areas? 50 items. No ceiling.
+- Adding an area = PutItem (~3 WRUs). NOT rewriting the whole profile.
+- Updating one area's frontier = UpdateItem on that one item (~3 WRUs).
+- Regenerating one summary = PutItem on that SUMMARY item (~4 WRUs).
+- Hypothesis with 200 supporting refs = ~40KB in one item. Fine for now. If it ever hits hundreds of refs, split to `HYPOTHESIS_EVIDENCE#<paper_id>` per paper — but that's ~2000 refs before 400KB, genuinely unlikely.
+
+**Tiered summaries:** ALL regenerated nightly if there was any activity that day. The agent reads these for context — NOT the raw history. These are the agent's working memory: pre-digested, bounded.
 
 ### 2. `profile_history` — append-only journal
 
@@ -414,9 +465,13 @@ v0 = single-paper Q&A only. No vector store needed. Area/library scopes added wh
 ```
 PK                                              SK                  Entity      Key Attributes
 ─────────────────────────────────────────────── ─────────────────── ─────────── ─────────────────────────────────────
-USER#<sub>#PROFILE                              CURRENT             profile     areas[], hypothesis{}, learning_style{},
-                                                                                reading_speed{}, summaries{}, paper_goal,
-                                                                                last_updated
+USER#<sub>#PROFILE                              META                profile     learning_style{}, reading_speed{},
+                                                                                paper_goal, last_updated
+USER#<sub>#PROFILE                              AREA#<area_id>      area        label, status, role, links[], frontier,
+                                                                                too_basic[], just_right[], added_at
+USER#<sub>#PROFILE                              HYPOTHESIS          hypothesis  statement, status, supporting[],
+                                                                                refuting[], refining[]
+USER#<sub>#PROFILE                              SUMMARY#<tier>      summary     content, updated_at
 
 USER#<sub>#PAPER#<paper_id>                     META                paper       source, title, authors, abstract, url,
                                                                                 published, areas_matched[], triage_score,
@@ -455,8 +510,15 @@ USER#<sub>#CONV_ARCHIVE#<conv_id>#<batch_id>    TURN#<seq>          conv_arch   
 
 | Pattern | Operation | Key | Notes |
 |---|---|---|---|
-| Get current profile | `GetItem` | PK=`USER#<sub>#PROFILE`, SK=`CURRENT` | Single item, ~5-15KB |
-| Update profile (nightly learn) | `PutItem` | PK=`USER#<sub>#PROFILE`, SK=`CURRENT` | Full replace (atomic) |
+| Get full profile (pipeline reads) | `Query` | PK=`USER#<sub>#PROFILE`, all SKs | Returns META + all AREAs + HYPOTHESIS + all SUMMARYs. One call. |
+| Get profile META only | `GetItem` | PK=`USER#<sub>#PROFILE`, SK=`META` | For learning_style/reading_speed only |
+| Get one area | `GetItem` | PK=`USER#<sub>#PROFILE`, SK=`AREA#<area_id>` | — |
+| Add new area | `PutItem` | PK=`USER#<sub>#PROFILE`, SK=`AREA#<area_id>` | ~3 WRUs |
+| Update one area's frontier | `UpdateItem` | PK=`USER#<sub>#PROFILE`, SK=`AREA#<area_id>` | Surgical, doesn't touch other areas |
+| Get hypothesis | `GetItem` | PK=`USER#<sub>#PROFILE`, SK=`HYPOTHESIS` | — |
+| Add hypothesis evidence | `UpdateItem` | PK=`USER#<sub>#PROFILE`, SK=`HYPOTHESIS` | Append to supporting/refuting/refining list |
+| Regenerate one summary | `PutItem` | PK=`USER#<sub>#PROFILE`, SK=`SUMMARY#<tier>` | Nightly, per tier |
+| Get all summaries only | `Query` | PK=`USER#<sub>#PROFILE`, SK begins_with `SUMMARY#` | Agent context without loading full profile |
 
 #### Paper (triage records)
 
