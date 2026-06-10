@@ -1,4 +1,6 @@
-# Research COS — a Chief of Research Staff
+# Sārathi — a Chief of Research Staff
+
+*Sārathi (सारथि)* — Sanskrit for **charioteer**: the one who holds the reins and guides. Most famously Krishna as Pārtha-sārathi, Arjuna's charioteer in the Bhagavad Gita — who counsels, steers, and tells hard truths at the moment of doubt, but does not fight the war for him. (In the Katha Upanishad: the intellect is the charioteer, the mind the reins, the senses the horses — a disciplined mind steering toward clarity.) That is exactly this project's charter: it guides and tells the honest thing — including *"this can't be done"* — but I do the building.
 
 A personal "chief of research staff" that makes me **actually read research** — not a paper search engine. It comes to me, pre-digested, in a form I'll consume in the gaps I actually have, keeps my multi-year obsession warm, and accumulates the raw material for a paper of my own.
 
