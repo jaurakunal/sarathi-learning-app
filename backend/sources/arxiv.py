@@ -1,17 +1,221 @@
-"""arXiv paper source."""
+"""arXiv paper source — discovery via arXiv API and full-text via PDF extraction."""
 
 from __future__ import annotations
 
-from datetime import datetime
+import logging
+import time
+from datetime import datetime, timezone
+from typing import Optional
+
+import arxiv
+import requests
 
 from backend.shared.models import Area
 
+logger = logging.getLogger(__name__)
+
+# arXiv rate-limits to 1 request per 3 seconds
+_ARXIV_DELAY_S = 3.0
+
+
+def _build_query(areas: list[Area]) -> str:
+    """Build an arXiv search query from a list of Areas.
+
+    Combines each area's label, just_right keywords, and frontier text into
+    an OR-joined query. Within each area, terms are AND-joined for specificity.
+    """
+    area_clauses: list[str] = []
+
+    for area in areas:
+        terms: list[str] = []
+
+        # The area label is the primary topic
+        if area.label:
+            terms.append(area.label)
+
+        # just_right keywords are calibrated terms the user likes
+        for kw in area.just_right:
+            terms.append(kw)
+
+        # frontier text describes the cutting edge the user cares about
+        if area.frontier:
+            # Take first ~60 chars of frontier to avoid query bloat
+            frontier_snippet = area.frontier.strip()[:60].strip()
+            if frontier_snippet:
+                terms.append(frontier_snippet)
+
+        if terms:
+            # Join terms within an area with AND — we want papers touching all
+            # the key concepts for a given area
+            inner = " AND ".join(f'"{t}"' if " " in t else t for t in terms[:5])
+            area_clauses.append(f"({inner})")
+
+    if not area_clauses:
+        return ""
+
+    # OR across areas — a paper relevant to *any* area is interesting
+    return " OR ".join(area_clauses)
+
 
 class ArxivSource:
+    """Discovers papers from arXiv and fetches full text via PDF extraction."""
+
     name = "arxiv"
 
-    def discover(self, areas: list[Area], since: datetime) -> list[dict]:
-        raise NotImplementedError("arXiv discovery — M0 build step")
+    def __init__(self, max_results_per_query: int = 50):
+        self._max_results = max_results_per_query
 
-    def fetch_full_text(self, paper_id: str) -> str | None:
-        raise NotImplementedError("arXiv full text fetch — M0 build step")
+    def discover(self, areas: list[Area], since: datetime) -> list[dict]:
+        """Query arXiv for papers matching areas published since `since`.
+
+        Returns normalized dicts:
+            {id, source, title, authors, abstract, url, published, arxiv_categories}
+        """
+        query = _build_query(areas)
+        if not query:
+            logger.warning("ArxivSource.discover: empty query from areas")
+            return []
+
+        logger.info("ArxivSource query: %s", query)
+
+        # Ensure since is timezone-aware for comparison
+        if since.tzinfo is None:
+            since = since.replace(tzinfo=timezone.utc)
+
+        client = arxiv.Client(
+            page_size=100,
+            delay_seconds=_ARXIV_DELAY_S,
+            num_retries=3,
+        )
+
+        search = arxiv.Search(
+            query=query,
+            max_results=self._max_results,
+            sort_by=arxiv.SortCriterion.SubmittedDate,
+            sort_order=arxiv.SortOrder.Descending,
+        )
+
+        results: list[dict] = []
+
+        try:
+            for paper in client.results(search):
+                # Filter by publication date
+                published_dt = paper.published
+                if published_dt.tzinfo is None:
+                    published_dt = published_dt.replace(tzinfo=timezone.utc)
+
+                if published_dt < since:
+                    # Results are sorted newest-first, so once we hit one
+                    # older than `since` we can stop
+                    break
+
+                results.append(
+                    {
+                        "id": paper.entry_id,
+                        "source": "arxiv",
+                        "title": paper.title,
+                        "authors": [a.name for a in paper.authors],
+                        "abstract": paper.summary,
+                        "url": paper.entry_id,
+                        "published": published_dt.isoformat(),
+                        "arxiv_categories": paper.categories,
+                    }
+                )
+        except Exception:
+            logger.exception("ArxivSource.discover failed during arXiv query")
+
+        logger.info("ArxivSource.discover found %d papers", len(results))
+        return results
+
+    def fetch_full_text(self, paper_id: str) -> Optional[str]:
+        """Download the PDF for an arXiv paper and extract text.
+
+        Args:
+            paper_id: The arXiv paper ID (e.g. '2301.07041') or full entry URL.
+
+        Returns:
+            Extracted text from the PDF, or None if extraction fails.
+        """
+        try:
+            import fitz  # pymupdf
+        except ImportError:
+            logger.error(
+                "pymupdf (fitz) is not installed. "
+                "Add 'pymupdf' to requirements.txt."
+            )
+            return None
+
+        pdf_url = self._resolve_pdf_url(paper_id)
+        if not pdf_url:
+            return None
+
+        # Download the PDF
+        pdf_bytes = self._download_pdf(pdf_url)
+        if pdf_bytes is None:
+            return None
+
+        # Extract text
+        return self._extract_text(pdf_bytes)
+
+    def _resolve_pdf_url(self, paper_id: str) -> Optional[str]:
+        """Convert a paper ID or entry URL to a PDF download URL."""
+        # If it's already a full URL like http://arxiv.org/abs/2301.07041v1
+        if paper_id.startswith("http"):
+            # Convert abs URL to pdf URL
+            url = paper_id.replace("/abs/", "/pdf/")
+            if not url.endswith(".pdf"):
+                url += ".pdf"
+            return url
+
+        # Bare ID like '2301.07041' or '2301.07041v1'
+        return f"https://arxiv.org/pdf/{paper_id}.pdf"
+
+    def _download_pdf(self, url: str) -> Optional[bytes]:
+        """Download a PDF from the given URL with rate-limit courtesy."""
+        logger.info("Downloading PDF: %s", url)
+        time.sleep(_ARXIV_DELAY_S)  # Rate-limit courtesy
+
+        try:
+            resp = requests.get(url, timeout=60)
+            resp.raise_for_status()
+
+            # Sanity check: arXiv sometimes returns HTML error pages
+            content_type = resp.headers.get("Content-Type", "")
+            if "pdf" not in content_type and not resp.content[:5] == b"%PDF-":
+                logger.warning(
+                    "Response does not appear to be a PDF (Content-Type: %s)",
+                    content_type,
+                )
+                return None
+
+            return resp.content
+        except requests.RequestException:
+            logger.exception("Failed to download PDF from %s", url)
+            return None
+
+    def _extract_text(self, pdf_bytes: bytes) -> Optional[str]:
+        """Extract text from PDF bytes using pymupdf."""
+        import fitz  # pymupdf
+
+        try:
+            doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+            pages_text: list[str] = []
+
+            for page in doc:
+                text = page.get_text()
+                if text:
+                    pages_text.append(text)
+
+            doc.close()
+
+            full_text = "\n\n".join(pages_text)
+
+            if not full_text.strip():
+                logger.warning("PDF text extraction produced empty result")
+                return None
+
+            return full_text
+
+        except Exception:
+            logger.exception("Failed to extract text from PDF")
+            return None
