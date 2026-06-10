@@ -384,29 +384,34 @@ Conversations use **paired request+response turns** — a response without its r
 
 ### Schema
 
+All PKs are prefixed with `USER#<cognitoSub>` for tenant isolation from day one. Cost: zero (sub is already in the JWT). Cost of adding later: full table migration to rewrite every PK. This is "engineer the internals clean," not multi-tenancy — no user management UI, no stranger onboarding, no multi-tenant features. Just means the data *could* be isolated later without a migration.
+
 ```
 PK                                          SK              Attributes
 ─────────────────────────────────────────── ─────────────── ──────────────────────────────────
-CONV#conv_abc123                            META            scope, paper_id, created_at,
+USER#<sub>#CONV#conv_abc123                 META            scope, paper_id, created_at,
                                                             last_active, full_text_s3_key
 
-CONV#conv_abc123                            TURN#00001      request, request_ts, response,
+USER#<sub>#CONV#conv_abc123                 TURN#00001      request, request_ts, response,
                                                             response_ts, citations[],
                                                             tokens_in, tokens_out
 
-CONV#conv_abc123                            TURN#00002      (same shape)
+USER#<sub>#CONV#conv_abc123                 TURN#00002      (same shape)
 ...
-CONV#conv_abc123                            TURN#00015      type: "summary", content,
+USER#<sub>#CONV#conv_abc123                 TURN#00015      type: "summary", content,
                                                             batch_id: "batch_001",
                                                             covers: "TURN#001-014"
 
-CONV#conv_abc123                            TURN#00016      (recent turn, verbatim)
+USER#<sub>#CONV#conv_abc123                 TURN#00016      (recent turn, verbatim)
 ...
 
-CONV_ARCHIVE#conv_abc123#batch_001          TURN#00001      (original paired turn)
-CONV_ARCHIVE#conv_abc123#batch_001          TURN#00002      (original paired turn)
+USER#<sub>#CONV_ARCHIVE#conv_abc123#batch_001  TURN#00001   (original paired turn)
+USER#<sub>#CONV_ARCHIVE#conv_abc123#batch_001  TURN#00002   (original paired turn)
 ...
 ```
+
+**GSI consideration:** a `GSI1` with `PK = USER#<sub>` and `SK = CONV#<conv_id>` enables "list all conversations for a user" without a table scan. Cheap to add from the start; project the META attributes only (sparse projection = minimal GSI cost).
+
 
 ### Why paired turns (not separate req/res items)
 
