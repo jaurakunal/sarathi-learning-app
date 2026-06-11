@@ -116,9 +116,10 @@ export class SarathiStack extends cdk.Stack {
         image: lambda.Runtime.PYTHON_3_12.bundlingImage,
         command: [
           'bash', '-c',
-          'pip install -r requirements.txt -t /asset-output && cp -r backend /asset-output/',
+          'pip install --no-cache-dir -r requirements.txt -t /asset-output && cp -r backend /asset-output/',
         ],
       },
+      assetHashType: cdk.AssetHashType.SOURCE,
     });
 
     // ─── Lambda: pipeline steps ──────────────────────────────────────
