@@ -375,9 +375,23 @@ def run(event: dict) -> dict:
 
 if __name__ == "__main__":
     import json
+    import os
     import sys
 
-    event = json.loads(sys.argv[1]) if len(sys.argv) > 1 else {}
+    if len(sys.argv) > 1:
+        event = json.loads(sys.argv[1])
+    else:
+        # Fargate passes config via environment variables
+        event = {
+            "user_id": os.environ.get("USER_ID", ""),
+            "table_name": os.environ.get("TABLE_NAME", ""),
+            "s3_bucket": os.environ.get("S3_BUCKET", os.environ.get("BUCKET_NAME", "")),
+        }
+
+    if not event.get("user_id") or not event.get("table_name"):
+        print("ERROR: user_id and table_name required (via argv or env vars)")
+        sys.exit(1)
+
     result = run(event)
     print(json.dumps(result))
     sys.exit(0 if result.get("papers_failed", 0) == 0 else 1)
