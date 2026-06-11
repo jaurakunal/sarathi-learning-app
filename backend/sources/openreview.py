@@ -143,12 +143,8 @@ class OpenReviewSource:
             resp = self._session.get(_SEARCH_URL, params=params, timeout=30)
 
             if resp.status_code == 429:
-                retry_after = int(resp.headers.get("Retry-After", "10"))
-                logger.warning(
-                    "OpenReview rate-limited on search. Sleeping %ds", retry_after
-                )
-                time.sleep(retry_after)
-                resp = self._session.get(_SEARCH_URL, params=params, timeout=30)
+                logger.warning("OpenReview rate-limited on search, skipping")
+                return results
 
             if resp.status_code != 200:
                 logger.warning(
@@ -184,13 +180,8 @@ class OpenReviewSource:
             resp = self._session.get(_NOTES_URL, params=params, timeout=30)
 
             if resp.status_code == 429:
-                retry_after = int(resp.headers.get("Retry-After", "10"))
-                logger.warning(
-                    "OpenReview rate-limited on venue query. Sleeping %ds",
-                    retry_after,
-                )
-                time.sleep(retry_after)
-                resp = self._session.get(_NOTES_URL, params=params, timeout=30)
+                logger.warning("OpenReview rate-limited on venue query, skipping")
+                continue
 
             if resp.status_code != 200:
                 logger.warning(
@@ -397,13 +388,8 @@ class OpenReviewSource:
             resp = self._session.get(url, timeout=60)
 
             if resp.status_code == 429:
-                retry_after = int(resp.headers.get("Retry-After", "10"))
-                logger.warning(
-                    "OpenReview rate-limited on PDF download. Sleeping %ds",
-                    retry_after,
-                )
-                time.sleep(retry_after)
-                resp = self._session.get(url, timeout=60)
+                logger.warning("OpenReview rate-limited on PDF download, skipping")
+                return None
 
             if resp.status_code == 404:
                 logger.warning("PDF not found at %s", url)

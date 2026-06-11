@@ -75,9 +75,9 @@ class HFDailyPapersSource:
             return []
 
         logger.info(
-            "HFDailyPapersSource.discover: fetching papers since %s with %d keywords",
+            "HFDailyPapersSource.discover: fetching papers since %s with keywords: %s",
             since.isoformat(),
-            len(keywords),
+            keywords,
         )
 
         # Fetch papers from HF API

@@ -117,14 +117,12 @@ class SemanticScholarSource:
                     _S2_SEARCH_URL, params=params, timeout=30
                 )
 
-                # Handle rate limiting with retry
+                # Skip on rate limit — shared pool, not worth waiting
                 if resp.status_code == 429:
-                    retry_after = int(resp.headers.get("Retry-After", 60))
                     logger.warning(
-                        "S2 rate limited, waiting %d seconds", retry_after
+                        "S2 rate limited (shared unauthenticated pool), skipping source"
                     )
-                    time.sleep(retry_after)
-                    continue
+                    return results
 
                 resp.raise_for_status()
                 data = resp.json()

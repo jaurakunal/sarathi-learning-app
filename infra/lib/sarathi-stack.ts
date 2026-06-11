@@ -113,7 +113,7 @@ export class SarathiStack extends cdk.Stack {
     const lambdaCode = lambda.Code.fromAsset(REPO_ROOT, {
       exclude: ASSET_EXCLUDES,
       bundling: {
-        image: lambda.Runtime.PYTHON_3_9.bundlingImage,
+        image: lambda.Runtime.PYTHON_3_12.bundlingImage,
         command: [
           'bash', '-c',
           'pip install -r requirements.txt -t /asset-output && cp -r backend /asset-output/',
@@ -124,7 +124,7 @@ export class SarathiStack extends cdk.Stack {
     // ─── Lambda: pipeline steps ──────────────────────────────────────
     const discoverFn = new lambda.Function(this, 'DiscoverFn', {
       functionName: 'sarathi-discover',
-      runtime: lambda.Runtime.PYTHON_3_9,
+      runtime: lambda.Runtime.PYTHON_3_12,
       handler: 'backend.pipeline.discover.handler',
       code: lambdaCode,
       environment: lambdaEnv,
@@ -135,7 +135,7 @@ export class SarathiStack extends cdk.Stack {
 
     const triageFn = new lambda.Function(this, 'TriageFn', {
       functionName: 'sarathi-triage',
-      runtime: lambda.Runtime.PYTHON_3_9,
+      runtime: lambda.Runtime.PYTHON_3_12,
       handler: 'backend.pipeline.triage.handler',
       code: lambdaCode,
       environment: lambdaEnv,
@@ -146,7 +146,7 @@ export class SarathiStack extends cdk.Stack {
 
     const selectFn = new lambda.Function(this, 'SelectFn', {
       functionName: 'sarathi-select',
-      runtime: lambda.Runtime.PYTHON_3_9,
+      runtime: lambda.Runtime.PYTHON_3_12,
       handler: 'backend.pipeline.select.handler',
       code: lambdaCode,
       environment: lambdaEnv,
@@ -157,7 +157,7 @@ export class SarathiStack extends cdk.Stack {
 
     const lensFn = new lambda.Function(this, 'LensFn', {
       functionName: 'sarathi-lens',
-      runtime: lambda.Runtime.PYTHON_3_9,
+      runtime: lambda.Runtime.PYTHON_3_12,
       handler: 'backend.pipeline.lens.handler',
       code: lambdaCode,
       environment: lambdaEnv,
@@ -169,7 +169,7 @@ export class SarathiStack extends cdk.Stack {
     // ─── Lambda: API handler ─────────────────────────────────────────
     const feedFn = new lambda.Function(this, 'FeedApiFn', {
       functionName: 'sarathi-api-feed',
-      runtime: lambda.Runtime.PYTHON_3_9,
+      runtime: lambda.Runtime.PYTHON_3_12,
       handler: 'backend.api.feed.handler',
       code: lambdaCode,
       environment: lambdaEnv,
