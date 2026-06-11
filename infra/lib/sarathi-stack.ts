@@ -6,6 +6,7 @@ import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
+import * as ecr_assets from 'aws-cdk-lib/aws-ecr-assets';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as sfn from 'aws-cdk-lib/aws-stepfunctions';
@@ -196,6 +197,10 @@ export class SarathiStack extends cdk.Stack {
     const digestTaskDef = new ecs.FargateTaskDefinition(this, 'DigestTaskDef', {
       cpu: 1024,
       memoryLimitMiB: 2048,
+      runtimePlatform: {
+        cpuArchitecture: ecs.CpuArchitecture.ARM64,
+        operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
+      },
     });
     table.grantReadWriteData(digestTaskDef.taskRole);
     bucket.grantReadWrite(digestTaskDef.taskRole);
@@ -207,6 +212,7 @@ export class SarathiStack extends cdk.Stack {
     digestTaskDef.addContainer('DigestContainer', {
       image: ecs.ContainerImage.fromAsset(REPO_ROOT, {
         file: 'Dockerfile.digest',
+        platform: ecr_assets.Platform.LINUX_ARM64,
       }),
       environment: lambdaEnv,
       logging: ecs.LogDrivers.awsLogs({
