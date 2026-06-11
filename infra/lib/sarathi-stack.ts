@@ -215,18 +215,32 @@ export class SarathiStack extends cdk.Stack {
     });
 
     // ─── Step Functions: pipeline orchestration ───────────────────────
+    const pipelineInput = {
+      user_id: 'kunal-initial',
+      table_name: table.tableName,
+      s3_bucket: bucket.bucketName,
+    };
+
+    const injectDefaults = new sfn.Pass(this, 'InjectDefaults', {
+      result: sfn.Result.fromObject(pipelineInput),
+      resultPath: '$',
+    });
+
     const discoverTask = new sfnTasks.LambdaInvoke(this, 'DiscoverStep', {
       lambdaFunction: discoverFn,
+      payload: sfn.TaskInput.fromObject(pipelineInput),
       resultPath: '$.discoverResult',
     });
 
     const triageTask = new sfnTasks.LambdaInvoke(this, 'TriageStep', {
       lambdaFunction: triageFn,
+      payload: sfn.TaskInput.fromObject(pipelineInput),
       resultPath: '$.triageResult',
     });
 
     const selectTask = new sfnTasks.LambdaInvoke(this, 'SelectStep', {
       lambdaFunction: selectFn,
+      payload: sfn.TaskInput.fromObject(pipelineInput),
       resultPath: '$.selectResult',
     });
 
@@ -239,15 +253,25 @@ export class SarathiStack extends cdk.Stack {
       }),
       assignPublicIp: true,
       subnets: { subnetType: ec2.SubnetType.PUBLIC },
+      containerOverrides: [{
+        containerDefinition: digestTaskDef.defaultContainer!,
+        environment: [
+          { name: 'USER_ID', value: pipelineInput.user_id },
+          { name: 'TABLE_NAME', value: pipelineInput.table_name },
+          { name: 'S3_BUCKET', value: pipelineInput.s3_bucket },
+        ],
+      }],
       resultPath: '$.digestResult',
     });
 
     const lensTask = new sfnTasks.LambdaInvoke(this, 'LensStep', {
       lambdaFunction: lensFn,
+      payload: sfn.TaskInput.fromObject(pipelineInput),
       resultPath: '$.lensResult',
     });
 
-    const pipelineChain = discoverTask
+    const pipelineChain = injectDefaults
+      .next(discoverTask)
       .next(triageTask)
       .next(selectTask)
       .next(digestTask)
