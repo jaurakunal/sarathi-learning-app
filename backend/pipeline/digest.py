@@ -16,10 +16,10 @@ import sys
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-import anthropic
 import boto3
 
 from backend.shared import db
+from backend.shared.llm import call_llm
 from backend.sources.arxiv import ArxivSource
 from backend.sources.hf_daily_papers import HFDailyPapersSource
 from backend.sources.openreview import OpenReviewSource
@@ -42,7 +42,7 @@ _SOURCES = {
     "hf_daily_papers": HFDailyPapersSource(),
 }
 
-DEFAULT_MODEL = "claude-sonnet-4-20250514"
+DEFAULT_MODEL = "anthropic.claude-sonnet-4-20250514-v1:0"
 
 
 # ---------------------------------------------------------------------------
@@ -189,23 +189,23 @@ FULL TEXT:
 {text_for_prompt}"""
 
 
-def _call_llm(
-    client: anthropic.Anthropic,
+def _generate_card(
     model: str,
     system_prompt: str,
     user_prompt: str,
 ) -> Optional[dict]:
-    """Call Claude to generate the feed card content. Returns parsed JSON or None."""
+    """Call the LLM to generate the feed card content. Returns parsed JSON or None."""
     try:
-        response = client.messages.create(
-            model=model,
-            max_tokens=4096,
+        text = call_llm(
             system=system_prompt,
-            messages=[{"role": "user", "content": user_prompt}],
+            user_message=user_prompt,
+            model_id=model,
+            max_tokens=4096,
         )
 
-        # Extract text content
-        text = response.content[0].text
+        if text is None:
+            logger.error("LLM call returned None")
+            return None
 
         # Parse JSON — the model should return raw JSON per the system prompt
         # Strip any markdown code fences if the model wraps it
@@ -222,9 +222,6 @@ def _call_llm(
 
     except json.JSONDecodeError as e:
         logger.error("LLM returned invalid JSON: %s", e)
-        return None
-    except anthropic.APIError as e:
-        logger.error("Anthropic API error: %s", e)
         return None
     except Exception as e:
         logger.error("Unexpected error calling LLM: %s", e)
@@ -278,7 +275,6 @@ def run(event: dict) -> dict:
     dynamodb = boto3.resource("dynamodb")
     table = dynamodb.Table(table_name)
     s3_client = boto3.client("s3")
-    llm_client = anthropic.Anthropic()
 
     # 1. Read the user's full profile
     profile = db.get_full_profile(table, user_id)
@@ -331,7 +327,7 @@ def run(event: dict) -> dict:
 
             # 3c. Call LLM to generate feed card content
             user_prompt = _build_user_prompt(paper, full_text)
-            llm_result = _call_llm(llm_client, model, system_prompt, user_prompt)
+            llm_result = _generate_card(model, system_prompt, user_prompt)
 
             if llm_result is None:
                 logger.error(

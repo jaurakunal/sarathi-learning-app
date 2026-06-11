@@ -17,15 +17,8 @@ import pytest
 # module imports.
 # ---------------------------------------------------------------------------
 
-# Mock the anthropic module
-_mock_anthropic = MagicMock()
-_mock_anthropic.APIError = type("APIError", (Exception,), {})
-_mock_anthropic.APIStatusError = type(
-    "APIStatusError",
-    (_mock_anthropic.APIError,),
-    {"__init__": lambda self, *a, **kw: Exception.__init__(self, kw.get("message", ""))},
-)
-sys.modules.setdefault("anthropic", _mock_anthropic)
+# Note: anthropic is no longer used by pipeline steps (migrated to backend.shared.llm).
+# No need to mock it for pipeline tests.
 
 # Mock arxiv module (used by backend.sources.arxiv)
 sys.modules.setdefault("arxiv", MagicMock())

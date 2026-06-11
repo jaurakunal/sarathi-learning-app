@@ -13,10 +13,10 @@ import pytest
 # Happy path: LLM returns valid JSON, papers get scored and updated
 # ---------------------------------------------------------------------------
 
-@patch("backend.pipeline.triage.anthropic")
+@patch("backend.pipeline.triage.call_llm")
 @patch("backend.pipeline.triage.boto3")
 @patch("backend.pipeline.triage.db")
-def test_happy_path_papers_scored(mock_db, mock_boto3, mock_anthropic, user_id, table_name, sample_papers, sample_profile):
+def test_happy_path_papers_scored(mock_db, mock_boto3, mock_call_llm, user_id, table_name, sample_papers, sample_profile):
     """LLM returns valid JSON — papers get triage_score and status updated."""
     from backend.pipeline.triage import handler
 
@@ -26,20 +26,14 @@ def test_happy_path_papers_scored(mock_db, mock_boto3, mock_anthropic, user_id, 
     mock_db.get_full_profile.return_value = sample_profile
     mock_db.list_papers_by_status.return_value = sample_papers[:2]
 
-    # Mock the Anthropic client response
-    mock_client = MagicMock()
-    mock_anthropic.Anthropic.return_value = mock_client
-
-    llm_response = MagicMock()
-    llm_response.content = [MagicMock()]
-    llm_response.content[0].text = json.dumps({
+    # call_llm returns a JSON string directly
+    mock_call_llm.return_value = json.dumps({
         "triage_score": 0.85,
         "level": "just_right",
         "hypothesis_relevant": True,
         "reasoning": "Directly applicable to memory architecture work.",
         "worth_my_hours": True,
     })
-    mock_client.messages.create.return_value = llm_response
 
     result = handler({"user_id": user_id, "table_name": table_name}, None)
 
@@ -58,10 +52,10 @@ def test_happy_path_papers_scored(mock_db, mock_boto3, mock_anthropic, user_id, 
 # LLM returns malformed JSON → paper gets score=0, pipeline continues
 # ---------------------------------------------------------------------------
 
-@patch("backend.pipeline.triage.anthropic")
+@patch("backend.pipeline.triage.call_llm")
 @patch("backend.pipeline.triage.boto3")
 @patch("backend.pipeline.triage.db")
-def test_malformed_json_scores_zero(mock_db, mock_boto3, mock_anthropic, user_id, table_name, sample_papers, sample_profile):
+def test_malformed_json_scores_zero(mock_db, mock_boto3, mock_call_llm, user_id, table_name, sample_papers, sample_profile):
     """LLM returns unparseable text — paper gets score=0 and pipeline continues."""
     from backend.pipeline.triage import handler
 
@@ -71,14 +65,8 @@ def test_malformed_json_scores_zero(mock_db, mock_boto3, mock_anthropic, user_id
     mock_db.get_full_profile.return_value = sample_profile
     mock_db.list_papers_by_status.return_value = [sample_papers[0]]
 
-    mock_client = MagicMock()
-    mock_anthropic.Anthropic.return_value = mock_client
-
     # LLM returns invalid JSON
-    llm_response = MagicMock()
-    llm_response.content = [MagicMock()]
-    llm_response.content[0].text = "This is not JSON at all {{{broken"
-    mock_client.messages.create.return_value = llm_response
+    mock_call_llm.return_value = "This is not JSON at all {{{broken"
 
     result = handler({"user_id": user_id, "table_name": table_name}, None)
 
@@ -97,11 +85,11 @@ def test_malformed_json_scores_zero(mock_db, mock_boto3, mock_anthropic, user_id
 # LLM API throws → paper gets score=0, pipeline continues
 # ---------------------------------------------------------------------------
 
-@patch("backend.pipeline.triage.anthropic")
+@patch("backend.pipeline.triage.call_llm")
 @patch("backend.pipeline.triage.boto3")
 @patch("backend.pipeline.triage.db")
-def test_api_error_paper_scored_zero(mock_db, mock_boto3, mock_anthropic, user_id, table_name, sample_papers, sample_profile):
-    """Anthropic API error — paper gets score=0, pipeline continues to next paper."""
+def test_api_error_paper_scored_zero(mock_db, mock_boto3, mock_call_llm, user_id, table_name, sample_papers, sample_profile):
+    """LLM API error (returns None) — paper gets score=0, pipeline continues to next paper."""
     from backend.pipeline.triage import handler
 
     mock_table = MagicMock()
@@ -110,26 +98,16 @@ def test_api_error_paper_scored_zero(mock_db, mock_boto3, mock_anthropic, user_i
     mock_db.get_full_profile.return_value = sample_profile
     mock_db.list_papers_by_status.return_value = sample_papers[:2]
 
-    mock_client = MagicMock()
-    mock_anthropic.Anthropic.return_value = mock_client
-
-    # Use the mock anthropic module's APIError
-    mock_anthropic.APIError = type("APIError", (Exception,), {})
-
-    # First call throws API error, second succeeds
-    good_response = MagicMock()
-    good_response.content = [MagicMock()]
-    good_response.content[0].text = json.dumps({
-        "triage_score": 0.7,
-        "level": "just_right",
-        "hypothesis_relevant": False,
-        "reasoning": "Decent paper.",
-        "worth_my_hours": True,
-    })
-
-    mock_client.messages.create.side_effect = [
-        mock_anthropic.APIError("rate limit exceeded"),
-        good_response,
+    # First call returns None (API failure), second succeeds
+    mock_call_llm.side_effect = [
+        None,
+        json.dumps({
+            "triage_score": 0.7,
+            "level": "just_right",
+            "hypothesis_relevant": False,
+            "reasoning": "Decent paper.",
+            "worth_my_hours": True,
+        }),
     ]
 
     result = handler({"user_id": user_id, "table_name": table_name}, None)
@@ -144,10 +122,10 @@ def test_api_error_paper_scored_zero(mock_db, mock_boto3, mock_anthropic, user_i
 # Papers with worth_my_hours=True get status promoted to "surfaced"
 # ---------------------------------------------------------------------------
 
-@patch("backend.pipeline.triage.anthropic")
+@patch("backend.pipeline.triage.call_llm")
 @patch("backend.pipeline.triage.boto3")
 @patch("backend.pipeline.triage.db")
-def test_worth_reading_promoted_to_surfaced(mock_db, mock_boto3, mock_anthropic, user_id, table_name, sample_papers, sample_profile):
+def test_worth_reading_promoted_to_surfaced(mock_db, mock_boto3, mock_call_llm, user_id, table_name, sample_papers, sample_profile):
     """Papers deemed worth_my_hours get their status changed to 'surfaced'."""
     from backend.pipeline.triage import handler
 
@@ -157,24 +135,23 @@ def test_worth_reading_promoted_to_surfaced(mock_db, mock_boto3, mock_anthropic,
     mock_db.get_full_profile.return_value = sample_profile
     mock_db.list_papers_by_status.return_value = sample_papers[:2]
 
-    mock_client = MagicMock()
-    mock_anthropic.Anthropic.return_value = mock_client
-
     # First paper: worth it, second: not worth it
-    responses = []
-    for worth in [True, False]:
-        resp = MagicMock()
-        resp.content = [MagicMock()]
-        resp.content[0].text = json.dumps({
-            "triage_score": 0.9 if worth else 0.2,
+    mock_call_llm.side_effect = [
+        json.dumps({
+            "triage_score": 0.9,
             "level": "just_right",
-            "hypothesis_relevant": worth,
-            "reasoning": "Worth it" if worth else "Not relevant",
-            "worth_my_hours": worth,
-        })
-        responses.append(resp)
-
-    mock_client.messages.create.side_effect = responses
+            "hypothesis_relevant": True,
+            "reasoning": "Worth it",
+            "worth_my_hours": True,
+        }),
+        json.dumps({
+            "triage_score": 0.2,
+            "level": "just_right",
+            "hypothesis_relevant": False,
+            "reasoning": "Not relevant",
+            "worth_my_hours": False,
+        }),
+    ]
 
     result = handler({"user_id": user_id, "table_name": table_name}, None)
 
@@ -193,10 +170,10 @@ def test_worth_reading_promoted_to_surfaced(mock_db, mock_boto3, mock_anthropic,
 # No candidate papers → returns {papers_triaged: 0}
 # ---------------------------------------------------------------------------
 
-@patch("backend.pipeline.triage.anthropic")
+@patch("backend.pipeline.triage.call_llm")
 @patch("backend.pipeline.triage.boto3")
 @patch("backend.pipeline.triage.db")
-def test_no_candidates_returns_zero(mock_db, mock_boto3, mock_anthropic, user_id, table_name, sample_profile):
+def test_no_candidates_returns_zero(mock_db, mock_boto3, mock_call_llm, user_id, table_name, sample_profile):
     """When there are no candidate papers, returns zero counts."""
     from backend.pipeline.triage import handler
 
@@ -216,10 +193,10 @@ def test_no_candidates_returns_zero(mock_db, mock_boto3, mock_anthropic, user_id
 # No profile → returns zeros
 # ---------------------------------------------------------------------------
 
-@patch("backend.pipeline.triage.anthropic")
+@patch("backend.pipeline.triage.call_llm")
 @patch("backend.pipeline.triage.boto3")
 @patch("backend.pipeline.triage.db")
-def test_no_profile_returns_zero(mock_db, mock_boto3, mock_anthropic, user_id, table_name):
+def test_no_profile_returns_zero(mock_db, mock_boto3, mock_call_llm, user_id, table_name):
     """When user has no areas and no hypothesis, handler returns zero."""
     from backend.pipeline.triage import handler
 
@@ -238,10 +215,10 @@ def test_no_profile_returns_zero(mock_db, mock_boto3, mock_anthropic, user_id, t
 # Verify correct arguments passed to db functions
 # ---------------------------------------------------------------------------
 
-@patch("backend.pipeline.triage.anthropic")
+@patch("backend.pipeline.triage.call_llm")
 @patch("backend.pipeline.triage.boto3")
 @patch("backend.pipeline.triage.db")
-def test_db_calls_correct_arguments(mock_db, mock_boto3, mock_anthropic, user_id, table_name, sample_papers, sample_profile):
+def test_db_calls_correct_arguments(mock_db, mock_boto3, mock_call_llm, user_id, table_name, sample_papers, sample_profile):
     """Verify db.list_papers_by_status and db.put_paper receive correct args."""
     from backend.pipeline.triage import handler
 
@@ -251,19 +228,13 @@ def test_db_calls_correct_arguments(mock_db, mock_boto3, mock_anthropic, user_id
     mock_db.get_full_profile.return_value = sample_profile
     mock_db.list_papers_by_status.return_value = [sample_papers[0]]
 
-    mock_client = MagicMock()
-    mock_anthropic.Anthropic.return_value = mock_client
-
-    llm_response = MagicMock()
-    llm_response.content = [MagicMock()]
-    llm_response.content[0].text = json.dumps({
+    mock_call_llm.return_value = json.dumps({
         "triage_score": 0.5,
         "level": "just_right",
         "hypothesis_relevant": False,
         "reasoning": "Meh.",
         "worth_my_hours": False,
     })
-    mock_client.messages.create.return_value = llm_response
 
     handler({"user_id": user_id, "table_name": table_name}, None)
 
@@ -286,10 +257,10 @@ def test_db_calls_correct_arguments(mock_db, mock_boto3, mock_anthropic, user_id
 # LLM response with markdown fences is handled gracefully
 # ---------------------------------------------------------------------------
 
-@patch("backend.pipeline.triage.anthropic")
+@patch("backend.pipeline.triage.call_llm")
 @patch("backend.pipeline.triage.boto3")
 @patch("backend.pipeline.triage.db")
-def test_markdown_fenced_json_parsed(mock_db, mock_boto3, mock_anthropic, user_id, table_name, sample_papers, sample_profile):
+def test_markdown_fenced_json_parsed(mock_db, mock_boto3, mock_call_llm, user_id, table_name, sample_papers, sample_profile):
     """LLM wraps JSON in ```json fences — still parsed correctly."""
     from backend.pipeline.triage import handler
 
@@ -299,9 +270,6 @@ def test_markdown_fenced_json_parsed(mock_db, mock_boto3, mock_anthropic, user_i
     mock_db.get_full_profile.return_value = sample_profile
     mock_db.list_papers_by_status.return_value = [sample_papers[0]]
 
-    mock_client = MagicMock()
-    mock_anthropic.Anthropic.return_value = mock_client
-
     # LLM wraps in markdown fences
     json_body = json.dumps({
         "triage_score": 0.75,
@@ -310,10 +278,7 @@ def test_markdown_fenced_json_parsed(mock_db, mock_boto3, mock_anthropic, user_i
         "reasoning": "Good paper, relevant to harness design.",
         "worth_my_hours": True,
     })
-    llm_response = MagicMock()
-    llm_response.content = [MagicMock()]
-    llm_response.content[0].text = f"```json\n{json_body}\n```"
-    mock_client.messages.create.return_value = llm_response
+    mock_call_llm.return_value = f"```json\n{json_body}\n```"
 
     result = handler({"user_id": user_id, "table_name": table_name}, None)
 
@@ -328,10 +293,10 @@ def test_markdown_fenced_json_parsed(mock_db, mock_boto3, mock_anthropic, user_i
 # Triage score is clamped to [0, 1]
 # ---------------------------------------------------------------------------
 
-@patch("backend.pipeline.triage.anthropic")
+@patch("backend.pipeline.triage.call_llm")
 @patch("backend.pipeline.triage.boto3")
 @patch("backend.pipeline.triage.db")
-def test_score_clamped_to_valid_range(mock_db, mock_boto3, mock_anthropic, user_id, table_name, sample_papers, sample_profile):
+def test_score_clamped_to_valid_range(mock_db, mock_boto3, mock_call_llm, user_id, table_name, sample_papers, sample_profile):
     """Triage score > 1 is clamped to 1.0, score < 0 is clamped to 0.0."""
     from backend.pipeline.triage import handler
 
@@ -341,20 +306,14 @@ def test_score_clamped_to_valid_range(mock_db, mock_boto3, mock_anthropic, user_
     mock_db.get_full_profile.return_value = sample_profile
     mock_db.list_papers_by_status.return_value = [sample_papers[0]]
 
-    mock_client = MagicMock()
-    mock_anthropic.Anthropic.return_value = mock_client
-
     # LLM returns score > 1
-    llm_response = MagicMock()
-    llm_response.content = [MagicMock()]
-    llm_response.content[0].text = json.dumps({
+    mock_call_llm.return_value = json.dumps({
         "triage_score": 1.5,
         "level": "just_right",
         "hypothesis_relevant": True,
         "reasoning": "Amazing paper.",
         "worth_my_hours": True,
     })
-    mock_client.messages.create.return_value = llm_response
 
     handler({"user_id": user_id, "table_name": table_name}, None)
 

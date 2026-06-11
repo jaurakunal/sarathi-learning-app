@@ -11,10 +11,10 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
-import anthropic
 import boto3
 
 from backend.shared import db
+from backend.shared.llm import call_llm
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -54,7 +54,6 @@ def _build_user_message(hypothesis_statement: str, card: dict) -> str:
 
 
 def _annotate_card(
-    client: anthropic.Anthropic,
     model: str,
     hypothesis_statement: str,
     card: dict,
@@ -63,35 +62,21 @@ def _annotate_card(
 
     Returns the annotation string, or None on failure.
     """
-    try:
-        response = client.messages.create(
-            model=model,
-            max_tokens=300,
-            messages=[
-                {
-                    "role": "user",
-                    "content": _build_user_message(hypothesis_statement, card),
-                },
-            ],
-            system=SYSTEM_PROMPT,
-        )
-        text = response.content[0].text.strip()
-        return text
+    text = call_llm(
+        system=SYSTEM_PROMPT,
+        user_message=_build_user_message(hypothesis_statement, card),
+        model_id=model,
+        max_tokens=300,
+    )
 
-    except anthropic.APIError as e:
+    if text is None:
         logger.error(
-            "Anthropic API error annotating card %s: %s",
+            "LLM call returned None for card %s",
             card.get("card_id", "unknown"),
-            str(e),
         )
         return None
-    except (IndexError, TypeError, AttributeError) as e:
-        logger.warning(
-            "Failed to parse LLM response for card %s: %s",
-            card.get("card_id", "unknown"),
-            str(e),
-        )
-        return None
+
+    return text.strip()
 
 
 def _needs_annotation(card: dict) -> bool:
@@ -118,7 +103,7 @@ def handler(event: dict, context) -> dict:
     """
     user_id = event["user_id"]
     table_name = event["table_name"]
-    model = event.get("model", "claude-sonnet-4-20250514")
+    model = event.get("model", "anthropic.claude-sonnet-4-20250514-v1:0")
 
     # Set up DynamoDB table resource
     dynamodb = boto3.resource("dynamodb")
@@ -155,17 +140,14 @@ def handler(event: dict, context) -> dict:
         logger.info("No cards need annotation for user %s.", user_id)
         return {"cards_annotated": 0}
 
-    # 3. Set up Anthropic client
-    client = anthropic.Anthropic()
-
-    # 4. Annotate each card
+    # 3. Annotate each card
     cards_annotated = 0
 
     for card in cards_to_annotate:
         card_id = card.get("card_id", "")
         logger.info("Annotating card %s for hypothesis relevance.", card_id)
 
-        annotation = _annotate_card(client, model, hypothesis_statement, card)
+        annotation = _annotate_card(model, hypothesis_statement, card)
 
         if annotation is None:
             logger.warning("Skipping card %s — annotation failed.", card_id)

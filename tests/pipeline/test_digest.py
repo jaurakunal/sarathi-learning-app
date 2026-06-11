@@ -14,10 +14,10 @@ import pytest
 # ---------------------------------------------------------------------------
 
 @patch("backend.pipeline.digest._SOURCES")
-@patch("backend.pipeline.digest.anthropic")
+@patch("backend.pipeline.digest.call_llm")
 @patch("backend.pipeline.digest.boto3")
 @patch("backend.pipeline.digest.db")
-def test_happy_path_card_generated(mock_db, mock_boto3, mock_anthropic, mock_sources, user_id, table_name, sample_profile, sample_surfaced_papers):
+def test_happy_path_card_generated(mock_db, mock_boto3, mock_call_llm, mock_sources, user_id, table_name, sample_profile, sample_surfaced_papers):
     """Full text fetched, S3 upload, LLM card generation, DDB write — all succeed."""
     from backend.pipeline.digest import run
 
@@ -34,10 +34,7 @@ def test_happy_path_card_generated(mock_db, mock_boto3, mock_anthropic, mock_sou
     mock_source.fetch_full_text.return_value = "Full paper text here..."
     mock_sources.get.return_value = mock_source
 
-    # Mock LLM response
-    mock_client = MagicMock()
-    mock_anthropic.Anthropic.return_value = mock_client
-
+    # call_llm returns a JSON string directly
     card_content = {
         "hook": "What if your agent could remember last Tuesday?",
         "why_you_now": "Your clone needs episodic memory.",
@@ -53,11 +50,7 @@ def test_happy_path_card_generated(mock_db, mock_boto3, mock_anthropic, mock_sou
         "honesty_note": "Full read recommended.",
         "suggested_questions": ["How would this plug into my harness?"],
     }
-
-    llm_response = MagicMock()
-    llm_response.content = [MagicMock()]
-    llm_response.content[0].text = json.dumps(card_content)
-    mock_client.messages.create.return_value = llm_response
+    mock_call_llm.return_value = json.dumps(card_content)
 
     result = run({
         "user_id": user_id,
@@ -90,10 +83,10 @@ def test_happy_path_card_generated(mock_db, mock_boto3, mock_anthropic, mock_sou
 # ---------------------------------------------------------------------------
 
 @patch("backend.pipeline.digest._SOURCES")
-@patch("backend.pipeline.digest.anthropic")
+@patch("backend.pipeline.digest.call_llm")
 @patch("backend.pipeline.digest.boto3")
 @patch("backend.pipeline.digest.db")
-def test_full_text_fetch_fails_skips_paper(mock_db, mock_boto3, mock_anthropic, mock_sources, user_id, table_name, sample_profile, sample_surfaced_papers):
+def test_full_text_fetch_fails_skips_paper(mock_db, mock_boto3, mock_call_llm, mock_sources, user_id, table_name, sample_profile, sample_surfaced_papers):
     """When fetch_full_text returns empty, paper is skipped."""
     from backend.pipeline.digest import run
 
@@ -112,12 +105,7 @@ def test_full_text_fetch_fails_skips_paper(mock_db, mock_boto3, mock_anthropic, 
     mock_sources.get.return_value = mock_source
 
     # LLM response for the second paper
-    mock_client = MagicMock()
-    mock_anthropic.Anthropic.return_value = mock_client
-
-    llm_response = MagicMock()
-    llm_response.content = [MagicMock()]
-    llm_response.content[0].text = json.dumps({
+    mock_call_llm.return_value = json.dumps({
         "hook": "Hook for paper 2",
         "why_you_now": "Because...",
         "time_estimate": "8 min",
@@ -128,7 +116,6 @@ def test_full_text_fetch_fails_skips_paper(mock_db, mock_boto3, mock_anthropic, 
         "honesty_note": "Skim",
         "suggested_questions": ["Q?"],
     })
-    mock_client.messages.create.return_value = llm_response
 
     result = run({
         "user_id": user_id,
@@ -145,10 +132,10 @@ def test_full_text_fetch_fails_skips_paper(mock_db, mock_boto3, mock_anthropic, 
 # ---------------------------------------------------------------------------
 
 @patch("backend.pipeline.digest._SOURCES")
-@patch("backend.pipeline.digest.anthropic")
+@patch("backend.pipeline.digest.call_llm")
 @patch("backend.pipeline.digest.boto3")
 @patch("backend.pipeline.digest.db")
-def test_llm_malformed_json_skips_paper(mock_db, mock_boto3, mock_anthropic, mock_sources, user_id, table_name, sample_profile, sample_surfaced_papers):
+def test_llm_malformed_json_skips_paper(mock_db, mock_boto3, mock_call_llm, mock_sources, user_id, table_name, sample_profile, sample_surfaced_papers):
     """When LLM returns invalid JSON, paper is skipped with papers_failed incremented."""
     from backend.pipeline.digest import run
 
@@ -165,13 +152,7 @@ def test_llm_malformed_json_skips_paper(mock_db, mock_boto3, mock_anthropic, moc
     mock_sources.get.return_value = mock_source
 
     # LLM returns broken JSON
-    mock_client = MagicMock()
-    mock_anthropic.Anthropic.return_value = mock_client
-
-    llm_response = MagicMock()
-    llm_response.content = [MagicMock()]
-    llm_response.content[0].text = "I'm sorry, I cannot generate a card for this paper..."
-    mock_client.messages.create.return_value = llm_response
+    mock_call_llm.return_value = "I'm sorry, I cannot generate a card for this paper..."
 
     result = run({
         "user_id": user_id,
@@ -222,10 +203,10 @@ def test_card_id_uniqueness():
 # ---------------------------------------------------------------------------
 
 @patch("backend.pipeline.digest._SOURCES")
-@patch("backend.pipeline.digest.anthropic")
+@patch("backend.pipeline.digest.call_llm")
 @patch("backend.pipeline.digest.boto3")
 @patch("backend.pipeline.digest.db")
-def test_s3_key_user_scoped(mock_db, mock_boto3, mock_anthropic, mock_sources, user_id, table_name, sample_profile, sample_surfaced_papers):
+def test_s3_key_user_scoped(mock_db, mock_boto3, mock_call_llm, mock_sources, user_id, table_name, sample_profile, sample_surfaced_papers):
     """S3 key follows pattern: users/<user_id>/papers/<paper_id>/full_text.txt."""
     from backend.pipeline.digest import run
 
@@ -241,19 +222,13 @@ def test_s3_key_user_scoped(mock_db, mock_boto3, mock_anthropic, mock_sources, u
     mock_source.fetch_full_text.return_value = "Full text"
     mock_sources.get.return_value = mock_source
 
-    mock_client = MagicMock()
-    mock_anthropic.Anthropic.return_value = mock_client
-
-    llm_response = MagicMock()
-    llm_response.content = [MagicMock()]
-    llm_response.content[0].text = json.dumps({
+    mock_call_llm.return_value = json.dumps({
         "hook": "H", "why_you_now": "W", "time_estimate": "5 min",
         "digest": {"gist": "G", "key_ideas": ["K"], "deep": "D"},
         "glossary": [], "math_notes": [],
         "hypothesis_relevance": "R", "honesty_note": "N",
         "suggested_questions": ["Q"],
     })
-    mock_client.messages.create.return_value = llm_response
 
     run({
         "user_id": user_id,
@@ -273,10 +248,10 @@ def test_s3_key_user_scoped(mock_db, mock_boto3, mock_anthropic, mock_sources, u
 # No profile → returns early with error
 # ---------------------------------------------------------------------------
 
-@patch("backend.pipeline.digest.anthropic")
+@patch("backend.pipeline.digest.call_llm")
 @patch("backend.pipeline.digest.boto3")
 @patch("backend.pipeline.digest.db")
-def test_no_profile_returns_error(mock_db, mock_boto3, mock_anthropic, user_id, table_name):
+def test_no_profile_returns_error(mock_db, mock_boto3, mock_call_llm, user_id, table_name):
     """When no profile meta exists, returns early with error indicator."""
     from backend.pipeline.digest import run
 
@@ -300,10 +275,10 @@ def test_no_profile_returns_error(mock_db, mock_boto3, mock_anthropic, user_id, 
 # No surfaced papers → returns zeros
 # ---------------------------------------------------------------------------
 
-@patch("backend.pipeline.digest.anthropic")
+@patch("backend.pipeline.digest.call_llm")
 @patch("backend.pipeline.digest.boto3")
 @patch("backend.pipeline.digest.db")
-def test_no_surfaced_papers_returns_zeros(mock_db, mock_boto3, mock_anthropic, user_id, table_name, sample_profile):
+def test_no_surfaced_papers_returns_zeros(mock_db, mock_boto3, mock_call_llm, user_id, table_name, sample_profile):
     """When no surfaced papers exist, returns zero counts."""
     from backend.pipeline.digest import run
 
@@ -329,10 +304,10 @@ def test_no_surfaced_papers_returns_zeros(mock_db, mock_boto3, mock_anthropic, u
 # ---------------------------------------------------------------------------
 
 @patch("backend.pipeline.digest._SOURCES")
-@patch("backend.pipeline.digest.anthropic")
+@patch("backend.pipeline.digest.call_llm")
 @patch("backend.pipeline.digest.boto3")
 @patch("backend.pipeline.digest.db")
-def test_unknown_source_skips_paper(mock_db, mock_boto3, mock_anthropic, mock_sources, user_id, table_name, sample_profile):
+def test_unknown_source_skips_paper(mock_db, mock_boto3, mock_call_llm, mock_sources, user_id, table_name, sample_profile):
     """Paper with an unknown source field is skipped."""
     from backend.pipeline.digest import run
 
@@ -366,10 +341,10 @@ def test_unknown_source_skips_paper(mock_db, mock_boto3, mock_anthropic, mock_so
 # ---------------------------------------------------------------------------
 
 @patch("backend.pipeline.digest._SOURCES")
-@patch("backend.pipeline.digest.anthropic")
+@patch("backend.pipeline.digest.call_llm")
 @patch("backend.pipeline.digest.boto3")
 @patch("backend.pipeline.digest.db")
-def test_feed_card_structure(mock_db, mock_boto3, mock_anthropic, mock_sources, user_id, table_name, sample_profile, sample_surfaced_papers):
+def test_feed_card_structure(mock_db, mock_boto3, mock_call_llm, mock_sources, user_id, table_name, sample_profile, sample_surfaced_papers):
     """Verify all required fields are present in the feed card written to DDB."""
     from backend.pipeline.digest import run
 
@@ -385,12 +360,7 @@ def test_feed_card_structure(mock_db, mock_boto3, mock_anthropic, mock_sources, 
     mock_source.fetch_full_text.return_value = "Paper text"
     mock_sources.get.return_value = mock_source
 
-    mock_client = MagicMock()
-    mock_anthropic.Anthropic.return_value = mock_client
-
-    llm_response = MagicMock()
-    llm_response.content = [MagicMock()]
-    llm_response.content[0].text = json.dumps({
+    mock_call_llm.return_value = json.dumps({
         "hook": "Hook text",
         "why_you_now": "Why now text",
         "time_estimate": "10 min",
@@ -401,7 +371,6 @@ def test_feed_card_structure(mock_db, mock_boto3, mock_anthropic, mock_sources, 
         "honesty_note": "Full read",
         "suggested_questions": ["Q1", "Q2"],
     })
-    mock_client.messages.create.return_value = llm_response
 
     run({
         "user_id": user_id,

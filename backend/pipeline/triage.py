@@ -5,10 +5,10 @@ from __future__ import annotations
 import json
 import logging
 
-import anthropic
 import boto3
 
 from backend.shared import db
+from backend.shared.llm import call_llm
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -93,29 +93,35 @@ def _build_user_message(paper: dict, profile: dict) -> str:
     return message
 
 
-def _score_paper(client: anthropic.Anthropic, model: str, paper: dict, profile: dict) -> dict:
+def _score_paper(model: str, paper: dict, profile: dict) -> dict:
     """Call the LLM to score a single paper against the user's profile.
 
     Returns a dict with triage_score, level, hypothesis_relevant, reasoning, worth_my_hours.
     On failure, returns a zeroed-out result.
     """
     try:
-        response = client.messages.create(
-            model=model,
-            max_tokens=500,
-            messages=[
-                {
-                    "role": "user",
-                    "content": _build_user_message(paper, profile),
-                },
-            ],
+        text = call_llm(
             system=_build_system_prompt(),
+            user_message=_build_user_message(paper, profile),
+            model_id=model,
+            max_tokens=500,
         )
 
-        # Extract text content from the response
-        text = response.content[0].text.strip()
+        if text is None:
+            logger.error(
+                "LLM call returned None for paper %s",
+                paper.get("id", "unknown"),
+            )
+            return {
+                "triage_score": 0.0,
+                "level": "just_right",
+                "hypothesis_relevant": False,
+                "reasoning": "LLM triage failed — API error.",
+                "worth_my_hours": False,
+            }
 
-        # Try to parse JSON, stripping markdown fences if present
+        # Strip and try to parse JSON, stripping markdown fences if present
+        text = text.strip()
         if text.startswith("```"):
             # Remove ```json or ``` prefix and trailing ```
             lines = text.split("\n")
@@ -153,19 +159,6 @@ def _score_paper(client: anthropic.Anthropic, model: str, paper: dict, profile: 
             "reasoning": "LLM triage failed — could not parse response.",
             "worth_my_hours": False,
         }
-    except anthropic.APIError as e:
-        logger.error(
-            "Anthropic API error triaging paper %s: %s",
-            paper.get("id", "unknown"),
-            str(e),
-        )
-        return {
-            "triage_score": 0.0,
-            "level": "just_right",
-            "hypothesis_relevant": False,
-            "reasoning": "LLM triage failed — API error.",
-            "worth_my_hours": False,
-        }
 
 
 def handler(event: dict, context) -> dict:
@@ -182,7 +175,7 @@ def handler(event: dict, context) -> dict:
     """
     user_id = event["user_id"]
     table_name = event["table_name"]
-    model = event.get("model", "claude-sonnet-4-20250514")
+    model = event.get("model", "anthropic.claude-sonnet-4-20250514-v1:0")
 
     # Set up DynamoDB table resource
     dynamodb = boto3.resource("dynamodb")
@@ -200,10 +193,7 @@ def handler(event: dict, context) -> dict:
         logger.info("No candidate papers to triage for user %s.", user_id)
         return {"papers_triaged": 0, "worth_reading": 0}
 
-    # 3. Set up Anthropic client
-    client = anthropic.Anthropic()
-
-    # 4. Score each paper and update DDB
+    # 3. Score each paper and update DDB
     papers_triaged = 0
     worth_reading = 0
 
@@ -215,7 +205,7 @@ def handler(event: dict, context) -> dict:
 
         logger.info("Triaging paper: %s (%s)", paper_id, paper.get("title", "untitled"))
 
-        score_result = _score_paper(client, model, paper, profile)
+        score_result = _score_paper(model, paper, profile)
 
         # Update the paper record with triage results
         paper["triage_score"] = score_result["triage_score"]

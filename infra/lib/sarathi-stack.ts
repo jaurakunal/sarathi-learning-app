@@ -100,6 +100,10 @@ export class SarathiStack extends cdk.Stack {
     });
     table.grantReadWriteData(lambdaRole);
     bucket.grantReadWrite(lambdaRole);
+    lambdaRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['bedrock:InvokeModel'],
+      resources: ['arn:aws:bedrock:us-east-1::foundation-model/anthropic.*'],
+    }));
 
     const lambdaEnv = {
       TABLE_NAME: table.tableName,
@@ -194,6 +198,10 @@ export class SarathiStack extends cdk.Stack {
     });
     table.grantReadWriteData(digestTaskDef.taskRole);
     bucket.grantReadWrite(digestTaskDef.taskRole);
+    digestTaskDef.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      actions: ['bedrock:InvokeModel'],
+      resources: ['arn:aws:bedrock:us-east-1::foundation-model/anthropic.*'],
+    }));
 
     digestTaskDef.addContainer('DigestContainer', {
       image: ecs.ContainerImage.fromAsset(REPO_ROOT, {
