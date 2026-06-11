@@ -43,9 +43,15 @@ class ArxivSource:
     def __init__(self, max_results_per_query: int = 50):
         self._max_results = max_results_per_query
 
-    def discover(self, areas: list[Area], since: datetime) -> list[dict]:
+    def discover(self, areas: list[Area], since: datetime, queries: list[str] | None = None) -> list[dict]:
         """Query arXiv for papers matching areas published since `since`."""
-        query = _build_query(areas)
+        if queries:
+            # Use 'all:' prefix without quotes for multi-word terms (AND-implicit within each term)
+            # arXiv interprets unquoted multi-word as AND within the field
+            clauses = [f"all:{q}" for q in queries]
+            query = " OR ".join(clauses)
+        else:
+            query = _build_query(areas)
         if not query:
             logger.warning("ArxivSource.discover: empty query from areas")
             return []

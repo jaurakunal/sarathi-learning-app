@@ -69,22 +69,19 @@ class OpenReviewSource:
             {"User-Agent": "Sarathi-ResearchBot/0.1 (academic research tool)"}
         )
 
-    def discover(self, areas: list[Area], since: datetime) -> list[dict]:
+    def discover(self, areas: list[Area], since: datetime, queries: list[str] | None = None) -> list[dict]:
         """Query OpenReview for papers matching areas published since `since`.
 
         Uses two strategies:
-        1. Free-text search with area keywords via /notes/search
+        1. Free-text search with pre-generated queries via /notes/search
         2. Venue-based queries for recent top conferences
-
-        Returns normalized dicts:
-            {id, source, title, authors, abstract, url, published, venue, peer_review_score}
         """
         if since.tzinfo is None:
             since = since.replace(tzinfo=timezone.utc)
 
-        search_terms = _build_search_terms(areas)
+        search_terms = queries if queries else _build_search_terms(areas)
         if not search_terms:
-            logger.warning("OpenReviewSource.discover: no search terms from areas")
+            logger.warning("OpenReviewSource.discover: no search terms")
             return []
 
         seen_ids: set[str] = set()
@@ -99,9 +96,19 @@ class OpenReviewSource:
                     results.append(p)
 
         # Strategy 2: Venue-based discovery for recent top conferences
+        # Use only first 3 queries to keep request count reasonable (3 queries × 6 venues = 18 max)
+        venue_terms = search_terms[:3]
+        rate_limited = False
         for venue in _VENUES:
-            for term in search_terms:
+            if rate_limited:
+                break
+            for term in venue_terms:
+                if rate_limited:
+                    break
                 papers = self._search_by_venue(venue, term, since)
+                if papers is None:
+                    rate_limited = True
+                    break
                 for p in papers:
                     if p["id"] not in seen_ids:
                         seen_ids.add(p["id"])
@@ -133,7 +140,7 @@ class OpenReviewSource:
     def _search_by_term(self, term: str, since: datetime) -> list[dict]:
         """Free-text search via /notes/search endpoint."""
         params = {
-            "q": term,
+            "term": term,
             "limit": self._max_results,
             "sort": "cdate:desc",
         }
@@ -144,7 +151,7 @@ class OpenReviewSource:
 
             if resp.status_code == 429:
                 logger.warning("OpenReview rate-limited on search, skipping")
-                return results
+                return []
 
             if resp.status_code != 200:
                 logger.warning(
@@ -166,11 +173,14 @@ class OpenReviewSource:
             logger.exception("OpenReview search response parse failed for term: %s", term)
             return []
 
-    def _search_by_venue(self, venue: str, term: str, since: datetime) -> list[dict]:
-        """Query papers from a specific venue with keyword filtering."""
+    def _search_by_venue(self, venue: str, term: str, since: datetime) -> list[dict] | None:
+        """Query papers from a specific venue with keyword filtering.
+
+        Returns None on rate limit (signal to caller to stop all queries).
+        """
         params = {
             "content.venue": venue,
-            "q": term,
+            "term": term,
             "limit": self._max_results,
             "sort": "cdate:desc",
         }
@@ -180,8 +190,8 @@ class OpenReviewSource:
             resp = self._session.get(_NOTES_URL, params=params, timeout=30)
 
             if resp.status_code == 429:
-                logger.warning("OpenReview rate-limited on venue query, skipping")
-                return []
+                logger.warning("OpenReview rate-limited on venue query, stopping all queries")
+                return None
 
             if resp.status_code != 200:
                 logger.warning(

@@ -55,8 +55,12 @@ class HFDailyPapersSource:
     def __init__(self, max_papers: int = 100):
         self._max_papers = max_papers
 
-    def discover(self, areas: list[Area], since: datetime) -> list[dict]:
+    def discover(self, areas: list[Area], since: datetime, queries: list[str] | None = None) -> list[dict]:
         """Query HF Daily Papers API for papers matching areas published since `since`.
+
+        Note: HF Daily Papers doesn't support search queries — it returns all daily
+        papers and we filter by keyword matching. The queries param is used as additional
+        keywords for matching if provided.
 
         Returns normalized dicts:
             {id, source, title, authors, abstract, url, published, upvotes}
@@ -70,6 +74,8 @@ class HFDailyPapersSource:
             since = since.replace(tzinfo=timezone.utc)
 
         keywords = _extract_keywords(areas)
+        if queries:
+            keywords.extend([q.lower() for q in queries])
         if not keywords:
             logger.warning("HFDailyPapersSource.discover: no keywords extracted from areas")
             return []

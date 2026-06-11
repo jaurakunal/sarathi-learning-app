@@ -52,37 +52,29 @@ class SemanticScholarSource:
         if api_key:
             self._session.headers["x-api-key"] = api_key
 
-    def discover(self, areas: list[Area], since: datetime) -> list[dict]:
-        """Query Semantic Scholar for papers matching areas published since `since`.
-
-        Returns normalized dicts:
-            {id, source, title, authors, abstract, url, published,
-             fields_of_study, citation_count, influential_citation_count}
-        """
-        queries = _build_queries(areas)
-        if not queries:
-            logger.warning("SemanticScholarSource.discover: no queries from areas")
+    def discover(self, areas: list[Area], since: datetime, queries: list[str] | None = None) -> list[dict]:
+        """Query Semantic Scholar for papers matching areas published since `since`."""
+        search_queries = queries if queries else _build_queries(areas)
+        if not search_queries:
+            logger.warning("SemanticScholarSource.discover: no queries")
             return []
 
-        # Ensure since is timezone-aware for comparison
         if since.tzinfo is None:
             since = since.replace(tzinfo=timezone.utc)
 
         results: list[dict] = []
         seen_ids: set[str] = set()
-        rate_limited = False
 
-        for query in queries:
-            if rate_limited:
-                break
+        for query in search_queries:
             papers, was_limited = self._search(query, since)
-            if was_limited:
-                rate_limited = True
             for paper in papers:
                 paper_id = paper.get("id")
                 if paper_id and paper_id not in seen_ids:
                     seen_ids.add(paper_id)
                     results.append(paper)
+            if was_limited:
+                logger.warning("S2 rate limited — stopping all queries")
+                break
 
         logger.info("SemanticScholarSource.discover found %d papers", len(results))
         return results

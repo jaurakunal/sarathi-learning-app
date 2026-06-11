@@ -118,7 +118,12 @@ def handler(event: dict, context) -> dict:
     # Step 3: Compute the since datetime
     since = datetime.now(timezone.utc) - timedelta(days=since_days)
 
-    # Step 4: Instantiate all sources and collect results
+    # Step 4: Generate search queries ONCE (shared across all sources)
+    from backend.shared.query_gen import generate_all_queries
+    queries = generate_all_queries(areas)
+    logger.info("Generated %d search queries: %s", len(queries), queries)
+
+    # Step 5: Query all sources with the pre-generated queries
     sources = [
         ArxivSource(),
         SemanticScholarSource(),
@@ -131,7 +136,7 @@ def handler(event: dict, context) -> dict:
     for source in sources:
         try:
             logger.info("Querying source: %s", source.name)
-            papers = source.discover(areas, since)
+            papers = source.discover(areas, since, queries=queries)
             logger.info("Source %s returned %d papers", source.name, len(papers))
             all_papers.extend(papers)
         except Exception:
