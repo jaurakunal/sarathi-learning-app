@@ -1,0 +1,37 @@
+#!/bin/bash
+set -e
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+echo "═══════════════════════════════════════════════════"
+echo "  Pre-commit: Running unit tests"
+echo "═══════════════════════════════════════════════════"
+
+source .venv/bin/activate
+
+# Unit tests (fast, no network)
+python -m pytest tests/ -q --tb=short
+if [ $? -ne 0 ]; then
+    echo "❌ Unit tests failed. Commit blocked."
+    exit 1
+fi
+echo "✅ Unit tests passed"
+
+echo ""
+echo "═══════════════════════════════════════════════════"
+echo "  Pre-commit: Running integration test (sarathi-test user)"
+echo "═══════════════════════════════════════════════════"
+
+# Integration test (hits real AWS — needs credentials)
+AWS_PROFILE=poc AWS_DEFAULT_REGION=us-east-1 python scripts/integration_test.py
+if [ $? -ne 0 ]; then
+    echo "❌ Integration test failed. Commit blocked."
+    exit 1
+fi
+echo "✅ Integration test passed"
+
+echo ""
+echo "═══════════════════════════════════════════════════"
+echo "  All checks passed. Proceeding with commit."
+echo "═══════════════════════════════════════════════════"

@@ -23,6 +23,7 @@ GSIs (sparse, using gsiNpk/gsiNsk attributes):
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any, Optional
 
 from boto3.dynamodb.conditions import Key
@@ -35,6 +36,28 @@ from boto3.dynamodb.conditions import Key
 def _now_iso() -> str:
     """UTC ISO timestamp with Z suffix."""
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def _sanitize_item(item: dict) -> dict:
+    """Prepare a dict for DDB: convert floats to Decimal, remove None values."""
+    cleaned = {}
+    for k, v in item.items():
+        if v is None:
+            continue
+        elif isinstance(v, float):
+            cleaned[k] = Decimal(str(v))
+        elif isinstance(v, dict):
+            cleaned[k] = _sanitize_item(v)
+        elif isinstance(v, list):
+            cleaned[k] = [
+                _sanitize_item(i) if isinstance(i, dict)
+                else Decimal(str(i)) if isinstance(i, float)
+                else i
+                for i in v if i is not None
+            ]
+        else:
+            cleaned[k] = v
+    return cleaned
 
 
 def _profile_pk(user_id: str) -> str:
@@ -134,7 +157,7 @@ def put_profile_meta(table, user_id: str, meta: dict) -> None:
         "last_updated": _now_iso(),
         **meta,
     }
-    table.put_item(Item=item)
+    table.put_item(Item=_sanitize_item(item))
 
 
 def put_profile_area(table, user_id: str, area: dict) -> None:
@@ -151,7 +174,7 @@ def put_profile_area(table, user_id: str, area: dict) -> None:
     }
     if "added_at" not in item or item["added_at"] is None:
         item["added_at"] = _now_iso()
-    table.put_item(Item=item)
+    table.put_item(Item=_sanitize_item(item))
 
 
 def put_profile_hypothesis(table, user_id: str, hypothesis: dict) -> None:
@@ -162,7 +185,7 @@ def put_profile_hypothesis(table, user_id: str, hypothesis: dict) -> None:
         "user_id": user_id,
         **hypothesis,
     }
-    table.put_item(Item=item)
+    table.put_item(Item=_sanitize_item(item))
 
 
 def put_profile_summary(table, user_id: str, tier: str, content: str) -> None:
@@ -178,7 +201,7 @@ def put_profile_summary(table, user_id: str, tier: str, content: str) -> None:
         "content": content,
         "updated_at": _now_iso(),
     }
-    table.put_item(Item=item)
+    table.put_item(Item=_sanitize_item(item))
 
 
 # ---------------------------------------------------------------------------
@@ -204,16 +227,16 @@ def put_paper(table, user_id: str, paper: dict) -> None:
     discovered_at = paper.get("discovered_at") or _now_iso()
 
     item = {
+        **paper,
         "PK": _paper_pk(user_id, paper_id),
         "SK": "META",
         "user_id": user_id,
         "discovered_at": discovered_at,
-        # GSI2: papers by status, newest first
+        # GSI2: papers by status, newest first (MUST come after **paper to win)
         "gsi2pk": f"USER#{user_id}#PAPER_STATUS#{status}",
         "gsi2sk": f"TS#{discovered_at}",
-        **paper,
     }
-    table.put_item(Item=item)
+    table.put_item(Item=_sanitize_item(item))
 
 
 def paper_exists(table, user_id: str, paper_id: str) -> bool:
@@ -259,7 +282,7 @@ def put_feed_card(table, user_id: str, card: dict) -> None:
     }
     if "created_at" not in item or item["created_at"] is None:
         item["created_at"] = _now_iso()
-    table.put_item(Item=item)
+    table.put_item(Item=_sanitize_item(item))
 
 
 def list_feed_cards(
@@ -317,7 +340,7 @@ def put_engagement_event(table, user_id: str, event: dict) -> None:
         "gsi4sk": f"TS#{ts}",
         **event,
     }
-    table.put_item(Item=item)
+    table.put_item(Item=_sanitize_item(item))
 
 
 def list_engagement_events(
@@ -353,4 +376,4 @@ def put_profile_history_event(table, user_id: str, event: dict) -> None:
         "ts": ts,
         **event,
     }
-    table.put_item(Item=item)
+    table.put_item(Item=_sanitize_item(item))
