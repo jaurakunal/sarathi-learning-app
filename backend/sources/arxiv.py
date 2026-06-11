@@ -19,42 +19,19 @@ _ARXIV_DELAY_S = 3.0
 
 
 def _build_query(areas: list[Area]) -> str:
-    """Build an arXiv search query from a list of Areas.
+    """Build an arXiv search query using LLM-generated terms.
 
-    Combines each area's label, just_right keywords, and frontier text into
-    an OR-joined query. Within each area, terms are AND-joined for specificity.
+    Uses an LLM to generate proper academic search queries from the area
+    descriptions, then OR-joins them for broad coverage.
     """
-    area_clauses: list[str] = []
+    from backend.shared.query_gen import generate_all_queries
 
-    for area in areas:
-        terms: list[str] = []
-
-        # The area label is the primary topic
-        if area.label:
-            terms.append(area.label)
-
-        # just_right keywords are calibrated terms the user likes
-        for kw in area.just_right:
-            terms.append(kw)
-
-        # frontier text describes the cutting edge the user cares about
-        if area.frontier:
-            # Take first ~60 chars of frontier to avoid query bloat
-            frontier_snippet = area.frontier.strip()[:60].strip()
-            if frontier_snippet:
-                terms.append(frontier_snippet)
-
-        if terms:
-            # Join terms within an area with AND — we want papers touching all
-            # the key concepts for a given area
-            inner = " AND ".join(f'"{t}"' if " " in t else t for t in terms[:5])
-            area_clauses.append(f"({inner})")
-
-    if not area_clauses:
+    queries = generate_all_queries(areas)
+    if not queries:
         return ""
 
-    # OR across areas — a paper relevant to *any* area is interesting
-    return " OR ".join(area_clauses)
+    # OR-join all generated queries — each is already a focused 2-4 word search
+    return " OR ".join(f'all:"{q}"' for q in queries)
 
 
 class ArxivSource:

@@ -27,29 +27,17 @@ _S2_SEARCH_FIELDS = (
 
 
 def _build_queries(areas: list[Area]) -> list[str]:
-    """Build one search query string per area from label + just_right keywords.
+    """Build search queries using LLM-generated terms.
 
-    Each query combines the area label with its just_right keywords for
-    specificity. We return one query per area to stay within S2's query
-    length limits and to respect rate limiting.
+    Uses an LLM to generate proper academic search queries from the area
+    descriptions. Returns individual queries (S2 works best with focused queries).
     """
-    queries: list[str] = []
+    from backend.shared.query_gen import generate_all_queries
 
-    for area in areas:
-        terms: list[str] = []
-
-        if area.label:
-            terms.append(area.label)
-
-        for kw in area.just_right:
-            terms.append(kw)
-
-        if terms:
-            # S2 search works best with simple space-separated terms
-            # Limit to first 5 terms to avoid overly restrictive queries
-            query = " ".join(terms[:5])
-            queries.append(query)
-
+    queries = generate_all_queries(areas)
+    if not queries:
+        # Fallback: use area labels directly
+        return [a.label for a in areas if a.label]
     return queries
 
 
