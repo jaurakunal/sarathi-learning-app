@@ -325,9 +325,10 @@ class TestArxivDiscover:
 
 
 class TestArxivFetchFullText:
+    @patch("backend.shared.pdf.extract_text_from_pdf")
     @patch("backend.sources.arxiv.time.sleep")
     @patch("backend.sources.arxiv.requests.get")
-    def test_fetch_full_text_success(self, mock_get, mock_sleep, arxiv_source):
+    def test_fetch_full_text_success(self, mock_get, mock_sleep, mock_extract, arxiv_source):
         """fetch_full_text downloads PDF and extracts text correctly."""
         # Mock PDF download
         mock_resp = MagicMock()
@@ -337,21 +338,14 @@ class TestArxivFetchFullText:
         mock_resp.raise_for_status = MagicMock()
         mock_get.return_value = mock_resp
 
-        # Mock fitz PDF extraction
-        mock_fitz_mod = MagicMock()
-        mock_page = MagicMock()
-        mock_page.get_text.return_value = "Page 1 text content here."
-        mock_doc = MagicMock()
-        mock_doc.__iter__ = MagicMock(return_value=iter([mock_page]))
-        mock_fitz_mod.open.return_value = mock_doc
+        # Mock PDF text extraction
+        mock_extract.return_value = "Page 1 text content here."
 
-        with patch.dict(sys.modules, {"fitz": mock_fitz_mod}):
-            result = arxiv_source.fetch_full_text("2401.12345")
+        result = arxiv_source.fetch_full_text("2401.12345")
 
         assert result == "Page 1 text content here."
         mock_get.assert_called_once_with("https://arxiv.org/pdf/2401.12345.pdf", timeout=60)
-        mock_fitz_mod.open.assert_called_once_with(stream=b"%PDF-fake-content", filetype="pdf")
-        mock_doc.close.assert_called_once()
+        mock_extract.assert_called_once_with(b"%PDF-fake-content")
 
     @patch("backend.sources.arxiv.time.sleep")
     @patch("backend.sources.arxiv.requests.get")
@@ -409,9 +403,10 @@ class TestArxivFetchFullText:
             result = arxiv_source.fetch_full_text("2401.12345")
         assert result is None
 
+    @patch("backend.shared.pdf.extract_text_from_pdf")
     @patch("backend.sources.arxiv.time.sleep")
     @patch("backend.sources.arxiv.requests.get")
-    def test_fetch_full_text_multi_page(self, mock_get, mock_sleep, arxiv_source):
+    def test_fetch_full_text_multi_page(self, mock_get, mock_sleep, mock_extract, arxiv_source):
         """fetch_full_text joins text from multiple pages with double newline."""
         mock_resp = MagicMock()
         mock_resp.status_code = 200
@@ -420,17 +415,9 @@ class TestArxivFetchFullText:
         mock_resp.raise_for_status = MagicMock()
         mock_get.return_value = mock_resp
 
-        mock_fitz_mod = MagicMock()
-        page1 = MagicMock()
-        page1.get_text.return_value = "Page 1 content"
-        page2 = MagicMock()
-        page2.get_text.return_value = "Page 2 content"
-        mock_doc = MagicMock()
-        mock_doc.__iter__ = MagicMock(return_value=iter([page1, page2]))
-        mock_fitz_mod.open.return_value = mock_doc
+        mock_extract.return_value = "Page 1 content\n\nPage 2 content"
 
-        with patch.dict(sys.modules, {"fitz": mock_fitz_mod}):
-            result = arxiv_source.fetch_full_text("2401.12345")
+        result = arxiv_source.fetch_full_text("2401.12345")
         assert result == "Page 1 content\n\nPage 2 content"
 
     @patch("backend.sources.arxiv.time.sleep")

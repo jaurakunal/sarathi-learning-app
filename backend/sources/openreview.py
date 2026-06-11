@@ -119,21 +119,14 @@ class OpenReviewSource:
         Returns:
             Extracted text from the PDF, or None if extraction fails.
         """
-        try:
-            import fitz  # pymupdf
-        except ImportError:
-            logger.error(
-                "pymupdf (fitz) is not installed. "
-                "Add 'pymupdf' to requirements.txt."
-            )
-            return None
+        from backend.shared.pdf import extract_text_from_pdf
 
         pdf_url = f"{_PDF_BASE}?id={paper_id}"
         pdf_bytes = self._download_pdf(pdf_url)
         if pdf_bytes is None:
             return None
 
-        return self._extract_text(pdf_bytes)
+        return extract_text_from_pdf(pdf_bytes)
 
     # ─── Private helpers ─────────────────────────────────────────────
 
@@ -434,29 +427,3 @@ class OpenReviewSource:
             logger.exception("Failed to download PDF from %s", url)
             return None
 
-    def _extract_text(self, pdf_bytes: bytes) -> Optional[str]:
-        """Extract text from PDF bytes using pymupdf."""
-        import fitz  # pymupdf
-
-        try:
-            doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-            pages_text: list[str] = []
-
-            for page in doc:
-                text = page.get_text()
-                if text:
-                    pages_text.append(text)
-
-            doc.close()
-
-            full_text = "\n\n".join(pages_text)
-
-            if not full_text.strip():
-                logger.warning("OpenReview PDF text extraction produced empty result")
-                return None
-
-            return full_text
-
-        except Exception:
-            logger.exception("Failed to extract text from OpenReview PDF")
-            return None

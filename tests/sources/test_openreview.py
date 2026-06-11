@@ -467,8 +467,9 @@ class TestOpenReviewDiscover:
 
 
 class TestOpenReviewFetchFullText:
+    @patch("backend.shared.pdf.extract_text_from_pdf")
     @patch("backend.sources.openreview.time.sleep")
-    def test_fetch_full_text_success(self, mock_sleep, openreview_source):
+    def test_fetch_full_text_success(self, mock_sleep, mock_extract, openreview_source):
         """fetch_full_text downloads from OpenReview and extracts text."""
         with patch.object(openreview_source._session, "get") as mock_get:
             mock_resp = MagicMock()
@@ -478,20 +479,13 @@ class TestOpenReviewFetchFullText:
             mock_resp.raise_for_status = MagicMock()
             mock_get.return_value = mock_resp
 
-            mock_fitz_mod = MagicMock()
-            mock_page = MagicMock()
-            mock_page.get_text.return_value = "OpenReview paper full text."
-            mock_doc = MagicMock()
-            mock_doc.__iter__ = MagicMock(return_value=iter([mock_page]))
-            mock_fitz_mod.open.return_value = mock_doc
+            mock_extract.return_value = "OpenReview paper full text."
 
-            with patch.dict(sys.modules, {"fitz": mock_fitz_mod}):
-                result = openreview_source.fetch_full_text("note123ABC")
+            result = openreview_source.fetch_full_text("note123ABC")
 
         assert result == "OpenReview paper full text."
         mock_get.assert_called_once_with("https://openreview.net/pdf?id=note123ABC", timeout=60)
-        mock_fitz_mod.open.assert_called_once()
-        mock_doc.close.assert_called_once()
+        mock_extract.assert_called_once_with(b"%PDF-1.5 fake content")
 
     @patch("backend.sources.openreview.time.sleep")
     def test_fetch_full_text_pdf_not_found(self, mock_sleep, openreview_source):
@@ -579,8 +573,9 @@ class TestOpenReviewFetchFullText:
 
         assert result is None
 
+    @patch("backend.shared.pdf.extract_text_from_pdf")
     @patch("backend.sources.openreview.time.sleep")
-    def test_fetch_full_text_rate_limited_then_succeeds(self, mock_sleep, openreview_source):
+    def test_fetch_full_text_rate_limited_then_succeeds(self, mock_sleep, mock_extract, openreview_source):
         """fetch_full_text retries after 429 and succeeds."""
         with patch.object(openreview_source._session, "get") as mock_get:
             rate_resp = MagicMock()
@@ -595,15 +590,9 @@ class TestOpenReviewFetchFullText:
 
             mock_get.side_effect = [rate_resp, success_resp]
 
-            mock_fitz_mod = MagicMock()
-            mock_page = MagicMock()
-            mock_page.get_text.return_value = "Retried text."
-            mock_doc = MagicMock()
-            mock_doc.__iter__ = MagicMock(return_value=iter([mock_page]))
-            mock_fitz_mod.open.return_value = mock_doc
+            mock_extract.return_value = "Retried text."
 
-            with patch.dict(sys.modules, {"fitz": mock_fitz_mod}):
-                result = openreview_source.fetch_full_text("note123ABC")
+            result = openreview_source.fetch_full_text("note123ABC")
 
         assert result == "Retried text."
 
@@ -614,8 +603,9 @@ class TestOpenReviewFetchFullText:
             result = source.fetch_full_text("note123ABC")
         assert result is None
 
+    @patch("backend.shared.pdf.extract_text_from_pdf")
     @patch("backend.sources.openreview.time.sleep")
-    def test_fetch_full_text_multi_page(self, mock_sleep, openreview_source):
+    def test_fetch_full_text_multi_page(self, mock_sleep, mock_extract, openreview_source):
         """fetch_full_text joins multiple pages with double newline."""
         with patch.object(openreview_source._session, "get") as mock_get:
             mock_resp = MagicMock()
@@ -625,17 +615,9 @@ class TestOpenReviewFetchFullText:
             mock_resp.raise_for_status = MagicMock()
             mock_get.return_value = mock_resp
 
-            mock_fitz_mod = MagicMock()
-            page1 = MagicMock()
-            page1.get_text.return_value = "Abstract section"
-            page2 = MagicMock()
-            page2.get_text.return_value = "Methods section"
-            mock_doc = MagicMock()
-            mock_doc.__iter__ = MagicMock(return_value=iter([page1, page2]))
-            mock_fitz_mod.open.return_value = mock_doc
+            mock_extract.return_value = "Abstract section\n\nMethods section"
 
-            with patch.dict(sys.modules, {"fitz": mock_fitz_mod}):
-                result = openreview_source.fetch_full_text("note123ABC")
+            result = openreview_source.fetch_full_text("note123ABC")
 
         assert result == "Abstract section\n\nMethods section"
 

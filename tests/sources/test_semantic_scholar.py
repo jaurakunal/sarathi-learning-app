@@ -382,8 +382,9 @@ class TestSemanticScholarDiscover:
 
 
 class TestSemanticScholarFetchFullText:
+    @patch("backend.shared.pdf.extract_text_from_pdf")
     @patch("backend.sources.semantic_scholar.time.sleep")
-    def test_fetch_full_text_success(self, mock_sleep, s2_source):
+    def test_fetch_full_text_success(self, mock_sleep, mock_extract, s2_source):
         """fetch_full_text downloads open access PDF and extracts text."""
         with patch.object(s2_source._session, "get") as mock_get:
             # First call: get open access PDF URL
@@ -403,19 +404,12 @@ class TestSemanticScholarFetchFullText:
 
             mock_get.side_effect = [pdf_info_resp, pdf_resp]
 
-            # Mock fitz
-            mock_fitz_mod = MagicMock()
-            mock_page = MagicMock()
-            mock_page.get_text.return_value = "Extracted full text content."
-            mock_doc = MagicMock()
-            mock_doc.__iter__ = MagicMock(return_value=iter([mock_page]))
-            mock_fitz_mod.open.return_value = mock_doc
+            mock_extract.return_value = "Extracted full text content."
 
-            with patch.dict(sys.modules, {"fitz": mock_fitz_mod}):
-                result = s2_source.fetch_full_text("abc123def456")
+            result = s2_source.fetch_full_text("abc123def456")
 
         assert result == "Extracted full text content."
-        mock_doc.close.assert_called_once()
+        mock_extract.assert_called_once_with(b"%PDF-fake")
 
     @patch("backend.sources.semantic_scholar.time.sleep")
     def test_fetch_full_text_no_open_access_pdf(self, mock_sleep, s2_source):

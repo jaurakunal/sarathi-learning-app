@@ -106,7 +106,16 @@ export class SarathiStack extends cdk.Stack {
       BUCKET_NAME: bucket.bucketName,
     };
 
-    const lambdaCode = lambda.Code.fromAsset(REPO_ROOT, { exclude: ASSET_EXCLUDES });
+    const lambdaCode = lambda.Code.fromAsset(REPO_ROOT, {
+      exclude: ASSET_EXCLUDES,
+      bundling: {
+        image: lambda.Runtime.PYTHON_3_9.bundlingImage,
+        command: [
+          'bash', '-c',
+          'pip install -r requirements.txt -t /asset-output && cp -r backend /asset-output/',
+        ],
+      },
+    });
 
     // ─── Lambda: pipeline steps ──────────────────────────────────────
     const discoverFn = new lambda.Function(this, 'DiscoverFn', {

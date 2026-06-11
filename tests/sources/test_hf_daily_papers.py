@@ -406,9 +406,10 @@ class TestHFDailyPapersDiscover:
 
 
 class TestHFDailyPapersFetchFullText:
+    @patch("backend.shared.pdf.extract_text_from_pdf")
     @patch("backend.sources.hf_daily_papers.time.sleep")
     @patch("backend.sources.hf_daily_papers.requests.get")
-    def test_fetch_full_text_success(self, mock_get, mock_sleep, hf_source):
+    def test_fetch_full_text_success(self, mock_get, mock_sleep, mock_extract, hf_source):
         """fetch_full_text downloads from arXiv and extracts text."""
         mock_resp = MagicMock()
         mock_resp.status_code = 200
@@ -417,20 +418,13 @@ class TestHFDailyPapersFetchFullText:
         mock_resp.raise_for_status = MagicMock()
         mock_get.return_value = mock_resp
 
-        mock_fitz_mod = MagicMock()
-        mock_page = MagicMock()
-        mock_page.get_text.return_value = "Full text of HF paper."
-        mock_doc = MagicMock()
-        mock_doc.__iter__ = MagicMock(return_value=iter([mock_page]))
-        mock_fitz_mod.open.return_value = mock_doc
+        mock_extract.return_value = "Full text of HF paper."
 
-        with patch.dict(sys.modules, {"fitz": mock_fitz_mod}):
-            result = hf_source.fetch_full_text("2406.12345")
+        result = hf_source.fetch_full_text("2406.12345")
 
         assert result == "Full text of HF paper."
         mock_get.assert_called_once_with("https://arxiv.org/pdf/2406.12345.pdf", timeout=60)
-        mock_fitz_mod.open.assert_called_once()
-        mock_doc.close.assert_called_once()
+        mock_extract.assert_called_once_with(b"%PDF-1.5 fake pdf")
 
     @patch("backend.sources.hf_daily_papers.time.sleep")
     @patch("backend.sources.hf_daily_papers.requests.get")
@@ -513,9 +507,10 @@ class TestHFDailyPapersFetchFullText:
             result = source.fetch_full_text("2406.12345")
         assert result is None
 
+    @patch("backend.shared.pdf.extract_text_from_pdf")
     @patch("backend.sources.hf_daily_papers.time.sleep")
     @patch("backend.sources.hf_daily_papers.requests.get")
-    def test_fetch_full_text_multi_page(self, mock_get, mock_sleep, hf_source):
+    def test_fetch_full_text_multi_page(self, mock_get, mock_sleep, mock_extract, hf_source):
         """fetch_full_text joins multi-page text correctly."""
         mock_resp = MagicMock()
         mock_resp.status_code = 200
@@ -524,17 +519,7 @@ class TestHFDailyPapersFetchFullText:
         mock_resp.raise_for_status = MagicMock()
         mock_get.return_value = mock_resp
 
-        mock_fitz_mod = MagicMock()
-        page1 = MagicMock()
-        page1.get_text.return_value = "Introduction"
-        page2 = MagicMock()
-        page2.get_text.return_value = "Methods"
-        page3 = MagicMock()
-        page3.get_text.return_value = "Results"
-        mock_doc = MagicMock()
-        mock_doc.__iter__ = MagicMock(return_value=iter([page1, page2, page3]))
-        mock_fitz_mod.open.return_value = mock_doc
+        mock_extract.return_value = "Introduction\n\nMethods\n\nResults"
 
-        with patch.dict(sys.modules, {"fitz": mock_fitz_mod}):
-            result = hf_source.fetch_full_text("2406.12345")
+        result = hf_source.fetch_full_text("2406.12345")
         assert result == "Introduction\n\nMethods\n\nResults"
