@@ -70,9 +70,14 @@ class SemanticScholarSource:
 
         results: list[dict] = []
         seen_ids: set[str] = set()
+        rate_limited = False
 
         for query in queries:
-            papers = self._search(query, since)
+            if rate_limited:
+                break
+            papers, was_limited = self._search(query, since)
+            if was_limited:
+                rate_limited = True
             for paper in papers:
                 paper_id = paper.get("id")
                 if paper_id and paper_id not in seen_ids:
@@ -82,8 +87,11 @@ class SemanticScholarSource:
         logger.info("SemanticScholarSource.discover found %d papers", len(results))
         return results
 
-    def _search(self, query: str, since: datetime) -> list[dict]:
-        """Execute a single paginated search query against S2 API."""
+    def _search(self, query: str, since: datetime) -> tuple[list[dict], bool]:
+        """Execute a single paginated search query against S2 API.
+
+        Returns (results, was_rate_limited).
+        """
         logger.info("SemanticScholarSource query: %s", query)
 
         results: list[dict] = []
@@ -110,7 +118,7 @@ class SemanticScholarSource:
                     logger.warning(
                         "S2 rate limited (shared unauthenticated pool), skipping source"
                     )
-                    return results
+                    return results, True
 
                 resp.raise_for_status()
                 data = resp.json()
@@ -139,7 +147,7 @@ class SemanticScholarSource:
             except (TypeError, ValueError):
                 break
 
-        return results
+        return results, False
 
     def _normalize_paper(self, paper: dict, since: datetime) -> Optional[dict]:
         """Normalize an S2 paper dict into our standard format.

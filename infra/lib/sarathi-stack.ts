@@ -226,6 +226,7 @@ export class SarathiStack extends cdk.Stack {
       user_id: '00000000-0000-0000-0000-000000000000',
       table_name: table.tableName,
       s3_bucket: bucket.bucketName,
+      since_days: 30,
     };
 
     const injectDefaults = new sfn.Pass(this, 'InjectDefaults', {

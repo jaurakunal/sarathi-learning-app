@@ -1,4 +1,4 @@
-"""Shared LLM client using AWS Bedrock (no API keys needed)."""
+"""Shared LLM client using AWS Bedrock (no API keys needed). v2"""
 
 from __future__ import annotations
 
