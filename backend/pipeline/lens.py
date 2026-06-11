@@ -103,7 +103,7 @@ def handler(event: dict, context) -> dict:
     """
     user_id = event["user_id"]
     table_name = event["table_name"]
-    model = event.get("model", "anthropic.claude-sonnet-4-6")
+    model = event.get("model", "us.anthropic.claude-sonnet-4-6")
 
     # Set up DynamoDB table resource
     dynamodb = boto3.resource("dynamodb")

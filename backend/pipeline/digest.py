@@ -42,7 +42,7 @@ _SOURCES = {
     "hf_daily_papers": HFDailyPapersSource(),
 }
 
-DEFAULT_MODEL = "anthropic.claude-sonnet-4-6"
+DEFAULT_MODEL = "us.anthropic.claude-sonnet-4-6"
 
 
 # ---------------------------------------------------------------------------

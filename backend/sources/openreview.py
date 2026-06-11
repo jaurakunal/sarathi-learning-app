@@ -181,7 +181,7 @@ class OpenReviewSource:
 
             if resp.status_code == 429:
                 logger.warning("OpenReview rate-limited on venue query, skipping")
-                continue
+                return []
 
             if resp.status_code != 200:
                 logger.warning(

@@ -10,7 +10,7 @@ import boto3
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL_ID = "anthropic.claude-sonnet-4-6"
+DEFAULT_MODEL_ID = "us.anthropic.claude-sonnet-4-6"
 DEFAULT_REGION = "us-east-1"
 
 

@@ -102,7 +102,7 @@ export class SarathiStack extends cdk.Stack {
     bucket.grantReadWrite(lambdaRole);
     lambdaRole.addToPolicy(new iam.PolicyStatement({
       actions: ['bedrock:InvokeModel'],
-      resources: ['arn:aws:bedrock:us-east-1::foundation-model/anthropic.*'],
+      resources: ['*'],
     }));
 
     const lambdaEnv = {
@@ -200,7 +200,7 @@ export class SarathiStack extends cdk.Stack {
     bucket.grantReadWrite(digestTaskDef.taskRole);
     digestTaskDef.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
       actions: ['bedrock:InvokeModel'],
-      resources: ['arn:aws:bedrock:us-east-1::foundation-model/anthropic.*'],
+      resources: ['*'],
     }));
 
     digestTaskDef.addContainer('DigestContainer', {
