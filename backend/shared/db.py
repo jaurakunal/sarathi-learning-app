@@ -80,7 +80,7 @@ def get_full_profile(table, user_id: str) -> dict:
     Each is populated from matching SK items.
     """
     resp = table.query(
-        KeyConditionExpression=Key("pk").eq(_profile_pk(user_id)),
+        KeyConditionExpression=Key("PK").eq(_profile_pk(user_id)),
     )
     items = resp.get("Items", [])
 
@@ -91,7 +91,7 @@ def get_full_profile(table, user_id: str) -> dict:
         "summaries": [],
     }
     for item in items:
-        sk = item.get("sk", "")
+        sk = item.get("SK", "")
         if sk == "META":
             result["meta"] = item
         elif sk.startswith("AREA#"):
@@ -106,7 +106,7 @@ def get_full_profile(table, user_id: str) -> dict:
 def get_profile_meta(table, user_id: str) -> Optional[dict]:
     """GetItem for profile META."""
     resp = table.get_item(
-        Key={"pk": _profile_pk(user_id), "sk": "META"},
+        Key={"PK": _profile_pk(user_id), "SK": "META"},
     )
     return resp.get("Item")
 
@@ -115,8 +115,8 @@ def get_profile_areas(table, user_id: str) -> list[dict]:
     """Query all AREA# items under the profile PK."""
     resp = table.query(
         KeyConditionExpression=(
-            Key("pk").eq(_profile_pk(user_id))
-            & Key("sk").begins_with("AREA#")
+            Key("PK").eq(_profile_pk(user_id))
+            & Key("SK").begins_with("AREA#")
         ),
     )
     return resp.get("Items", [])
@@ -128,8 +128,8 @@ def put_profile_meta(table, user_id: str, meta: dict) -> None:
     Expects meta to contain fields like learning_style, reading_speed, paper_goal.
     """
     item = {
-        "pk": _profile_pk(user_id),
-        "sk": "META",
+        "PK": _profile_pk(user_id),
+        "SK": "META",
         "user_id": user_id,
         "last_updated": _now_iso(),
         **meta,
@@ -144,8 +144,8 @@ def put_profile_area(table, user_id: str, area: dict) -> None:
     """
     area_id = area["id"]
     item = {
-        "pk": _profile_pk(user_id),
-        "sk": f"AREA#{area_id}",
+        "PK": _profile_pk(user_id),
+        "SK": f"AREA#{area_id}",
         "user_id": user_id,
         **area,
     }
@@ -157,8 +157,8 @@ def put_profile_area(table, user_id: str, area: dict) -> None:
 def put_profile_hypothesis(table, user_id: str, hypothesis: dict) -> None:
     """Write (or overwrite) the HYPOTHESIS item."""
     item = {
-        "pk": _profile_pk(user_id),
-        "sk": "HYPOTHESIS",
+        "PK": _profile_pk(user_id),
+        "SK": "HYPOTHESIS",
         "user_id": user_id,
         **hypothesis,
     }
@@ -171,8 +171,8 @@ def put_profile_summary(table, user_id: str, tier: str, content: str) -> None:
     Tiers: yesterday, 3_day, 7_day, month, quarter.
     """
     item = {
-        "pk": _profile_pk(user_id),
-        "sk": f"SUMMARY#{tier}",
+        "PK": _profile_pk(user_id),
+        "SK": f"SUMMARY#{tier}",
         "user_id": user_id,
         "tier": tier,
         "content": content,
@@ -188,7 +188,7 @@ def put_profile_summary(table, user_id: str, tier: str, content: str) -> None:
 def get_paper(table, user_id: str, paper_id: str) -> Optional[dict]:
     """GetItem for a paper's META record."""
     resp = table.get_item(
-        Key={"pk": _paper_pk(user_id, paper_id), "sk": "META"},
+        Key={"PK": _paper_pk(user_id, paper_id), "SK": "META"},
     )
     return resp.get("Item")
 
@@ -204,8 +204,8 @@ def put_paper(table, user_id: str, paper: dict) -> None:
     discovered_at = paper.get("discovered_at") or _now_iso()
 
     item = {
-        "pk": _paper_pk(user_id, paper_id),
-        "sk": "META",
+        "PK": _paper_pk(user_id, paper_id),
+        "SK": "META",
         "user_id": user_id,
         "discovered_at": discovered_at,
         # GSI2: papers by status, newest first
@@ -219,8 +219,8 @@ def put_paper(table, user_id: str, paper: dict) -> None:
 def paper_exists(table, user_id: str, paper_id: str) -> bool:
     """Check if a paper record already exists (for dedup in pipeline)."""
     resp = table.get_item(
-        Key={"pk": _paper_pk(user_id, paper_id), "sk": "META"},
-        ProjectionExpression="pk",
+        Key={"PK": _paper_pk(user_id, paper_id), "SK": "META"},
+        ProjectionExpression="PK",
     )
     return "Item" in resp
 
@@ -252,8 +252,8 @@ def put_feed_card(table, user_id: str, card: dict) -> None:
     """
     card_id = card["card_id"]
     item = {
-        "pk": _feed_pk(user_id),
-        "sk": f"CARD#{card_id}",
+        "PK": _feed_pk(user_id),
+        "SK": f"CARD#{card_id}",
         "user_id": user_id,
         **card,
     }
@@ -272,8 +272,8 @@ def list_feed_cards(
     """
     kwargs: dict[str, Any] = {
         "KeyConditionExpression": (
-            Key("pk").eq(_feed_pk(user_id))
-            & Key("sk").begins_with("CARD#")
+            Key("PK").eq(_feed_pk(user_id))
+            & Key("SK").begins_with("CARD#")
         ),
         "ScanIndexForward": False,
         "Limit": limit,
@@ -290,7 +290,7 @@ def list_feed_cards(
 def get_feed_card(table, user_id: str, card_id: str) -> Optional[dict]:
     """GetItem for a specific feed card."""
     resp = table.get_item(
-        Key={"pk": _feed_pk(user_id), "sk": f"CARD#{card_id}"},
+        Key={"PK": _feed_pk(user_id), "SK": f"CARD#{card_id}"},
     )
     return resp.get("Item")
 
@@ -309,8 +309,8 @@ def put_engagement_event(table, user_id: str, event: dict) -> None:
     paper_id = event["paper_id"]
 
     item = {
-        "pk": _engagement_pk(user_id),
-        "sk": f"TS#{ts}",
+        "PK": _engagement_pk(user_id),
+        "SK": f"TS#{ts}",
         "user_id": user_id,
         # GSI4: engagement per paper
         "gsi4pk": f"USER#{user_id}#PAPER_ENGAGEMENT#{paper_id}",
@@ -329,8 +329,8 @@ def list_engagement_events(
     """
     resp = table.query(
         KeyConditionExpression=(
-            Key("pk").eq(_engagement_pk(user_id))
-            & Key("sk").between(f"TS#{start_ts}", f"TS#{end_ts}")
+            Key("PK").eq(_engagement_pk(user_id))
+            & Key("SK").between(f"TS#{start_ts}", f"TS#{end_ts}")
         ),
     )
     return resp.get("Items", [])
@@ -347,8 +347,8 @@ def put_profile_history_event(table, user_id: str, event: dict) -> None:
     """
     ts = event.get("ts") or _now_iso()
     item = {
-        "pk": _profile_history_pk(user_id),
-        "sk": f"TS#{ts}",
+        "PK": _profile_history_pk(user_id),
+        "SK": f"TS#{ts}",
         "user_id": user_id,
         "ts": ts,
         **event,

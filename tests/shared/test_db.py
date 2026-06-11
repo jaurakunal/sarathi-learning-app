@@ -132,12 +132,12 @@ class TestGetFullProfile:
     def test_returns_structured_result(self, mock_table, user_id):
         mock_table.query.return_value = {
             "Items": [
-                {"pk": "...", "sk": "META", "paper_goal": "my goal"},
-                {"pk": "...", "sk": "AREA#a1", "label": "Area 1"},
-                {"pk": "...", "sk": "AREA#a2", "label": "Area 2"},
-                {"pk": "...", "sk": "HYPOTHESIS", "statement": "hyp"},
-                {"pk": "...", "sk": "SUMMARY#yesterday", "content": "x"},
-                {"pk": "...", "sk": "SUMMARY#7_day", "content": "y"},
+                {"PK": "...", "SK": "META", "paper_goal": "my goal"},
+                {"PK": "...", "SK": "AREA#a1", "label": "Area 1"},
+                {"PK": "...", "SK": "AREA#a2", "label": "Area 2"},
+                {"PK": "...", "SK": "HYPOTHESIS", "statement": "hyp"},
+                {"PK": "...", "SK": "SUMMARY#yesterday", "content": "x"},
+                {"PK": "...", "SK": "SUMMARY#7_day", "content": "y"},
             ],
         }
 
@@ -169,7 +169,7 @@ class TestGetFullProfile:
 class TestGetProfileMeta:
     def test_returns_item_when_found(self, mock_table, user_id):
         mock_table.get_item.return_value = {
-            "Item": {"pk": "...", "sk": "META", "paper_goal": "goal"},
+            "Item": {"PK": "...", "SK": "META", "paper_goal": "goal"},
         }
 
         result = db.get_profile_meta(mock_table, user_id)
@@ -190,8 +190,8 @@ class TestGetProfileMeta:
 
         call_kwargs = mock_table.get_item.call_args[1]
         assert call_kwargs["Key"] == {
-            "pk": f"USER#{user_id}#PROFILE",
-            "sk": "META",
+            "PK": f"USER#{user_id}#PROFILE",
+            "SK": "META",
         }
 
 
@@ -199,8 +199,8 @@ class TestGetProfileAreas:
     def test_returns_area_items(self, mock_table, user_id):
         mock_table.query.return_value = {
             "Items": [
-                {"pk": "...", "sk": "AREA#a1", "label": "A1"},
-                {"pk": "...", "sk": "AREA#a2", "label": "A2"},
+                {"PK": "...", "SK": "AREA#a1", "label": "A1"},
+                {"PK": "...", "SK": "AREA#a2", "label": "A2"},
             ],
         }
 
@@ -223,8 +223,8 @@ class TestPutProfileMeta:
 
         mock_table.put_item.assert_called_once()
         item = mock_table.put_item.call_args[1]["Item"]
-        assert item["pk"] == f"USER#{user_id}#PROFILE"
-        assert item["sk"] == "META"
+        assert item["PK"] == f"USER#{user_id}#PROFILE"
+        assert item["SK"] == "META"
         assert item["user_id"] == user_id
         assert item["paper_goal"] == "My goal"
         assert "last_updated" in item
@@ -242,8 +242,8 @@ class TestPutProfileArea:
 
         mock_table.put_item.assert_called_once()
         item = mock_table.put_item.call_args[1]["Item"]
-        assert item["pk"] == f"USER#{user_id}#PROFILE"
-        assert item["sk"] == "AREA#person-clone"
+        assert item["PK"] == f"USER#{user_id}#PROFILE"
+        assert item["SK"] == "AREA#person-clone"
         assert item["user_id"] == user_id
         assert item["label"] == "Person cloning"
 
@@ -276,8 +276,8 @@ class TestPutProfileHypothesis:
 
         mock_table.put_item.assert_called_once()
         item = mock_table.put_item.call_args[1]["Item"]
-        assert item["pk"] == f"USER#{user_id}#PROFILE"
-        assert item["sk"] == "HYPOTHESIS"
+        assert item["PK"] == f"USER#{user_id}#PROFILE"
+        assert item["SK"] == "HYPOTHESIS"
         assert item["user_id"] == user_id
         assert item["statement"] == "My hypothesis"
 
@@ -288,8 +288,8 @@ class TestPutProfileSummary:
 
         mock_table.put_item.assert_called_once()
         item = mock_table.put_item.call_args[1]["Item"]
-        assert item["pk"] == f"USER#{user_id}#PROFILE"
-        assert item["sk"] == "SUMMARY#yesterday"
+        assert item["PK"] == f"USER#{user_id}#PROFILE"
+        assert item["SK"] == "SUMMARY#yesterday"
         assert item["user_id"] == user_id
         assert item["tier"] == "yesterday"
         assert item["content"] == "Summary content"
@@ -301,7 +301,7 @@ class TestPutProfileSummary:
             db.put_profile_summary(mock_table, user_id, tier, "content")
 
             item = mock_table.put_item.call_args[1]["Item"]
-            assert item["sk"] == f"SUMMARY#{tier}"
+            assert item["SK"] == f"SUMMARY#{tier}"
 
 
 # ---------------------------------------------------------------------------
@@ -312,7 +312,7 @@ class TestPutProfileSummary:
 class TestGetPaper:
     def test_returns_item_when_found(self, mock_table, user_id, paper_id):
         mock_table.get_item.return_value = {
-            "Item": {"pk": "...", "sk": "META", "title": "Paper Title"},
+            "Item": {"PK": "...", "SK": "META", "title": "Paper Title"},
         }
 
         result = db.get_paper(mock_table, user_id, paper_id)
@@ -333,8 +333,8 @@ class TestGetPaper:
 
         call_kwargs = mock_table.get_item.call_args[1]
         assert call_kwargs["Key"] == {
-            "pk": f"USER#{user_id}#PAPER#{paper_id}",
-            "sk": "META",
+            "PK": f"USER#{user_id}#PAPER#{paper_id}",
+            "SK": "META",
         }
 
 
@@ -344,8 +344,8 @@ class TestPutPaper:
 
         mock_table.put_item.assert_called_once()
         item = mock_table.put_item.call_args[1]["Item"]
-        assert item["pk"] == f"USER#{user_id}#PAPER#{sample_paper['id']}"
-        assert item["sk"] == "META"
+        assert item["PK"] == f"USER#{user_id}#PAPER#{sample_paper['id']}"
+        assert item["SK"] == "META"
         assert item["user_id"] == user_id
         assert item["title"] == "Test Paper"
 
@@ -373,7 +373,7 @@ class TestPutPaper:
 
 class TestPaperExists:
     def test_returns_true_when_exists(self, mock_table, user_id, paper_id):
-        mock_table.get_item.return_value = {"Item": {"pk": "..."}}
+        mock_table.get_item.return_value = {"Item": {"PK": "..."}}
 
         assert db.paper_exists(mock_table, user_id, paper_id) is True
 
@@ -387,7 +387,7 @@ class TestPaperExists:
         db.paper_exists(mock_table, user_id, paper_id)
 
         call_kwargs = mock_table.get_item.call_args[1]
-        assert call_kwargs["ProjectionExpression"] == "pk"
+        assert call_kwargs["ProjectionExpression"] == "PK"
 
 
 class TestListPapersByStatus:
@@ -435,8 +435,8 @@ class TestPutFeedCard:
 
         mock_table.put_item.assert_called_once()
         item = mock_table.put_item.call_args[1]["Item"]
-        assert item["pk"] == f"USER#{user_id}#FEED"
-        assert item["sk"] == f"CARD#{sample_card['card_id']}"
+        assert item["PK"] == f"USER#{user_id}#FEED"
+        assert item["SK"] == f"CARD#{sample_card['card_id']}"
         assert item["user_id"] == user_id
 
     def test_sets_created_at_when_missing(self, mock_table, user_id, sample_card):
@@ -472,7 +472,7 @@ class TestListFeedCards:
         assert next_key is None
 
     def test_returns_next_key_when_present(self, mock_table, user_id):
-        last_key = {"pk": "...", "sk": "CARD#xyz"}
+        last_key = {"PK": "...", "SK": "CARD#xyz"}
         mock_table.query.return_value = {
             "Items": [{"card_id": "c1"}],
             "LastEvaluatedKey": last_key,
@@ -483,7 +483,7 @@ class TestListFeedCards:
         assert next_key == last_key
 
     def test_passes_last_key_for_pagination(self, mock_table, user_id):
-        last_key = {"pk": "...", "sk": "CARD#prev"}
+        last_key = {"PK": "...", "SK": "CARD#prev"}
         mock_table.query.return_value = {"Items": []}
 
         db.list_feed_cards(mock_table, user_id, last_key=last_key)
@@ -540,8 +540,8 @@ class TestGetFeedCard:
 
         call_kwargs = mock_table.get_item.call_args[1]
         assert call_kwargs["Key"] == {
-            "pk": f"USER#{user_id}#FEED",
-            "sk": "CARD#c1",
+            "PK": f"USER#{user_id}#FEED",
+            "SK": "CARD#c1",
         }
 
 
@@ -556,8 +556,8 @@ class TestPutEngagementEvent:
 
         mock_table.put_item.assert_called_once()
         item = mock_table.put_item.call_args[1]["Item"]
-        assert item["pk"] == f"USER#{user_id}#ENGAGEMENT"
-        assert item["sk"] == f"TS#{sample_engagement_event['ts']}"
+        assert item["PK"] == f"USER#{user_id}#ENGAGEMENT"
+        assert item["SK"] == f"TS#{sample_engagement_event['ts']}"
         assert item["user_id"] == user_id
         assert item["action"] == "view"
         assert item["active_ms"] == 5000
@@ -617,8 +617,8 @@ class TestPutProfileHistoryEvent:
 
         mock_table.put_item.assert_called_once()
         item = mock_table.put_item.call_args[1]["Item"]
-        assert item["pk"] == f"USER#{user_id}#PROFILE_HISTORY"
-        assert item["sk"] == "TS#2026-06-10T01:00:00Z"
+        assert item["PK"] == f"USER#{user_id}#PROFILE_HISTORY"
+        assert item["SK"] == "TS#2026-06-10T01:00:00Z"
         assert item["user_id"] == user_id
         assert item["type"] == "area_added"
         assert item["area_id"] == "a1"
@@ -630,7 +630,7 @@ class TestPutProfileHistoryEvent:
 
         item = mock_table.put_item.call_args[1]["Item"]
         assert item["ts"].endswith("Z")
-        assert item["sk"].startswith("TS#")
+        assert item["SK"].startswith("TS#")
 
     def test_generates_sk_from_now_when_ts_is_none(self, mock_table, user_id):
         """When event['ts'] is None, the SK uses a generated timestamp.
@@ -644,7 +644,7 @@ class TestPutProfileHistoryEvent:
 
         item = mock_table.put_item.call_args[1]["Item"]
         # SK is built from the local ts variable (generated), so it's correct
-        assert item["sk"].startswith("TS#")
-        assert item["sk"] != "TS#None"
+        assert item["SK"].startswith("TS#")
+        assert item["SK"] != "TS#None"
         # The item["ts"] is overwritten by **event spread (known behavior)
         assert item["ts"] is None
