@@ -216,7 +216,7 @@ export class SarathiStack extends cdk.Stack {
 
     // ─── Step Functions: pipeline orchestration ───────────────────────
     const pipelineInput = {
-      user_id: 'kunal-initial',
+      user_id: '447844a8-c0e1-700b-2fdf-f9512eee3e49',
       table_name: table.tableName,
       s3_bucket: bucket.bucketName,
     };
