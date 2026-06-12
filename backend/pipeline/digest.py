@@ -200,7 +200,7 @@ def _generate_card(
             system=system_prompt,
             user_message=user_prompt,
             model_id=model,
-            max_tokens=4096,
+            max_tokens=8192,
         )
 
         if text is None:

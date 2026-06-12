@@ -102,50 +102,25 @@ def s2_api_response(sample_s2_paper) -> dict:
 
 
 class TestBuildQueries:
-    def test_multiple_areas(self, sample_areas):
+    @patch("backend.shared.query_gen.generate_all_queries")
+    def test_build_queries_uses_generate_all_queries(self, mock_gen, sample_areas):
+        """_build_queries delegates to generate_all_queries from query_gen."""
+        mock_gen.return_value = ["interp circuits", "SAE features"]
+
         queries = _build_queries(sample_areas)
-        assert len(queries) == 2
-        assert "mechanistic interpretability" in queries[0]
-        assert "sparse autoencoders" in queries[0]
-        assert "circuit analysis" in queries[0]
-        assert "AI alignment" in queries[1]
-        assert "RLHF" in queries[1]
 
-    def test_single_area(self, single_area):
-        queries = _build_queries(single_area)
-        assert len(queries) == 1
-        assert "reinforcement learning" in queries[0]
-        assert "PPO" in queries[0]
-        assert "DPO" in queries[0]
+        mock_gen.assert_called_once_with(sample_areas)
+        assert queries == ["interp circuits", "SAE features"]
 
-    def test_empty_areas(self):
-        queries = _build_queries([])
-        assert queries == []
+    @patch("backend.shared.query_gen.generate_all_queries")
+    def test_build_queries_fallback_on_empty(self, mock_gen, sample_areas):
+        """When generate_all_queries returns [], falls back to area labels."""
+        mock_gen.return_value = []
 
-    def test_areas_with_no_content(self):
-        areas = [Area(id="a1", user_id="u1", label="", just_right=[])]
-        queries = _build_queries(areas)
-        assert queries == []
+        queries = _build_queries(sample_areas)
 
-    def test_terms_capped_at_five(self):
-        areas = [
-            Area(
-                id="a1",
-                user_id="u1",
-                label="topic",
-                just_right=["kw1", "kw2", "kw3", "kw4", "kw5", "kw6"],
-            )
-        ]
-        queries = _build_queries(areas)
-        assert len(queries) == 1
-        # label + first 4 keywords = 5 terms capped
-        parts = queries[0].split()
-        assert len(parts) <= 5
-
-    def test_space_separated_terms(self, single_area):
-        queries = _build_queries(single_area)
-        # S2 uses simple space-separated queries
-        assert queries[0] == "reinforcement learning PPO DPO"
+        # Fallback uses area labels
+        assert queries == ["mechanistic interpretability", "AI alignment"]
 
 
 # ─── SemanticScholarSource.discover tests ────────────────────────────────────
@@ -250,25 +225,20 @@ class TestSemanticScholarDiscover:
 
     @patch("backend.sources.semantic_scholar.time.sleep")
     def test_discover_handles_rate_limiting(self, mock_sleep, s2_source, sample_areas, s2_api_response):
-        """discover() retries on 429 rate-limit response."""
+        """discover() stops all queries on 429 rate-limit response (_search returns was_limited=True)."""
         with patch.object(s2_source._session, "get") as mock_get:
             rate_limit_resp = MagicMock()
             rate_limit_resp.status_code = 429
             rate_limit_resp.headers = {"Retry-After": "5"}
 
-            success_resp = MagicMock()
-            success_resp.status_code = 200
-            success_resp.json.return_value = s2_api_response
-            success_resp.raise_for_status = MagicMock()
-
-            # First query: rate-limited then succeeds; second query: succeeds
-            mock_get.side_effect = [rate_limit_resp, success_resp, success_resp]
+            # First query is rate-limited immediately
+            mock_get.return_value = rate_limit_resp
 
             since = datetime(2024, 1, 1, tzinfo=timezone.utc)
             results = s2_source.discover(sample_areas, since)
 
-        # Should have retried and gotten results
-        assert len(results) >= 1
+        # _search returns ([], True) on 429, and discover stops all queries
+        assert results == []
 
     def test_discover_no_queries_returns_empty(self, s2_source):
         """When areas produce no queries, discover() returns empty without calling API."""

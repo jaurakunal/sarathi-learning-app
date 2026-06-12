@@ -55,270 +55,265 @@ def arxiv_source() -> ArxivSource:
 
 
 @pytest.fixture
-def mock_arxiv_paper():
-    """Create a mock arxiv.Result object."""
-    paper = MagicMock()
-    paper.entry_id = "http://arxiv.org/abs/2401.12345v1"
-    paper.title = "Scaling Sparse Autoencoders"
-    paper.summary = "We present a method to scale SAEs to frontier models."
-    paper.published = datetime(2024, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
-    paper.categories = ["cs.LG", "cs.AI"]
-    author1 = MagicMock()
-    author1.name = "Alice Smith"
-    author2 = MagicMock()
-    author2.name = "Bob Jones"
-    paper.authors = [author1, author2]
-    return paper
-
-
-@pytest.fixture
-def old_arxiv_paper():
-    """A paper that precedes the since cutoff."""
-    paper = MagicMock()
-    paper.entry_id = "http://arxiv.org/abs/2301.00001v1"
-    paper.title = "Old Paper"
-    paper.summary = "Ancient work."
-    paper.published = datetime(2023, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-    paper.categories = ["cs.LG"]
-    author = MagicMock()
-    author.name = "Charlie Brown"
-    paper.authors = [author]
-    return paper
-
-
-@pytest.fixture
 def mock_fitz():
     """Create a mock fitz module and inject it into sys.modules."""
     mock = MagicMock()
     return mock
 
 
+_SAMPLE_ATOM_XML = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom">
+  <entry>
+    <id>http://arxiv.org/abs/2401.12345v1</id>
+    <published>2026-06-01T00:00:00Z</published>
+    <title>Test Paper Title</title>
+    <summary>Test abstract content</summary>
+    <author><name>Alice Researcher</name></author>
+    <author><name>Bob Scientist</name></author>
+    <arxiv:primary_category term="cs.AI"/>
+    <category term="cs.AI"/>
+    <category term="cs.CL"/>
+  </entry>
+</feed>
+"""
+
+_EMPTY_ATOM_XML = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom">
+</feed>
+"""
+
+_OLD_PAPER_ATOM_XML = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom">
+  <entry>
+    <id>http://arxiv.org/abs/2301.00001v1</id>
+    <published>2023-01-01T00:00:00Z</published>
+    <title>Old Paper</title>
+    <summary>Ancient work</summary>
+    <author><name>Charlie Brown</name></author>
+    <arxiv:primary_category term="cs.LG"/>
+    <category term="cs.LG"/>
+  </entry>
+</feed>
+"""
+
+
 # ─── _build_query tests ──────────────────────────────────────────────────────
 
 
 class TestBuildQuery:
-    def test_multiple_areas(self, sample_areas):
+    def test_build_query_with_queries_provided(self, sample_areas, arxiv_source):
+        """When discover() is called with explicit queries, the arXiv query uses them."""
+        since = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+        with patch("backend.sources.arxiv.requests.get") as mock_get, \
+             patch("backend.sources.arxiv.time.sleep"):
+            mock_resp = MagicMock()
+            mock_resp.status_code = 200
+            mock_resp.text = _EMPTY_ATOM_XML
+            mock_resp.raise_for_status = MagicMock()
+            mock_get.return_value = mock_resp
+
+            arxiv_source.discover(sample_areas, since, queries=["q1", "q2"])
+
+            # Verify the search_query param passed to requests.get
+            call_kwargs = mock_get.call_args
+            params = call_kwargs[1]["params"] if "params" in call_kwargs[1] else call_kwargs[0][1]
+            assert params["search_query"] == "all:q1 OR all:q2"
+
+    @patch("backend.shared.query_gen.generate_all_queries")
+    def test_build_query_llm_fallback(self, mock_gen, sample_areas):
+        """When no queries are provided, _build_query uses generate_all_queries."""
+        mock_gen.return_value = ["fallback1"]
+
         query = _build_query(sample_areas)
-        # Should contain OR between area clauses
-        assert " OR " in query
-        # Each area should produce a parenthesized clause
-        assert query.count("(") == 2
-        assert query.count(")") == 2
-        # Area labels should appear
-        assert '"mechanistic interpretability"' in query
-        assert '"AI alignment"' in query
-        # just_right keywords
-        assert '"sparse autoencoders"' in query
-        assert '"circuit analysis"' in query
-        assert "RLHF" in query
-        assert '"Constitutional AI"' in query
-        # frontier snippet (truncated to 60 chars)
-        assert "Scaling SAEs to frontier models" in query
 
-    def test_single_area(self, single_area):
-        query = _build_query(single_area)
-        # No OR since there's only one area
-        assert " OR " not in query
-        # Should be a single parenthesized clause
-        assert query.startswith("(")
-        assert query.endswith(")")
-        assert '"reinforcement learning"' in query
-        assert "PPO" in query
-
-    def test_empty_areas(self):
-        query = _build_query([])
-        assert query == ""
-
-    def test_areas_with_no_content(self):
-        """Areas with empty label, no keywords, and no frontier produce empty query."""
-        areas = [Area(id="a1", user_id="u1", label="", just_right=[], frontier="")]
-        query = _build_query(areas)
-        assert query == ""
-
-    def test_single_word_not_quoted(self, single_area):
-        """Single-word terms should not be quoted."""
-        query = _build_query(single_area)
-        assert "PPO" in query
-        assert '"PPO"' not in query
-
-    def test_multi_word_quoted(self):
-        """Multi-word terms (containing spaces) should be quoted."""
-        areas = [Area(id="a1", user_id="u1", label="deep learning", just_right=[])]
-        query = _build_query(areas)
-        assert '"deep learning"' in query
-
-    def test_and_joins_within_area(self, single_area):
-        query = _build_query(single_area)
-        assert " AND " in query
-
-    def test_terms_capped_at_five(self):
-        """Only first 5 terms should be included per area."""
-        areas = [
-            Area(
-                id="a1",
-                user_id="u1",
-                label="topic",
-                just_right=["kw1", "kw2", "kw3", "kw4", "kw5", "kw6"],
-                frontier="some frontier text",
-            )
-        ]
-        query = _build_query(areas)
-        # label + 4 just_right = 5 terms (capped), so kw5, kw6, and frontier should not appear
-        assert "topic" in query
-        assert "kw1" in query
-        assert "kw4" in query
-
-    def test_frontier_truncated_at_60_chars(self):
-        """Frontier snippet is truncated at 60 characters."""
-        long_frontier = "A" * 100
-        areas = [
-            Area(id="a1", user_id="u1", label="topic", just_right=[], frontier=long_frontier)
-        ]
-        query = _build_query(areas)
-        # The frontier part should be at most 60 chars
-        assert "A" * 60 in query
-        assert "A" * 61 not in query
+        mock_gen.assert_called_once_with(sample_areas)
+        assert 'all:"fallback1"' in query
 
 
 # ─── ArxivSource.discover tests ──────────────────────────────────────────────
 
 
 class TestArxivDiscover:
-    @patch("backend.sources.arxiv.arxiv.Client")
-    @patch("backend.sources.arxiv.arxiv.Search")
+    @patch("backend.shared.query_gen.generate_all_queries")
+    @patch("backend.sources.arxiv.time.sleep")
+    @patch("backend.sources.arxiv.requests.get")
     def test_discover_returns_normalized_papers(
-        self, mock_search_cls, mock_client_cls, arxiv_source, sample_areas, mock_arxiv_paper
+        self, mock_get, mock_sleep, mock_gen, arxiv_source, sample_areas
     ):
         """discover() should return a list of dicts with all required fields."""
-        mock_client = MagicMock()
-        mock_client_cls.return_value = mock_client
-        mock_client.results.return_value = iter([mock_arxiv_paper])
+        mock_gen.return_value = ["test query"]
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.text = _SAMPLE_ATOM_XML
+        mock_resp.raise_for_status = MagicMock()
+        mock_get.return_value = mock_resp
 
-        since = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        since = datetime(2026, 1, 1, tzinfo=timezone.utc)
         results = arxiv_source.discover(sample_areas, since)
 
         assert len(results) == 1
         paper = results[0]
         assert paper["id"] == "http://arxiv.org/abs/2401.12345v1"
         assert paper["source"] == "arxiv"
-        assert paper["title"] == "Scaling Sparse Autoencoders"
-        assert paper["authors"] == ["Alice Smith", "Bob Jones"]
-        assert paper["abstract"] == "We present a method to scale SAEs to frontier models."
+        assert paper["title"] == "Test Paper Title"
+        assert paper["authors"] == ["Alice Researcher", "Bob Scientist"]
+        assert paper["abstract"] == "Test abstract content"
         assert paper["url"] == "http://arxiv.org/abs/2401.12345v1"
-        assert "2024-06-01" in paper["published"]
-        assert paper["arxiv_categories"] == ["cs.LG", "cs.AI"]
+        assert "2026-06-01" in paper["published"]
+        assert "cs.AI" in paper["arxiv_categories"]
+        assert "cs.CL" in paper["arxiv_categories"]
 
-    @patch("backend.sources.arxiv.arxiv.Client")
-    @patch("backend.sources.arxiv.arxiv.Search")
+    @patch("backend.shared.query_gen.generate_all_queries")
+    @patch("backend.sources.arxiv.time.sleep")
+    @patch("backend.sources.arxiv.requests.get")
     def test_discover_empty_results(
-        self, mock_search_cls, mock_client_cls, arxiv_source, sample_areas
+        self, mock_get, mock_sleep, mock_gen, arxiv_source, sample_areas
     ):
         """discover() with no matching papers returns empty list."""
-        mock_client = MagicMock()
-        mock_client_cls.return_value = mock_client
-        mock_client.results.return_value = iter([])
+        mock_gen.return_value = ["test query"]
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.text = _EMPTY_ATOM_XML
+        mock_resp.raise_for_status = MagicMock()
+        mock_get.return_value = mock_resp
 
-        since = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        since = datetime(2026, 1, 1, tzinfo=timezone.utc)
         results = arxiv_source.discover(sample_areas, since)
 
         assert results == []
 
-    @patch("backend.sources.arxiv.arxiv.Client")
-    @patch("backend.sources.arxiv.arxiv.Search")
+    @patch("backend.shared.query_gen.generate_all_queries")
+    @patch("backend.sources.arxiv.time.sleep")
+    @patch("backend.sources.arxiv.requests")
     def test_discover_api_failure_returns_empty(
-        self, mock_search_cls, mock_client_cls, arxiv_source, sample_areas
+        self, mock_requests, mock_sleep, mock_gen, arxiv_source, sample_areas
     ):
-        """discover() handles exceptions gracefully and returns empty list."""
-        mock_client = MagicMock()
-        mock_client_cls.return_value = mock_client
-        mock_client.results.side_effect = RuntimeError("Network error")
+        """discover() handles request exceptions gracefully and returns empty list."""
+        mock_gen.return_value = ["test query"]
+        # Create a real-ish exception class on the mock requests module
+        mock_requests.RequestException = type("RequestException", (Exception,), {})
+        mock_requests.get.side_effect = mock_requests.RequestException("Network error")
 
-        since = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        since = datetime(2026, 1, 1, tzinfo=timezone.utc)
         results = arxiv_source.discover(sample_areas, since)
 
         assert results == []
 
-    @patch("backend.sources.arxiv.arxiv.Client")
-    @patch("backend.sources.arxiv.arxiv.Search")
+    @patch("backend.shared.query_gen.generate_all_queries")
+    @patch("backend.sources.arxiv.time.sleep")
+    @patch("backend.sources.arxiv.requests.get")
     def test_discover_filters_papers_before_since(
-        self, mock_search_cls, mock_client_cls, arxiv_source, sample_areas, mock_arxiv_paper, old_arxiv_paper
+        self, mock_get, mock_sleep, mock_gen, arxiv_source, sample_areas
     ):
-        """Papers published before `since` should be excluded."""
-        mock_client = MagicMock()
-        mock_client_cls.return_value = mock_client
-        # Return papers in descending order: new first, then old
-        mock_client.results.return_value = iter([mock_arxiv_paper, old_arxiv_paper])
+        """Papers published before `since` should be excluded (break on old paper)."""
+        mock_gen.return_value = ["test query"]
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.text = _OLD_PAPER_ATOM_XML
+        mock_resp.raise_for_status = MagicMock()
+        mock_get.return_value = mock_resp
 
         since = datetime(2024, 3, 1, tzinfo=timezone.utc)
         results = arxiv_source.discover(sample_areas, since)
 
-        # Only the recent paper should be included
-        assert len(results) == 1
-        assert results[0]["title"] == "Scaling Sparse Autoencoders"
-
-    @patch("backend.sources.arxiv.arxiv.Client")
-    @patch("backend.sources.arxiv.arxiv.Search")
-    def test_discover_stops_at_old_paper(
-        self, mock_search_cls, mock_client_cls, arxiv_source, sample_areas, old_arxiv_paper
-    ):
-        """Since results are sorted newest-first, hitting an old paper breaks the loop."""
-        mock_client = MagicMock()
-        mock_client_cls.return_value = mock_client
-        mock_client.results.return_value = iter([old_arxiv_paper])
-
-        since = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        results = arxiv_source.discover(sample_areas, since)
-
         assert results == []
 
-    def test_discover_empty_query_returns_empty(self, arxiv_source):
+    @patch("backend.shared.query_gen.generate_all_queries")
+    def test_discover_empty_query_returns_empty(self, mock_gen, arxiv_source):
         """When areas produce no query, discover() returns empty without calling API."""
+        mock_gen.return_value = []
         empty_areas = [Area(id="a1", user_id="u1", label="", just_right=[])]
-        since = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        since = datetime(2026, 1, 1, tzinfo=timezone.utc)
         results = arxiv_source.discover(empty_areas, since)
         assert results == []
 
-    @patch("backend.sources.arxiv.arxiv.Client")
-    @patch("backend.sources.arxiv.arxiv.Search")
+    @patch("backend.shared.query_gen.generate_all_queries")
+    @patch("backend.sources.arxiv.time.sleep")
+    @patch("backend.sources.arxiv.requests.get")
     def test_discover_naive_since_gets_utc(
-        self, mock_search_cls, mock_client_cls, arxiv_source, sample_areas
+        self, mock_get, mock_sleep, mock_gen, arxiv_source, sample_areas
     ):
         """A timezone-naive `since` should be treated as UTC."""
-        mock_client = MagicMock()
-        mock_client_cls.return_value = mock_client
-        mock_client.results.return_value = iter([])
+        mock_gen.return_value = ["test query"]
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.text = _EMPTY_ATOM_XML
+        mock_resp.raise_for_status = MagicMock()
+        mock_get.return_value = mock_resp
 
         # Naive datetime (no tzinfo)
-        since = datetime(2024, 1, 1)
+        since = datetime(2026, 1, 1)
         results = arxiv_source.discover(sample_areas, since)
         # Should not crash
         assert results == []
 
-    @patch("backend.sources.arxiv.arxiv.Client")
-    @patch("backend.sources.arxiv.arxiv.Search")
-    def test_discover_paper_with_naive_published_date(
-        self, mock_search_cls, mock_client_cls, arxiv_source, sample_areas
+    @patch("backend.sources.arxiv.time.sleep")
+    @patch("backend.sources.arxiv.requests.get")
+    def test_discover_with_explicit_queries(
+        self, mock_get, mock_sleep, arxiv_source, sample_areas
     ):
-        """A paper with naive published datetime should still be processed."""
-        paper = MagicMock()
-        paper.entry_id = "http://arxiv.org/abs/2401.99999v1"
-        paper.title = "Naive Date Paper"
-        paper.summary = "Test."
-        paper.published = datetime(2024, 6, 15, 10, 0, 0)  # naive
-        paper.categories = ["cs.CL"]
-        author = MagicMock()
-        author.name = "Test Author"
-        paper.authors = [author]
+        """discover() with explicit queries parameter uses them directly."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.text = _SAMPLE_ATOM_XML
+        mock_resp.raise_for_status = MagicMock()
+        mock_get.return_value = mock_resp
 
-        mock_client = MagicMock()
-        mock_client_cls.return_value = mock_client
-        mock_client.results.return_value = iter([paper])
-
-        since = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        results = arxiv_source.discover(sample_areas, since)
+        since = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        results = arxiv_source.discover(sample_areas, since, queries=["sparse autoencoders"])
 
         assert len(results) == 1
-        assert results[0]["title"] == "Naive Date Paper"
+        # Verify that generate_all_queries was NOT called (no mock needed since we provide queries)
+        params = mock_get.call_args[1]["params"]
+        assert params["search_query"] == "all:sparse autoencoders"
+
+    @patch("backend.shared.query_gen.generate_all_queries")
+    @patch("backend.sources.arxiv.time.sleep")
+    @patch("backend.sources.arxiv.requests.get")
+    def test_discover_date_filtering(
+        self, mock_get, mock_sleep, mock_gen, arxiv_source, sample_areas
+    ):
+        """Papers older than `since` are filtered out by date comparison."""
+        mock_gen.return_value = ["query"]
+
+        # XML with a paper from 2026-06-01 and another from 2023-01-01
+        xml_with_both = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom">
+  <entry>
+    <id>http://arxiv.org/abs/2401.12345v1</id>
+    <published>2026-06-01T00:00:00Z</published>
+    <title>New Paper</title>
+    <summary>Recent work</summary>
+    <author><name>Alice</name></author>
+    <arxiv:primary_category term="cs.AI"/>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2301.00001v1</id>
+    <published>2023-01-01T00:00:00Z</published>
+    <title>Old Paper</title>
+    <summary>Ancient work</summary>
+    <author><name>Bob</name></author>
+    <arxiv:primary_category term="cs.LG"/>
+  </entry>
+</feed>
+"""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.text = xml_with_both
+        mock_resp.raise_for_status = MagicMock()
+        mock_get.return_value = mock_resp
+
+        since = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        results = arxiv_source.discover(sample_areas, since)
+
+        # Only the new paper should be present; old paper triggers break
+        assert len(results) == 1
+        assert results[0]["title"] == "New Paper"
 
 
 # ─── ArxivSource.fetch_full_text tests ───────────────────────────────────────

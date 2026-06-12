@@ -149,8 +149,13 @@ def handler(event: dict, context) -> dict:
 
     # Step 5: Deduplicate by title (case-insensitive) across sources
     unique_papers = _deduplicate_by_title(all_papers)
+    logger.info("Unique papers after title dedup: %d", len(unique_papers))
+
+    # Step 6: Batch LLM relevance filter — "is this in my ballpark?"
+    from backend.shared.relevance_filter import batch_relevance_filter
+    unique_papers = batch_relevance_filter(unique_papers, areas)
     candidates_found = len(unique_papers)
-    logger.info("Unique papers after title dedup: %d", candidates_found)
+    logger.info("Papers after relevance filter: %d", candidates_found)
 
     # Step 6 & 7: Check DDB for existing papers, write new candidates
     discovered_at = datetime.now(timezone.utc).isoformat()

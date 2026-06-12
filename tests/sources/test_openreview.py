@@ -573,28 +573,19 @@ class TestOpenReviewFetchFullText:
 
         assert result is None
 
-    @patch("backend.shared.pdf.extract_text_from_pdf")
     @patch("backend.sources.openreview.time.sleep")
-    def test_fetch_full_text_rate_limited_then_succeeds(self, mock_sleep, mock_extract, openreview_source):
-        """fetch_full_text retries after 429 and succeeds."""
+    def test_fetch_full_text_rate_limited_returns_none(self, mock_sleep, openreview_source):
+        """fetch_full_text returns None on 429 rate limit (no retry)."""
         with patch.object(openreview_source._session, "get") as mock_get:
             rate_resp = MagicMock()
             rate_resp.status_code = 429
             rate_resp.headers = {"Retry-After": "3"}
 
-            success_resp = MagicMock()
-            success_resp.status_code = 200
-            success_resp.content = b"%PDF-fake"
-            success_resp.headers = {"Content-Type": "application/pdf"}
-            success_resp.raise_for_status = MagicMock()
-
-            mock_get.side_effect = [rate_resp, success_resp]
-
-            mock_extract.return_value = "Retried text."
+            mock_get.return_value = rate_resp
 
             result = openreview_source.fetch_full_text("note123ABC")
 
-        assert result == "Retried text."
+        assert result is None
 
     def test_fetch_full_text_no_fitz_installed(self):
         """fetch_full_text returns None if pymupdf is not importable."""

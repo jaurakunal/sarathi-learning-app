@@ -242,7 +242,7 @@ def test_db_calls_correct_arguments(mock_db, mock_boto3, mock_call_llm, user_id,
     mock_db.get_full_profile.assert_called_once_with(mock_table, user_id)
 
     # Verify list_papers_by_status
-    mock_db.list_papers_by_status.assert_called_once_with(mock_table, user_id, "candidate")
+    mock_db.list_papers_by_status.assert_called_once_with(mock_table, user_id, "candidate", limit=100)
 
     # Verify put_paper receives table, user_id, paper dict
     mock_db.put_paper.assert_called_once()

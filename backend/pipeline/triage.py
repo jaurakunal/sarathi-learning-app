@@ -188,7 +188,7 @@ def handler(event: dict, context) -> dict:
         return {"papers_triaged": 0, "worth_reading": 0}
 
     # 2. Load candidate papers
-    candidates = db.list_papers_by_status(table, user_id, "candidate")
+    candidates = db.list_papers_by_status(table, user_id, "candidate", limit=100)
     if not candidates:
         logger.info("No candidate papers to triage for user %s.", user_id)
         return {"papers_triaged": 0, "worth_reading": 0}

@@ -13,6 +13,8 @@ import pytest
 # Happy path: sources return papers, dedup works, new papers written to DDB
 # ---------------------------------------------------------------------------
 
+@patch("backend.shared.relevance_filter.call_llm", return_value="[0, 1, 2, 3, 4, 5]")
+@patch("backend.shared.query_gen.call_llm", return_value='["test query 1", "test query 2"]')
 @patch("backend.pipeline.discover.boto3")
 @patch("backend.pipeline.discover.db")
 @patch("backend.pipeline.discover.ArxivSource")
@@ -73,6 +75,8 @@ def test_happy_path_writes_new_papers(
 # Source failure: one source throws, others still work (error isolation)
 # ---------------------------------------------------------------------------
 
+@patch("backend.shared.relevance_filter.call_llm", return_value="[0, 1, 2, 3, 4, 5]")
+@patch("backend.shared.query_gen.call_llm", return_value='["test query 1", "test query 2"]')
 @patch("backend.pipeline.discover.boto3")
 @patch("backend.pipeline.discover.db")
 @patch("backend.pipeline.discover.ArxivSource")
@@ -119,6 +123,8 @@ def test_source_failure_isolation(
 # Dedup by title: duplicate titles across sources are collapsed
 # ---------------------------------------------------------------------------
 
+@patch("backend.shared.relevance_filter.call_llm", return_value="[0, 1, 2, 3, 4, 5]")
+@patch("backend.shared.query_gen.call_llm", return_value='["test query 1", "test query 2"]')
 @patch("backend.pipeline.discover.boto3")
 @patch("backend.pipeline.discover.db")
 @patch("backend.pipeline.discover.ArxivSource")
@@ -184,6 +190,8 @@ def test_dedup_by_title(
 # Already-seen paper: paper_exists returns True → skipped
 # ---------------------------------------------------------------------------
 
+@patch("backend.shared.relevance_filter.call_llm", return_value="[0, 1, 2, 3, 4, 5]")
+@patch("backend.shared.query_gen.call_llm", return_value='["test query 1", "test query 2"]')
 @patch("backend.pipeline.discover.boto3")
 @patch("backend.pipeline.discover.db")
 @patch("backend.pipeline.discover.ArxivSource")
@@ -232,6 +240,8 @@ def test_already_seen_paper_skipped(
 # Empty results: all sources return nothing → summary shows zeros
 # ---------------------------------------------------------------------------
 
+@patch("backend.shared.relevance_filter.call_llm", return_value="[0, 1, 2, 3, 4, 5]")
+@patch("backend.shared.query_gen.call_llm", return_value='["test query 1", "test query 2"]')
 @patch("backend.pipeline.discover.boto3")
 @patch("backend.pipeline.discover.db")
 @patch("backend.pipeline.discover.ArxivSource")
@@ -299,6 +309,8 @@ def test_no_areas_returns_zeros(mock_db, mock_boto3, user_id, table_name):
 # Correct arguments passed to db functions
 # ---------------------------------------------------------------------------
 
+@patch("backend.shared.relevance_filter.call_llm", return_value="[0, 1, 2, 3, 4, 5]")
+@patch("backend.shared.query_gen.call_llm", return_value='["test query 1", "test query 2"]')
 @patch("backend.pipeline.discover.boto3")
 @patch("backend.pipeline.discover.db")
 @patch("backend.pipeline.discover.ArxivSource")

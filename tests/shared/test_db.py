@@ -635,9 +635,9 @@ class TestPutProfileHistoryEvent:
     def test_generates_sk_from_now_when_ts_is_none(self, mock_table, user_id):
         """When event['ts'] is None, the SK uses a generated timestamp.
 
-        Note: Due to **event spreading after the explicit 'ts' key in the dict
-        literal, the item's 'ts' field will be overwritten back to None. This
-        is a known quirk — the SK is still correct.
+        The **event spread overwrites ts back to None, and _sanitize_item
+        strips None values, so 'ts' is absent from the final item.
+        The SK is still correct (built from the generated ts variable).
         """
         event = {"ts": None, "type": "frontier_moved"}
         db.put_profile_history_event(mock_table, user_id, event)
@@ -646,5 +646,5 @@ class TestPutProfileHistoryEvent:
         # SK is built from the local ts variable (generated), so it's correct
         assert item["SK"].startswith("TS#")
         assert item["SK"] != "TS#None"
-        # The item["ts"] is overwritten by **event spread (known behavior)
-        assert item["ts"] is None
+        # _sanitize_item strips None values, so 'ts' key is absent
+        assert "ts" not in item
