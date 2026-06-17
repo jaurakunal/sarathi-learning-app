@@ -7,6 +7,7 @@ import logging
 from typing import Optional
 
 import boto3
+from botocore.config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ def call_llm(
     client = boto3.client(
         "bedrock-runtime",
         region_name=region or DEFAULT_REGION,
+        config=Config(read_timeout=300, retries={"max_attempts": 2}),
     )
 
     body = {

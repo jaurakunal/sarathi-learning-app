@@ -361,6 +361,11 @@ def run(event: dict) -> dict:
             logger.info(
                 "Feed card written: card_id=%s for paper=%s", card_id, paper_id
             )
+
+            # Mark paper as digested so it won't be re-processed next run
+            paper["status"] = "digested"
+            db.put_paper(table, user_id, paper)
+
             cards_generated += 1
 
         except Exception:
@@ -394,4 +399,6 @@ if __name__ == "__main__":
 
     result = run(event)
     print(json.dumps(result))
-    sys.exit(0 if result.get("papers_failed", 0) == 0 else 1)
+    # Exit 1 only if zero cards were generated (total failure).
+    # Partial failures (some papers skipped) are normal — don't fail the pipeline.
+    sys.exit(0 if result.get("cards_generated", 0) > 0 else 1)
