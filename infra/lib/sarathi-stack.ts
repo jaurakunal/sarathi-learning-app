@@ -208,24 +208,6 @@ export class SarathiStack extends cdk.Stack {
       memorySize: 512,
     });
 
-    const chatUrl = chatFn.addFunctionUrl({
-      authType: lambda.FunctionUrlAuthType.NONE,
-      invokeMode: lambda.InvokeMode.RESPONSE_STREAM,
-      cors: {
-        allowedOrigins: [
-          'https://d0000000000000.cloudfront.net',
-          'http://localhost:3000',
-        ],
-        allowedHeaders: ['Authorization', 'Content-Type'],
-        allowedMethods: [lambda.HttpMethod.POST],
-      },
-    });
-
-    chatFn.addPermission('PublicFunctionUrl', {
-      principal: new iam.AnyPrincipal(),
-      action: 'lambda:InvokeFunctionUrl',
-      functionUrlAuthType: lambda.FunctionUrlAuthType.NONE,
-    });
 
     // ─── Fargate: Digest step ────────────────────────────────────────
     const vpc = new ec2.Vpc(this, 'SarathiVpc', {
@@ -442,7 +424,6 @@ export class SarathiStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'UserPoolClientId', { value: userPoolClient.userPoolClientId });
     new cdk.CfnOutput(this, 'ApiUrl', { value: api.url });
     new cdk.CfnOutput(this, 'StateMachineArn', { value: stateMachine.stateMachineArn });
-    new cdk.CfnOutput(this, 'ChatUrl', { value: chatUrl.url });
     new cdk.CfnOutput(this, 'DistributionUrl', { value: `https://${distribution.distributionDomainName}` });
   }
 }
