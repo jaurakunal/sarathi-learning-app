@@ -379,6 +379,12 @@ export class SarathiStack extends cdk.Stack {
       authorizationType: apigw.AuthorizationType.COGNITO,
     });
 
+    const chatPaperResource = chatResource.addResource('{paper_id}');
+    chatPaperResource.addMethod('GET', new apigw.LambdaIntegration(chatFn), {
+      authorizer,
+      authorizationType: apigw.AuthorizationType.COGNITO,
+    });
+
     // ─── Frontend: S3 + CloudFront ─────────────────────────────────
     const frontendBucket = new s3.Bucket(this, 'FrontendBucket', {
       bucketName: `sarathi-frontend-${this.account}-${this.region}`,

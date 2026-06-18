@@ -1,30 +1,59 @@
 import { useState, useRef, useEffect } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { sendMessage } from '../api/chat'
+import { sendMessage, getChatHistory } from '../api/chat'
 import { getCard } from '../api/feed'
 import { ChatMessage } from '../components/ChatMessage'
 import { ChatInput } from '../components/ChatInput'
+import { LoadingSpinner } from '../components/LoadingSpinner'
 import type { ChatMessage as ChatMessageType } from '../types/chat'
 
 export function Chat() {
   const { id: cardId } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const location = useLocation()
-  const statePayerId = (location.state as { paper_id?: string })?.paper_id
+  const statePaperId = (location.state as { paper_id?: string })?.paper_id
 
   // Fetch card detail to get the real paper_id if not in route state
   const { data: cardData } = useQuery({
     queryKey: ['card', cardId],
     queryFn: () => getCard(cardId!),
-    enabled: !!cardId && !statePayerId,
+    enabled: !!cardId && !statePaperId,
   })
 
-  const paperId = statePayerId || cardData?.paper_id || ''
+  const paperId = statePaperId || cardData?.paper_id || ''
+
+  // Load existing conversation history
+  const { data: history, isLoading: historyLoading } = useQuery({
+    queryKey: ['chat-history', paperId],
+    queryFn: () => getChatHistory(paperId),
+    enabled: !!paperId,
+  })
+
   const [messages, setMessages] = useState<ChatMessageType[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const historyLoadedRef = useRef(false)
+
+  // Populate messages from history on first load
+  useEffect(() => {
+    if (history && !historyLoadedRef.current) {
+      historyLoadedRef.current = true
+      const restored: ChatMessageType[] = []
+      for (const turn of history.turns) {
+        if (turn.request) {
+          restored.push({ role: 'user', content: turn.request })
+        }
+        if (turn.response) {
+          restored.push({ role: 'assistant', content: turn.response })
+        }
+      }
+      if (restored.length > 0) {
+        setMessages(restored)
+      }
+    }
+  }, [history])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -73,7 +102,9 @@ export function Chat() {
 
       {/* Messages */}
       <div className="flex-1 max-w-lg mx-auto w-full px-4 py-4 space-y-4 overflow-y-auto">
-        {messages.length === 0 && (
+        {historyLoading && <LoadingSpinner />}
+
+        {!historyLoading && messages.length === 0 && (
           <div className="text-center py-16">
             <p className="text-zinc-500 text-sm">
               Ask anything about this paper.

@@ -36,15 +36,19 @@ Rules:
 
 
 def handler(event: dict, context) -> dict:
-    """Lambda Function URL handler for streaming Q&A."""
-    # Parse request
-    body = _parse_body(event)
-    if body is None:
-        return _error_response(400, "Invalid request body")
-
+    """Lambda handler for chat (POST = send message, GET = fetch history)."""
     user_id = _get_user_id(event)
     if not user_id:
         return _error_response(401, "Unauthorized")
+
+    http_method = event.get("httpMethod", "POST")
+    if http_method == "GET":
+        return _handle_get_history(event, user_id)
+
+    # POST: send a new message
+    body = _parse_body(event)
+    if body is None:
+        return _error_response(400, "Invalid request body")
 
     paper_id = body.get("paper_id", "")
     message = body.get("message", "").strip()
@@ -235,6 +239,51 @@ def _build_messages(
 
 def _sse_event(data: dict) -> str:
     return f"data: {json.dumps(data)}\n\n"
+
+
+def _handle_get_history(event: dict, user_id: str) -> dict:
+    """GET /chat/{paper_id} — return conversation history."""
+    path_params = event.get("pathParameters") or {}
+    paper_id = path_params.get("paper_id", "")
+
+    if not paper_id:
+        return _error_response(400, "paper_id is required in path")
+
+    dynamodb = boto3.resource("dynamodb")
+    table = dynamodb.Table(TABLE_NAME)
+
+    conv = db.get_conversation_by_paper(table, user_id, paper_id)
+    if conv is None:
+        return {
+            "statusCode": 200,
+            "headers": {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Headers": "Authorization,Content-Type",
+            },
+            "body": json.dumps({"turns": [], "conv_id": None}),
+        }
+
+    turns = db.get_conversation_turns(table, user_id, paper_id)
+    formatted = []
+    for turn in turns:
+        formatted.append({
+            "seq": turn.get("seq", 0),
+            "request": turn.get("request", ""),
+            "response": turn.get("response"),
+            "request_ts": turn.get("request_ts", ""),
+            "response_ts": turn.get("response_ts"),
+        })
+
+    return {
+        "statusCode": 200,
+        "headers": {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "Authorization,Content-Type",
+        },
+        "body": json.dumps({"turns": formatted, "conv_id": paper_id}),
+    }
 
 
 def _call_llm_messages(messages: list[dict], model_id: str) -> Optional[str]:
