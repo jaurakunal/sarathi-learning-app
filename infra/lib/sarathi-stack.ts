@@ -197,6 +197,27 @@ export class SarathiStack extends cdk.Stack {
       memorySize: 256,
     });
 
+    const chatFn = new lambda.Function(this, 'ChatFn', {
+      functionName: 'sarathi-chat',
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'backend.streaming.chat.handler',
+      code: lambdaCode,
+      environment: lambdaEnv,
+      role: lambdaRole,
+      timeout: cdk.Duration.minutes(5),
+      memorySize: 512,
+    });
+
+    const chatUrl = chatFn.addFunctionUrl({
+      authType: lambda.FunctionUrlAuthType.NONE,
+      invokeMode: lambda.InvokeMode.RESPONSE_STREAM,
+      cors: {
+        allowedOrigins: ['*'],
+        allowedHeaders: ['Authorization', 'Content-Type'],
+        allowedMethods: [lambda.HttpMethod.POST],
+      },
+    });
+
     // ─── Fargate: Digest step ────────────────────────────────────────
     const vpc = new ec2.Vpc(this, 'SarathiVpc', {
       maxAzs: 2,
@@ -390,6 +411,7 @@ export class SarathiStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'UserPoolClientId', { value: userPoolClient.userPoolClientId });
     new cdk.CfnOutput(this, 'ApiUrl', { value: api.url });
     new cdk.CfnOutput(this, 'StateMachineArn', { value: stateMachine.stateMachineArn });
+    new cdk.CfnOutput(this, 'ChatUrl', { value: chatUrl.url });
     new cdk.CfnOutput(this, 'DistributionUrl', { value: `https://${distribution.distributionDomainName}` });
   }
 }

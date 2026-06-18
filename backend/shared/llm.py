@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Optional
+from typing import Generator, Optional
 
 import boto3
 from botocore.config import Config
@@ -72,3 +72,76 @@ def call_llm(
     except Exception:
         logger.exception("Bedrock LLM call failed (model=%s)", model_id)
         return None
+
+
+def stream_llm(
+    system: str,
+    messages: list[dict],
+    model_id: str = DEFAULT_MODEL_ID,
+    max_tokens: int = 4096,
+    temperature: float = 0.7,
+    region: Optional[str] = None,
+) -> Generator[str, None, Optional[dict]]:
+    """Stream LLM response via Bedrock. Yields text chunks.
+
+    Args:
+        system: System prompt.
+        messages: Full message history [{role, content}, ...].
+        model_id: Bedrock model ID.
+        max_tokens: Max output tokens.
+        temperature: Sampling temperature.
+        region: AWS region.
+
+    Yields:
+        Text chunks as they arrive.
+
+    Returns:
+        Usage metadata dict {tokens_in, tokens_out} after stream ends,
+        or None on failure.
+    """
+    client = boto3.client(
+        "bedrock-runtime",
+        region_name=region or DEFAULT_REGION,
+        config=Config(read_timeout=300, retries={"max_attempts": 1}),
+    )
+
+    body = {
+        "anthropic_version": "bedrock-2023-05-31",
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "system": system,
+        "messages": messages,
+    }
+
+    try:
+        response = client.invoke_model_with_response_stream(
+            modelId=model_id,
+            contentType="application/json",
+            accept="application/json",
+            body=json.dumps(body),
+        )
+    except Exception:
+        logger.exception("Bedrock stream call failed (model=%s)", model_id)
+        return None
+
+    tokens_in = 0
+    tokens_out = 0
+
+    for event in response.get("body", []):
+        chunk = json.loads(event.get("chunk", {}).get("bytes", b"{}"))
+        event_type = chunk.get("type", "")
+
+        if event_type == "content_block_delta":
+            delta = chunk.get("delta", {})
+            if delta.get("type") == "text_delta":
+                yield delta.get("text", "")
+
+        elif event_type == "message_delta":
+            usage = chunk.get("usage", {})
+            tokens_out = usage.get("output_tokens", 0)
+
+        elif event_type == "message_start":
+            usage = chunk.get("message", {}).get("usage", {})
+            tokens_in = usage.get("input_tokens", 0)
+
+    return {"tokens_in": tokens_in, "tokens_out": tokens_out}

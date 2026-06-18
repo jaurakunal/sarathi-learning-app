@@ -183,9 +183,19 @@ export function CardDetail() {
           )}
         </div>
 
+        {/* Ask a question */}
+        <div className="pt-6 border-t border-zinc-800">
+          <button
+            onClick={() => navigate(`/card/${id}/chat`)}
+            className="w-full py-3 bg-zinc-800 border border-zinc-700 text-white text-sm font-medium rounded-xl hover:bg-zinc-700 transition-colors"
+          >
+            Ask a question about this paper
+          </button>
+        </div>
+
         {/* Source link */}
         {card.source_url && (
-          <div className="pt-6 pb-12 border-t border-zinc-800">
+          <div className="pt-4 pb-12">
             <a
               href={card.source_url}
               target="_blank"

@@ -392,3 +392,106 @@ def put_profile_history_event(table, user_id: str, event: dict) -> None:
         **event,
     }
     table.put_item(Item=_sanitize_item(item))
+
+
+# ---------------------------------------------------------------------------
+# Conversations
+# ---------------------------------------------------------------------------
+
+def get_conversation_by_paper(table, user_id: str, paper_id: str) -> Optional[dict]:
+    """Find the conversation META for a given paper (conv_id = paper_id convention)."""
+    resp = table.get_item(
+        Key={"PK": _conv_pk(user_id, paper_id), "SK": "META"},
+    )
+    return resp.get("Item")
+
+
+def create_conversation(
+    table, user_id: str, paper_id: str, full_text_s3_key: str
+) -> dict:
+    """Create a new conversation for a paper. conv_id = paper_id."""
+    item = {
+        "PK": _conv_pk(user_id, paper_id),
+        "SK": "META",
+        "user_id": user_id,
+        "conv_id": paper_id,
+        "scope": "paper",
+        "paper_id": paper_id,
+        "full_text_s3_key": full_text_s3_key,
+        "created_at": _now_iso(),
+        "last_active": _now_iso(),
+        "turn_count": 0,
+        "gsi1pk": f"USER#{user_id}",
+        "gsi1sk": f"CONV#{paper_id}",
+    }
+    table.put_item(Item=_sanitize_item(item))
+    return item
+
+
+def get_conversation_turns(table, user_id: str, conv_id: str) -> list[dict]:
+    """Get all turns for a conversation, ordered by sequence."""
+    resp = table.query(
+        KeyConditionExpression=(
+            Key("PK").eq(_conv_pk(user_id, conv_id))
+            & Key("SK").begins_with("TURN#")
+        ),
+        ScanIndexForward=True,
+    )
+    return resp.get("Items", [])
+
+
+def put_turn(
+    table, user_id: str, conv_id: str, seq: int, request: str, request_ts: str
+) -> None:
+    """Write a new turn with request only (response filled later)."""
+    item = {
+        "PK": _conv_pk(user_id, conv_id),
+        "SK": f"TURN#{seq:05d}",
+        "user_id": user_id,
+        "conv_id": conv_id,
+        "seq": seq,
+        "request": request,
+        "request_ts": request_ts,
+    }
+    table.put_item(Item=_sanitize_item(item))
+
+
+def update_turn_response(
+    table,
+    user_id: str,
+    conv_id: str,
+    seq: int,
+    response: str,
+    response_ts: str,
+    citations: list[str],
+    tokens_in: int,
+    tokens_out: int,
+) -> None:
+    """Fill in the response on an existing turn item."""
+    table.update_item(
+        Key={"PK": _conv_pk(user_id, conv_id), "SK": f"TURN#{seq:05d}"},
+        UpdateExpression=(
+            "SET #resp = :resp, response_ts = :rts, citations = :cit, "
+            "tokens_in = :tin, tokens_out = :tout"
+        ),
+        ExpressionAttributeNames={"#resp": "response"},
+        ExpressionAttributeValues={
+            ":resp": response,
+            ":rts": response_ts,
+            ":cit": citations,
+            ":tin": tokens_in,
+            ":tout": tokens_out,
+        },
+    )
+
+
+def update_conversation_last_active(table, user_id: str, conv_id: str) -> None:
+    """Bump the last_active timestamp and turn_count on conversation META."""
+    table.update_item(
+        Key={"PK": _conv_pk(user_id, conv_id), "SK": "META"},
+        UpdateExpression="SET last_active = :la ADD turn_count :one",
+        ExpressionAttributeValues={
+            ":la": _now_iso(),
+            ":one": 1,
+        },
+    )
