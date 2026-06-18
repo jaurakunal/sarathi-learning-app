@@ -60,6 +60,7 @@ export function useEngagement({ paper_id, card_id }: UseEngagementOptions) {
   }, [])
 
   const fireEvent = useCallback((action: EngagementEvent['action'], extra?: Partial<EngagementEvent>) => {
+    if (!paper_id) return
     const event: EngagementEvent = {
       paper_id,
       card_id,

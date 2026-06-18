@@ -221,6 +221,12 @@ export class SarathiStack extends cdk.Stack {
       },
     });
 
+    chatFn.addPermission('PublicFunctionUrl', {
+      principal: new iam.AnyPrincipal(),
+      action: 'lambda:InvokeFunctionUrl',
+      functionUrlAuthType: lambda.FunctionUrlAuthType.NONE,
+    });
+
     // ─── Fargate: Digest step ────────────────────────────────────────
     const vpc = new ec2.Vpc(this, 'SarathiVpc', {
       maxAzs: 2,
