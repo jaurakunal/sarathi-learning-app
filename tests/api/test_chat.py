@@ -133,10 +133,9 @@ class TestHandler:
         result = handler(event, None)
         assert result["statusCode"] == 401
 
-    @patch("backend.streaming.chat.stream_llm")
     @patch("backend.streaming.chat.boto3")
     @patch("backend.streaming.chat.db")
-    def test_paper_not_in_s3_returns_404(self, mock_db, mock_boto3, mock_stream):
+    def test_paper_not_in_s3_returns_404(self, mock_db, mock_boto3):
         mock_table = MagicMock()
         mock_boto3.resource.return_value.Table.return_value = mock_table
         mock_s3 = MagicMock()
@@ -153,15 +152,16 @@ class TestHandler:
         result = handler(event, None)
         assert result["statusCode"] == 404
 
+    @patch("backend.streaming.chat._call_llm_messages")
     @patch("backend.streaming.chat._read_s3_text")
-    @patch("backend.streaming.chat.stream_llm")
     @patch("backend.streaming.chat.boto3")
     @patch("backend.streaming.chat.db")
-    def test_successful_stream_returns_sse(self, mock_db, mock_boto3, mock_stream, mock_s3_read):
+    def test_successful_chat_returns_response(self, mock_db, mock_boto3, mock_s3_read, mock_llm):
         mock_table = MagicMock()
         mock_boto3.resource.return_value.Table.return_value = mock_table
         mock_boto3.client.return_value = MagicMock()
         mock_s3_read.return_value = "Full paper text here"
+        mock_llm.return_value = "Reflection is the process of synthesizing observations."
 
         mock_db.get_conversation_by_paper.return_value = {
             "conv_id": "paper1",
@@ -170,21 +170,12 @@ class TestHandler:
         mock_db.get_conversation_turns.return_value = []
         mock_db.get_full_profile.return_value = {"summaries": []}
 
-        def fake_stream(*args, **kwargs):
-            yield "Hello "
-            yield "world"
-            return {"tokens_in": 100, "tokens_out": 5}
-
-        mock_stream.return_value = fake_stream()
-
-        event = _make_event(body={"paper_id": "paper1", "message": "hi"})
+        event = _make_event(body={"paper_id": "paper1", "message": "What is reflection?"})
         result = handler(event, None)
 
         assert result["statusCode"] == 200
-        assert result["headers"]["Content-Type"] == "text/event-stream"
-        body = result["body"]
-        assert '"type": "start"' in body
-        assert '"type": "chunk"' in body
-        assert "Hello " in body
-        assert "world" in body
-        assert '"type": "done"' in body
+        body = json.loads(result["body"])
+        assert body["conv_id"] == "paper1"
+        assert body["turn_seq"] == 1
+        assert "Reflection is the process" in body["response"]
+        mock_db.update_turn_response.assert_called_once()

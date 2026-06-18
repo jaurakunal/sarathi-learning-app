@@ -15,7 +15,6 @@ from typing import Optional
 import boto3
 
 from backend.shared import db
-from backend.shared.llm import stream_llm
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -90,68 +89,31 @@ def handler(event: dict, context) -> dict:
     # 7. Assemble LLM messages
     llm_messages = _build_messages(turns, message, paper_text, summaries_text)
 
-    # 8. Stream response
-    response_chunks: list[str] = []
-    tokens_in = 0
-    tokens_out = 0
+    # 8. Call LLM (non-streaming for API Gateway compatibility)
+    llm_response = _call_llm_messages(llm_messages, MODEL_ID)
 
-    def generate_sse():
-        nonlocal tokens_in, tokens_out
+    if llm_response is None:
+        return _error_response(500, "LLM call failed")
 
-        yield _sse_event({"type": "start", "conv_id": conv_id, "turn_seq": seq})
+    # 9. Update turn with full response
+    response_ts = _now_iso()
+    db.update_turn_response(
+        table, user_id, conv_id, seq,
+        response=llm_response,
+        response_ts=response_ts,
+        citations=[],
+        tokens_in=0,
+        tokens_out=0,
+    )
 
-        stream = stream_llm(
-            system=SYSTEM_PROMPT,
-            messages=llm_messages,
-            model_id=MODEL_ID,
-            max_tokens=4096,
-            temperature=0.3,
-        )
-
-        if stream is None:
-            yield _sse_event({"type": "error", "message": "LLM stream failed to start"})
-            return
-
-        usage = None
-        try:
-            while True:
-                chunk = next(stream)
-                response_chunks.append(chunk)
-                yield _sse_event({"type": "chunk", "text": chunk})
-        except StopIteration as e:
-            usage = e.value
-
-        if usage:
-            tokens_in = usage.get("tokens_in", 0)
-            tokens_out = usage.get("tokens_out", 0)
-
-        yield _sse_event({
-            "type": "done",
-            "tokens_in": tokens_in,
-            "tokens_out": tokens_out,
-        })
-
-        # 9. Update turn with full response
-        full_response = "".join(response_chunks)
-        response_ts = _now_iso()
-        db.update_turn_response(
-            table, user_id, conv_id, seq,
-            response=full_response,
-            response_ts=response_ts,
-            citations=[],
-            tokens_in=tokens_in,
-            tokens_out=tokens_out,
-        )
-
-    # Return streaming response
     return {
         "statusCode": 200,
-        "headers": {
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            },
-        "body": "".join(generate_sse()),
+        "headers": {"Content-Type": "application/json"},
+        "body": json.dumps({
+            "conv_id": conv_id,
+            "turn_seq": seq,
+            "response": llm_response,
+        }),
     }
 
 
@@ -269,6 +231,39 @@ def _build_messages(
 
 def _sse_event(data: dict) -> str:
     return f"data: {json.dumps(data)}\n\n"
+
+
+def _call_llm_messages(messages: list[dict], model_id: str) -> Optional[str]:
+    """Call Bedrock with a full messages array (multi-turn)."""
+    client = boto3.client(
+        "bedrock-runtime",
+        region_name="us-east-1",
+        config=__import__("botocore.config", fromlist=["Config"]).Config(
+            read_timeout=300, retries={"max_attempts": 2}
+        ),
+    )
+    body = {
+        "anthropic_version": "bedrock-2023-05-31",
+        "max_tokens": 4096,
+        "temperature": 0.3,
+        "system": SYSTEM_PROMPT,
+        "messages": messages,
+    }
+    try:
+        response = client.invoke_model(
+            modelId=model_id,
+            contentType="application/json",
+            accept="application/json",
+            body=json.dumps(body),
+        )
+        response_body = json.loads(response["body"].read())
+        content = response_body.get("content", [])
+        if content and content[0].get("type") == "text":
+            return content[0]["text"]
+        return None
+    except Exception:
+        logger.exception("Bedrock multi-turn call failed")
+        return None
 
 
 def _error_response(status: int, message: str) -> dict:

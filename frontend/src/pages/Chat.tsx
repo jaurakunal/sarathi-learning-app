@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { streamChat } from '../api/chat'
+import { sendMessage } from '../api/chat'
 import { ChatMessage } from '../components/ChatMessage'
 import { ChatInput } from '../components/ChatInput'
 import type { ChatMessage as ChatMessageType } from '../types/chat'
@@ -9,7 +9,7 @@ export function Chat() {
   const { id: paperId } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [messages, setMessages] = useState<ChatMessageType[]>([])
-  const [streaming, setStreaming] = useState(false)
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -21,45 +21,19 @@ export function Chat() {
     if (!paperId) return
     setError('')
 
-    // Add user message
     setMessages((prev) => [...prev, { role: 'user', content: text }])
-
-    // Add empty assistant message for streaming
     setMessages((prev) => [...prev, { role: 'assistant', content: '', streaming: true }])
-    setStreaming(true)
+    setLoading(true)
 
     try {
-      const stream = streamChat(paperId, text)
-
-      for await (const event of stream) {
-        if (event.type === 'chunk') {
-          setMessages((prev) => {
-            const updated = [...prev]
-            const last = updated[updated.length - 1]
-            if (last.role === 'assistant') {
-              updated[updated.length - 1] = {
-                ...last,
-                content: last.content + event.text,
-              }
-            }
-            return updated
-          })
-        } else if (event.type === 'done') {
-          setMessages((prev) => {
-            const updated = [...prev]
-            const last = updated[updated.length - 1]
-            if (last.role === 'assistant') {
-              updated[updated.length - 1] = { ...last, streaming: false }
-            }
-            return updated
-          })
-        } else if (event.type === 'error') {
-          setError(event.message)
-        }
-      }
+      const result = await sendMessage(paperId, text)
+      setMessages((prev) => {
+        const updated = [...prev]
+        updated[updated.length - 1] = { role: 'assistant', content: result.response }
+        return updated
+      })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Stream failed')
-      // Remove empty assistant message on failure
+      setError(err instanceof Error ? err.message : 'Failed to get response')
       setMessages((prev) => {
         const last = prev[prev.length - 1]
         if (last?.role === 'assistant' && !last.content) {
@@ -68,7 +42,7 @@ export function Chat() {
         return prev
       })
     } finally {
-      setStreaming(false)
+      setLoading(false)
     }
   }
 
@@ -109,7 +83,7 @@ export function Chat() {
 
       {/* Input */}
       <div className="max-w-lg mx-auto w-full px-4 py-4 pb-safe-bottom border-t border-zinc-800/50">
-        <ChatInput onSend={handleSend} disabled={streaming} />
+        <ChatInput onSend={handleSend} disabled={loading} />
       </div>
     </div>
   )

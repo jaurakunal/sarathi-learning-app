@@ -3,16 +3,15 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { Chat } from './Chat'
 
-// jsdom doesn't implement scrollIntoView
 Element.prototype.scrollIntoView = vi.fn()
 
 vi.mock('../api/chat', () => ({
-  streamChat: vi.fn(),
+  sendMessage: vi.fn(),
 }))
 
-import { streamChat } from '../api/chat'
+import { sendMessage } from '../api/chat'
 
-const mockStreamChat = vi.mocked(streamChat)
+const mockSendMessage = vi.mocked(sendMessage)
 
 function renderChat(paperId = '2304.03442') {
   return render(
@@ -42,18 +41,8 @@ describe('Chat page', () => {
     expect(screen.getByPlaceholderText('Ask about this paper...')).toBeInTheDocument()
   })
 
-  it('renders send button', () => {
-    renderChat()
-    expect(screen.getByText('→')).toBeInTheDocument()
-  })
-
   it('adds user message on send', async () => {
-    async function* fakeStream() {
-      yield { type: 'start' as const, conv_id: 'conv1', turn_seq: 1 }
-      yield { type: 'chunk' as const, text: 'Response text' }
-      yield { type: 'done' as const, tokens_in: 100, tokens_out: 10 }
-    }
-    mockStreamChat.mockReturnValue(fakeStream())
+    mockSendMessage.mockResolvedValue({ conv_id: 'p1', turn_seq: 1, response: 'Answer' })
 
     renderChat()
     const input = screen.getByPlaceholderText('Ask about this paper...')
@@ -65,14 +54,8 @@ describe('Chat page', () => {
     })
   })
 
-  it('displays streamed response', async () => {
-    async function* fakeStream() {
-      yield { type: 'start' as const, conv_id: 'conv1', turn_seq: 1 }
-      yield { type: 'chunk' as const, text: 'Reflection is ' }
-      yield { type: 'chunk' as const, text: 'the process...' }
-      yield { type: 'done' as const, tokens_in: 100, tokens_out: 20 }
-    }
-    mockStreamChat.mockReturnValue(fakeStream())
+  it('displays response from API', async () => {
+    mockSendMessage.mockResolvedValue({ conv_id: 'p1', turn_seq: 1, response: 'Reflection is the process...' })
 
     renderChat()
     const input = screen.getByPlaceholderText('Ask about this paper...')
@@ -84,10 +67,8 @@ describe('Chat page', () => {
     })
   })
 
-  it('shows error on stream failure', async () => {
-    mockStreamChat.mockImplementation(async function* () {
-      throw new Error('Network error')
-    })
+  it('shows error on failure', async () => {
+    mockSendMessage.mockRejectedValue(new Error('LLM call failed'))
 
     renderChat()
     const input = screen.getByPlaceholderText('Ask about this paper...')
@@ -95,20 +76,12 @@ describe('Chat page', () => {
     fireEvent.click(screen.getByText('→'))
 
     await waitFor(() => {
-      expect(screen.getByText('Network error')).toBeInTheDocument()
+      expect(screen.getByText('LLM call failed')).toBeInTheDocument()
     })
   })
 
-  it('disables input while streaming', async () => {
-    let resolve: () => void
-    const blockingPromise = new Promise<void>((r) => { resolve = r })
-
-    async function* slowStream() {
-      yield { type: 'start' as const, conv_id: 'conv1', turn_seq: 1 }
-      await blockingPromise
-      yield { type: 'done' as const, tokens_in: 0, tokens_out: 0 }
-    }
-    mockStreamChat.mockReturnValue(slowStream())
+  it('disables input while loading', async () => {
+    mockSendMessage.mockReturnValue(new Promise(() => {}))
 
     renderChat()
     const input = screen.getByPlaceholderText('Ask about this paper...')
@@ -118,7 +91,18 @@ describe('Chat page', () => {
     await waitFor(() => {
       expect(input).toBeDisabled()
     })
+  })
 
-    resolve!()
+  it('shows loading indicator while waiting', async () => {
+    mockSendMessage.mockReturnValue(new Promise(() => {}))
+
+    renderChat()
+    const input = screen.getByPlaceholderText('Ask about this paper...')
+    fireEvent.change(input, { target: { value: 'Test' } })
+    fireEvent.click(screen.getByText('→'))
+
+    await waitFor(() => {
+      expect(document.querySelector('.animate-pulse')).toBeInTheDocument()
+    })
   })
 })

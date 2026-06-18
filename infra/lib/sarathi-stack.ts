@@ -204,7 +204,7 @@ export class SarathiStack extends cdk.Stack {
       code: lambdaCode,
       environment: lambdaEnv,
       role: lambdaRole,
-      timeout: cdk.Duration.minutes(5),
+      timeout: cdk.Duration.seconds(29),
       memorySize: 512,
     });
 
@@ -371,6 +371,12 @@ export class SarathiStack extends cdk.Stack {
 
     const engagementResource = api.root.addResource('engagement');
     engagementResource.addMethod('POST', new apigw.LambdaIntegration(engagementFn), {
+      authorizer,
+      authorizationType: apigw.AuthorizationType.COGNITO,
+    });
+
+    const chatResource = api.root.addResource('chat');
+    chatResource.addMethod('POST', new apigw.LambdaIntegration(chatFn), {
       authorizer,
       authorizationType: apigw.AuthorizationType.COGNITO,
     });
