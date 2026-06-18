@@ -108,7 +108,11 @@ def handler(event: dict, context) -> dict:
 
     return {
         "statusCode": 200,
-        "headers": {"Content-Type": "application/json"},
+        "headers": {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "Authorization,Content-Type",
+        },
         "body": json.dumps({
             "conv_id": conv_id,
             "turn_seq": seq,
@@ -271,6 +275,8 @@ def _error_response(status: int, message: str) -> dict:
         "statusCode": status,
         "headers": {
             "Content-Type": "application/json",
-            },
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "Authorization,Content-Type",
+        },
         "body": json.dumps({"error": message}),
     }
