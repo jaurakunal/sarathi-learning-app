@@ -13,7 +13,10 @@ test: ## Run unit tests (fast, no network)
 integration-test: ## Run full pipeline integration test (hits real AWS)
 	AWS_PROFILE=poc AWS_DEFAULT_REGION=us-east-1 python scripts/integration_test.py
 
-test-all: test integration-test ## Run unit tests + integration test
+api-test: ## Run API integration test (validates deployed endpoints + CORS)
+	AWS_PROFILE=poc AWS_DEFAULT_REGION=us-east-1 python scripts/api_integration_test.py
+
+test-all: test integration-test api-test ## Run unit tests + all integration tests
 
 lint: ## Run linting
 	python -m ruff check backend/ infra/
@@ -22,7 +25,7 @@ build-backend: ## Package backend for deployment
 	@echo "Backend packaging — handled by CDK asset bundling"
 
 build-frontend: ## Build frontend SPA
-	@echo "Frontend build — TODO: wire up once framework chosen"
+	cd frontend && npm run build
 
 synth: ## Synthesize CDK CloudFormation template
 	cd infra && cdk synth
