@@ -70,10 +70,14 @@ export function useEngagement({ paper_id, card_id }: UseEngagementOptions) {
     postEngagement(event).catch(() => {})
   }, [paper_id, card_id])
 
-  const fireExpand = useCallback(() => {
+  const fireExpand = useCallback((section?: string) => {
     trackInteraction()
-    fireEvent('expand')
+    fireEvent('expand', section ? { section } : undefined)
   }, [fireEvent, trackInteraction])
+
+  const fireAsk = useCallback(() => {
+    fireEvent('ask')
+  }, [fireEvent])
 
   const fireRead = useCallback(() => {
     if (firedReadRef.current) return
@@ -97,6 +101,7 @@ export function useEngagement({ paper_id, card_id }: UseEngagementOptions) {
     trackInteraction,
     fireEvent,
     fireExpand,
+    fireAsk,
     fireRead,
     fireDismiss,
     getActiveMs,

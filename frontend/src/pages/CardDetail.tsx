@@ -53,6 +53,7 @@ export function CardDetail() {
 
   const handleAskQuestion = () => {
     navigatingToChatRef.current = true
+    engagement.fireAsk()
     navigate(`/card/${id}/chat`, { state: { paper_id: card?.paper_id } })
   }
 
@@ -143,13 +144,13 @@ export function CardDetail() {
           )}
 
           {card.glossary?.length > 0 && (
-            <CollapsibleSection title="Glossary" onExpand={engagement.fireExpand}>
+            <CollapsibleSection title="Glossary" onExpand={() => engagement.fireExpand('glossary')}>
               <Glossary items={card.glossary} />
             </CollapsibleSection>
           )}
 
           {card.digest.deep && (
-            <CollapsibleSection title="Deep Dive" onExpand={engagement.fireExpand}>
+            <CollapsibleSection title="Deep Dive" onExpand={() => engagement.fireExpand('deep_dive')}>
               <p className="text-sm text-zinc-300 leading-relaxed whitespace-pre-line">
                 {card.digest.deep}
               </p>
@@ -157,7 +158,7 @@ export function CardDetail() {
           )}
 
           {card.math_notes?.length > 0 && (
-            <CollapsibleSection title="Math Notes" onExpand={engagement.fireExpand}>
+            <CollapsibleSection title="Math Notes" onExpand={() => engagement.fireExpand('math_notes')}>
               <div className="space-y-3">
                 {card.math_notes.map((note, i) => (
                   <MathNote key={i} plain={note.plain} equation={note.equation_optional} />

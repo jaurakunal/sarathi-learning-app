@@ -7,6 +7,7 @@ export interface EngagementEvent {
   active_ms?: number
   scroll_depth_pct?: number
   interactions?: number
+  section?: string
 }
 
 export function postEngagement(event: EngagementEvent): Promise<void> {

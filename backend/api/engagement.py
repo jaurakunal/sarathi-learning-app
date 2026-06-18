@@ -77,11 +77,13 @@ def handler(event: dict, context) -> dict:
         "action": action,
     }
 
-    # Optional numeric fields
+    # Optional fields
     if body.get("active_ms") is not None:
         engagement_event["active_ms"] = int(body["active_ms"])
     if body.get("scroll_depth_pct") is not None:
         engagement_event["scroll_depth_pct"] = int(body["scroll_depth_pct"])
+    if body.get("section"):
+        engagement_event["section"] = str(body["section"])
     if body.get("interactions") is not None:
         engagement_event["interactions"] = int(body["interactions"])
 
