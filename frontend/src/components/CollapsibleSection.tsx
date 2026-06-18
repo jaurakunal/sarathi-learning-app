@@ -4,15 +4,24 @@ interface CollapsibleSectionProps {
   title: string
   children: React.ReactNode
   defaultOpen?: boolean
+  onExpand?: () => void
 }
 
-export function CollapsibleSection({ title, children, defaultOpen = false }: CollapsibleSectionProps) {
+export function CollapsibleSection({ title, children, defaultOpen = false, onExpand }: CollapsibleSectionProps) {
   const [open, setOpen] = useState(defaultOpen)
+
+  const handleClick = () => {
+    const willOpen = !open
+    setOpen(willOpen)
+    if (willOpen && onExpand) {
+      onExpand()
+    }
+  }
 
   return (
     <div className="border-t border-zinc-800">
       <button
-        onClick={() => setOpen(!open)}
+        onClick={handleClick}
         className="w-full flex items-center justify-between py-3 text-left"
       >
         <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400">

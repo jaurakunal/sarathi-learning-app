@@ -174,7 +174,7 @@ export class SarathiStack extends cdk.Stack {
       memorySize: 512,
     });
 
-    // ─── Lambda: API handler ─────────────────────────────────────────
+    // ─── Lambda: API handlers ────────────────────────────────────────
     const feedFn = new lambda.Function(this, 'FeedApiFn', {
       functionName: 'sarathi-api-feed',
       runtime: lambda.Runtime.PYTHON_3_12,
@@ -183,6 +183,17 @@ export class SarathiStack extends cdk.Stack {
       environment: lambdaEnv,
       role: lambdaRole,
       timeout: cdk.Duration.seconds(30),
+      memorySize: 256,
+    });
+
+    const engagementFn = new lambda.Function(this, 'EngagementApiFn', {
+      functionName: 'sarathi-api-engagement',
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'backend.api.engagement.handler',
+      code: lambdaCode,
+      environment: lambdaEnv,
+      role: lambdaRole,
+      timeout: cdk.Duration.seconds(10),
       memorySize: 256,
     });
 
@@ -324,6 +335,12 @@ export class SarathiStack extends cdk.Stack {
 
     const feedCardResource = feedResource.addResource('{card_id}');
     feedCardResource.addMethod('GET', new apigw.LambdaIntegration(feedFn), {
+      authorizer,
+      authorizationType: apigw.AuthorizationType.COGNITO,
+    });
+
+    const engagementResource = api.root.addResource('engagement');
+    engagementResource.addMethod('POST', new apigw.LambdaIntegration(engagementFn), {
       authorizer,
       authorizationType: apigw.AuthorizationType.COGNITO,
     });

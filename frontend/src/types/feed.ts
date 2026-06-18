@@ -6,6 +6,7 @@ export interface FeedCardSummary {
   time_estimate: string
   card_type: string
   created_at: string
+  read: boolean
 }
 
 export interface CardDetail {

@@ -100,6 +100,9 @@ def _list_feed(table, user_id: str, event: dict) -> dict:
 
     cards, next_key = db.list_feed_cards(table, user_id, limit=limit, last_key=last_key)
 
+    # Get set of read paper IDs for marking cards
+    read_paper_ids = db.get_read_paper_ids(table, user_id)
+
     # Return compact card summaries for the list view
     response_cards = []
     for card in cards:
@@ -111,6 +114,7 @@ def _list_feed(table, user_id: str, event: dict) -> dict:
             "time_estimate": card.get("time_estimate", ""),
             "card_type": card.get("card_type", ""),
             "created_at": card.get("created_at", ""),
+            "read": card.get("paper_id", "") in read_paper_ids,
         })
 
     body = {"cards": response_cards, "lastKey": next_key}

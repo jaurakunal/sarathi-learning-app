@@ -8,6 +8,7 @@ export const mockCardSummary: FeedCardSummary = {
   time_estimate: '18 min',
   card_type: 'new_paper',
   created_at: '2026-06-15T02:30:00Z',
+  read: false,
 }
 
 export const mockCardDetail: CardDetail = {

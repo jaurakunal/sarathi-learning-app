@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { getFeed } from '../api/feed'
 import { FeedCard } from '../components/FeedCard'
@@ -5,7 +6,11 @@ import { LoadingSpinner } from '../components/LoadingSpinner'
 import { logout } from '../auth/cognito'
 import type { FeedResponse } from '../types/feed'
 
+type TabFilter = 'all' | 'unread'
+
 export function Feed() {
+  const [tab, setTab] = useState<TabFilter>('all')
+
   const {
     data,
     fetchNextPage,
@@ -22,7 +27,8 @@ export function Feed() {
     initialPageParam: null,
   })
 
-  const cards = data?.pages.flatMap((page) => page.cards) ?? []
+  const allCards = data?.pages.flatMap((page) => page.cards) ?? []
+  const cards = tab === 'unread' ? allCards.filter((c) => !c.read) : allCards
 
   return (
     <div className="min-h-screen bg-[#0a0a0f]">
@@ -35,6 +41,31 @@ export function Feed() {
             className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
           >
             Sign out
+          </button>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex gap-4 pb-4">
+          <button
+            onClick={() => setTab('all')}
+            className={`text-sm font-medium transition-colors ${
+              tab === 'all' ? 'text-white' : 'text-zinc-500 hover:text-zinc-300'
+            }`}
+          >
+            All
+          </button>
+          <button
+            onClick={() => setTab('unread')}
+            className={`text-sm font-medium transition-colors ${
+              tab === 'unread' ? 'text-white' : 'text-zinc-500 hover:text-zinc-300'
+            }`}
+          >
+            Unread
+            {allCards.filter((c) => !c.read).length > 0 && (
+              <span className="ml-1.5 text-xs bg-zinc-700 text-zinc-300 px-1.5 py-0.5 rounded-full">
+                {allCards.filter((c) => !c.read).length}
+              </span>
+            )}
           </button>
         </div>
 
@@ -58,7 +89,9 @@ export function Feed() {
         {!isLoading && !isError && cards.length === 0 && (
           <div className="text-center py-20">
             <p className="text-zinc-500 text-sm">
-              No cards yet. The pipeline runs nightly at 2am UTC.
+              {tab === 'unread'
+                ? 'All caught up. Nice.'
+                : 'No cards yet. The pipeline runs nightly at 2am UTC.'}
             </p>
           </div>
         )}

@@ -64,6 +64,7 @@ def test_list_feed_returns_cards(mock_db, mock_boto3):
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
     mock_db.list_feed_cards.return_value = ([SAMPLE_CARD], None)
+    mock_db.get_read_paper_ids.return_value = set()
 
     event = _make_event()
     result = handler(event, None)
@@ -73,6 +74,7 @@ def test_list_feed_returns_cards(mock_db, mock_boto3):
     assert len(body["cards"]) == 1
     assert body["cards"][0]["card_id"] == "20260615_023000_abc123"
     assert body["cards"][0]["hook"] == "You built this cold two years ago."
+    assert body["cards"][0]["read"] is False
     assert body["lastKey"] is None
 
 
@@ -83,6 +85,7 @@ def test_list_feed_with_pagination(mock_db, mock_boto3):
     mock_boto3.resource.return_value.Table.return_value = mock_table
     next_key = {"PK": "USER#test#FEED", "SK": "CARD#20260614_000000_xyz"}
     mock_db.list_feed_cards.return_value = ([SAMPLE_CARD], next_key)
+    mock_db.get_read_paper_ids.return_value = set()
 
     event = _make_event(query_params={"limit": "5"})
     result = handler(event, None)
@@ -100,6 +103,7 @@ def test_list_feed_limit_capped_at_50(mock_db, mock_boto3):
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
     mock_db.list_feed_cards.return_value = ([], None)
+    mock_db.get_read_paper_ids.return_value = set()
 
     event = _make_event(query_params={"limit": "999"})
     handler(event, None)
@@ -171,6 +175,7 @@ def test_list_feed_empty(mock_db, mock_boto3):
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
     mock_db.list_feed_cards.return_value = ([], None)
+    mock_db.get_read_paper_ids.return_value = set()
 
     event = _make_event()
     result = handler(event, None)
@@ -183,10 +188,26 @@ def test_list_feed_empty(mock_db, mock_boto3):
 
 @patch("backend.api.feed.boto3")
 @patch("backend.api.feed.db")
+def test_list_feed_marks_read_cards(mock_db, mock_boto3):
+    mock_table = MagicMock()
+    mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.list_feed_cards.return_value = ([SAMPLE_CARD], None)
+    mock_db.get_read_paper_ids.return_value = {"2304.03442"}
+
+    event = _make_event()
+    result = handler(event, None)
+
+    body = json.loads(result["body"])
+    assert body["cards"][0]["read"] is True
+
+
+@patch("backend.api.feed.boto3")
+@patch("backend.api.feed.db")
 def test_cors_headers_present(mock_db, mock_boto3):
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
     mock_db.list_feed_cards.return_value = ([], None)
+    mock_db.get_read_paper_ids.return_value = set()
 
     event = _make_event()
     result = handler(event, None)

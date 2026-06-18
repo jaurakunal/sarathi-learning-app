@@ -1,20 +1,53 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { useEffect, useCallback, useRef } from 'react'
 import { getCard } from '../api/feed'
 import { CollapsibleSection } from '../components/CollapsibleSection'
 import { Glossary } from '../components/Glossary'
 import { MathNote } from '../components/MathNote'
 import { LoadingSpinner } from '../components/LoadingSpinner'
+import { useEngagement } from '../hooks/useEngagement'
 
 export function CardDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const contentRef = useRef<HTMLDivElement>(null)
 
   const { data: card, isLoading, isError } = useQuery({
     queryKey: ['card', id],
     queryFn: () => getCard(id!),
     enabled: !!id,
   })
+
+  const engagement = useEngagement({
+    paper_id: card?.paper_id ?? '',
+    card_id: card?.card_id ?? '',
+  })
+
+  // Track scroll depth
+  const handleScroll = useCallback(() => {
+    if (!contentRef.current) return
+    const el = contentRef.current
+    const scrolled = window.scrollY
+    const total = el.scrollHeight - window.innerHeight
+    if (total > 0) {
+      engagement.trackScroll((scrolled / total) * 100)
+    }
+  }, [engagement])
+
+  useEffect(() => {
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    return () => window.removeEventListener('scroll', handleScroll)
+  }, [handleScroll])
+
+  // Fire "read" when leaving if scroll depth > 50%
+  useEffect(() => {
+    return () => {
+      if (engagement.scrollDepthRef.current > 50) {
+        engagement.fireRead()
+      }
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (isLoading) {
     return (
@@ -41,7 +74,7 @@ export function CardDetail() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f]">
+    <div className="min-h-screen bg-[#0a0a0f]" ref={contentRef}>
       <div className="max-w-lg mx-auto px-4 pt-safe-top pb-safe-bottom">
         {/* Back button */}
         <div className="py-4 sticky top-0 bg-[#0a0a0f]/90 backdrop-blur-sm z-10">
@@ -97,13 +130,13 @@ export function CardDetail() {
           )}
 
           {card.glossary?.length > 0 && (
-            <CollapsibleSection title="Glossary">
+            <CollapsibleSection title="Glossary" onExpand={engagement.fireExpand}>
               <Glossary items={card.glossary} />
             </CollapsibleSection>
           )}
 
           {card.digest.deep && (
-            <CollapsibleSection title="Deep Dive">
+            <CollapsibleSection title="Deep Dive" onExpand={engagement.fireExpand}>
               <p className="text-sm text-zinc-300 leading-relaxed whitespace-pre-line">
                 {card.digest.deep}
               </p>
@@ -111,7 +144,7 @@ export function CardDetail() {
           )}
 
           {card.math_notes?.length > 0 && (
-            <CollapsibleSection title="Math Notes">
+            <CollapsibleSection title="Math Notes" onExpand={engagement.fireExpand}>
               <div className="space-y-3">
                 {card.math_notes.map((note, i) => (
                   <MathNote key={i} plain={note.plain} equation={note.equation_optional} />

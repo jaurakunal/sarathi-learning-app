@@ -9,6 +9,19 @@ vi.mock('../api/feed', () => ({
   getCard: vi.fn(),
 }))
 
+vi.mock('../hooks/useEngagement', () => ({
+  useEngagement: () => ({
+    trackScroll: vi.fn(),
+    trackInteraction: vi.fn(),
+    fireEvent: vi.fn(),
+    fireExpand: vi.fn(),
+    fireRead: vi.fn(),
+    fireDismiss: vi.fn(),
+    getActiveMs: () => 0,
+    scrollDepthRef: { current: 0 },
+  }),
+}))
+
 import { getCard } from '../api/feed'
 
 const mockGetCard = vi.mocked(getCard)

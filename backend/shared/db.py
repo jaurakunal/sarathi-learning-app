@@ -359,6 +359,21 @@ def list_engagement_events(
     return resp.get("Items", [])
 
 
+def get_read_paper_ids(table, user_id: str) -> set[str]:
+    """Return set of paper_ids that have a 'read' engagement event.
+
+    Scans all engagement events — acceptable for one user with low volume.
+    """
+    resp = table.query(
+        KeyConditionExpression=Key("PK").eq(_engagement_pk(user_id)),
+    )
+    read_ids: set[str] = set()
+    for item in resp.get("Items", []):
+        if item.get("action") == "read":
+            read_ids.add(item.get("paper_id", ""))
+    return read_ids
+
+
 # ---------------------------------------------------------------------------
 # Profile History
 # ---------------------------------------------------------------------------
