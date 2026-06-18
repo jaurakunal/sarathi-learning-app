@@ -212,7 +212,10 @@ export class SarathiStack extends cdk.Stack {
       authType: lambda.FunctionUrlAuthType.NONE,
       invokeMode: lambda.InvokeMode.RESPONSE_STREAM,
       cors: {
-        allowedOrigins: ['*'],
+        allowedOrigins: [
+          'https://d0000000000000.cloudfront.net',
+          'http://localhost:3000',
+        ],
         allowedHeaders: ['Authorization', 'Content-Type'],
         allowedMethods: [lambda.HttpMethod.POST],
       },

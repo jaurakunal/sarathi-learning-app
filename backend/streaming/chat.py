@@ -150,9 +150,7 @@ def handler(event: dict, context) -> dict:
             "Content-Type": "text/event-stream",
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Headers": "Authorization,Content-Type",
-        },
+            },
         "body": "".join(generate_sse()),
     }
 
@@ -278,8 +276,6 @@ def _error_response(status: int, message: str) -> dict:
         "statusCode": status,
         "headers": {
             "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Headers": "Authorization,Content-Type",
-        },
+            },
         "body": json.dumps({"error": message}),
     }
