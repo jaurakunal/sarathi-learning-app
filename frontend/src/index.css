@@ -2,6 +2,8 @@
 @tailwind components;
 @tailwind utilities;
 
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
 html {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -11,7 +13,7 @@ body {
   margin: 0;
   background-color: #0a0a0f;
   color: white;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
 }
 
 .pt-safe-top {
@@ -20,4 +22,41 @@ body {
 
 .pb-safe-bottom {
   padding-bottom: max(2rem, env(safe-area-inset-bottom));
+}
+
+/* Glassmorphism card */
+.glass-card {
+  background: rgba(26, 26, 46, 0.7);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(139, 92, 246, 0.15);
+}
+
+.glass-card:hover {
+  border-color: rgba(139, 92, 246, 0.35);
+  box-shadow: 0 0 24px rgba(139, 92, 246, 0.12);
+}
+
+/* Glass header */
+.glass-header {
+  background: rgba(10, 10, 15, 0.85);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid rgba(139, 92, 246, 0.1);
+}
+
+/* Gradient text */
+.text-gradient {
+  background: linear-gradient(135deg, #8B5CF6, #EC4899);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Ambient glow orb (decorative) */
+.ambient-orb {
+  position: fixed;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.15;
+  pointer-events: none;
+  z-index: 0;
 }

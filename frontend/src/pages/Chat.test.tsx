@@ -1,39 +1,67 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Chat } from './Chat'
 
 Element.prototype.scrollIntoView = vi.fn()
 
-vi.mock('../api/chat', () => ({
-  sendMessage: vi.fn(),
+vi.mock('../auth/cognito', () => ({
+  getIdToken: vi.fn().mockResolvedValue('mock-token'),
+  getSession: vi.fn().mockResolvedValue({ isValid: () => true }),
+  login: vi.fn(),
+  logout: vi.fn(),
+  getCurrentUser: vi.fn(),
 }))
 
-import { sendMessage } from '../api/chat'
+vi.mock('../api/chat', () => ({
+  sendMessage: vi.fn(),
+  getChatHistory: vi.fn(),
+}))
+
+vi.mock('../api/feed', () => ({
+  getCard: vi.fn(),
+}))
+
+import { sendMessage, getChatHistory } from '../api/chat'
+import { getCard } from '../api/feed'
 
 const mockSendMessage = vi.mocked(sendMessage)
+const mockGetChatHistory = vi.mocked(getChatHistory)
+const mockGetCard = vi.mocked(getCard)
 
 function renderChat(paperId = '2304.03442') {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
   return render(
-    <MemoryRouter initialEntries={[`/card/${paperId}/chat`]}>
-      <Routes>
-        <Route path="/card/:id/chat" element={<Chat />} />
-      </Routes>
-    </MemoryRouter>,
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[{ pathname: `/card/${paperId}/chat`, state: { paper_id: paperId } }]}>
+        <Routes>
+          <Route path="/card/:id/chat" element={<Chat />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
   )
 }
 
 describe('Chat page', () => {
-  beforeEach(() => vi.resetAllMocks())
+  beforeEach(() => {
+    vi.resetAllMocks()
+    mockGetChatHistory.mockResolvedValue({ turns: [], conv_id: null })
+    mockGetCard.mockResolvedValue({ paper_id: '2304.03442' } as never)
+  })
 
-  it('renders empty state with prompt', () => {
+  it('renders empty state with prompt', async () => {
     renderChat()
-    expect(screen.getByText('Ask anything about this paper.')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByText('Ask anything about this paper.')).toBeInTheDocument()
+    })
   })
 
   it('renders back button', () => {
     renderChat()
-    expect(screen.getByText('← Back to paper')).toBeInTheDocument()
+    expect(screen.getByText('Back to paper')).toBeInTheDocument()
   })
 
   it('renders input field', () => {
@@ -47,7 +75,7 @@ describe('Chat page', () => {
     renderChat()
     const input = screen.getByPlaceholderText('Ask about this paper...')
     fireEvent.change(input, { target: { value: 'What is reflection?' } })
-    fireEvent.click(screen.getByText('→'))
+    fireEvent.click(screen.getByRole('button', { name: '' }))
 
     await waitFor(() => {
       expect(screen.getByText('What is reflection?')).toBeInTheDocument()
@@ -60,7 +88,7 @@ describe('Chat page', () => {
     renderChat()
     const input = screen.getByPlaceholderText('Ask about this paper...')
     fireEvent.change(input, { target: { value: 'What is reflection?' } })
-    fireEvent.click(screen.getByText('→'))
+    fireEvent.click(screen.getByRole('button', { name: '' }))
 
     await waitFor(() => {
       expect(screen.getByText('Reflection is the process...')).toBeInTheDocument()
@@ -73,7 +101,7 @@ describe('Chat page', () => {
     renderChat()
     const input = screen.getByPlaceholderText('Ask about this paper...')
     fireEvent.change(input, { target: { value: 'Test' } })
-    fireEvent.click(screen.getByText('→'))
+    fireEvent.click(screen.getByRole('button', { name: '' }))
 
     await waitFor(() => {
       expect(screen.getByText('LLM call failed')).toBeInTheDocument()
@@ -86,7 +114,7 @@ describe('Chat page', () => {
     renderChat()
     const input = screen.getByPlaceholderText('Ask about this paper...')
     fireEvent.change(input, { target: { value: 'Test' } })
-    fireEvent.click(screen.getByText('→'))
+    fireEvent.click(screen.getByRole('button', { name: '' }))
 
     await waitFor(() => {
       expect(input).toBeDisabled()
@@ -99,7 +127,7 @@ describe('Chat page', () => {
     renderChat()
     const input = screen.getByPlaceholderText('Ask about this paper...')
     fireEvent.change(input, { target: { value: 'Test' } })
-    fireEvent.click(screen.getByText('→'))
+    fireEvent.click(screen.getByRole('button', { name: '' }))
 
     await waitFor(() => {
       expect(document.querySelector('.animate-pulse')).toBeInTheDocument()

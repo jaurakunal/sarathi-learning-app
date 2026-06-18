@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { ArrowLeft } from 'lucide-react'
 import { sendMessage, getChatHistory } from '../api/chat'
 import { getCard } from '../api/feed'
 import { ChatMessage } from '../components/ChatMessage'
@@ -14,7 +15,6 @@ export function Chat() {
   const location = useLocation()
   const statePaperId = (location.state as { paper_id?: string })?.paper_id
 
-  // Fetch card detail to get the real paper_id if not in route state
   const { data: cardData } = useQuery({
     queryKey: ['card', cardId],
     queryFn: () => getCard(cardId!),
@@ -23,7 +23,6 @@ export function Chat() {
 
   const paperId = statePaperId || cardData?.paper_id || ''
 
-  // Load existing conversation history
   const { data: history, isLoading: historyLoading } = useQuery({
     queryKey: ['chat-history', paperId],
     queryFn: () => getChatHistory(paperId),
@@ -36,7 +35,6 @@ export function Chat() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const historyLoadedRef = useRef(false)
 
-  // Populate messages from history on first load
   useEffect(() => {
     if (history && !historyLoadedRef.current) {
       historyLoadedRef.current = true
@@ -89,19 +87,24 @@ export function Chat() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] flex flex-col">
+    <div className="min-h-screen bg-[#0a0a0f] flex flex-col relative">
+      <div className="ambient-orb w-64 h-64 bg-pink-hot top-[-5rem] left-[-5rem]" />
+
       {/* Header */}
-      <div className="max-w-lg mx-auto w-full px-4 py-4 sticky top-0 bg-[#0a0a0f]/90 backdrop-blur-sm z-10 border-b border-zinc-800/50">
-        <button
-          onClick={() => navigate(`/card/${cardId}`)}
-          className="text-sm text-zinc-400 hover:text-white transition-colors"
-        >
-          ← Back to paper
-        </button>
+      <div className="glass-header sticky top-0 z-20">
+        <div className="max-w-lg mx-auto w-full px-4 py-4">
+          <button
+            onClick={() => navigate(`/card/${cardId}`)}
+            className="text-sm text-zinc-400 hover:text-white transition-colors flex items-center gap-1"
+          >
+            <ArrowLeft size={14} />
+            Back to paper
+          </button>
+        </div>
       </div>
 
       {/* Messages */}
-      <div className="flex-1 max-w-lg mx-auto w-full px-4 py-4 space-y-4 overflow-y-auto">
+      <div className="flex-1 max-w-lg mx-auto w-full px-4 py-4 space-y-4 overflow-y-auto relative z-10">
         {historyLoading && <LoadingSpinner />}
 
         {!historyLoading && messages.length === 0 && (
@@ -126,8 +129,10 @@ export function Chat() {
       </div>
 
       {/* Input */}
-      <div className="max-w-lg mx-auto w-full px-4 py-4 pb-safe-bottom border-t border-zinc-800/50">
-        <ChatInput onSend={handleSend} disabled={loading || !paperId} />
+      <div className="relative z-10 border-t border-white/5">
+        <div className="max-w-lg mx-auto w-full px-4 py-4 pb-safe-bottom">
+          <ChatInput onSend={handleSend} disabled={loading || !paperId} />
+        </div>
       </div>
     </div>
   )

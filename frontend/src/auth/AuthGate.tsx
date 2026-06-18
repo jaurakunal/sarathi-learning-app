@@ -21,7 +21,7 @@ export function AuthGate({ children }: AuthGateProps) {
   if (authed === null) {
     return (
       <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center">
-        <div className="text-zinc-500 text-sm">Loading...</div>
+        <div className="w-6 h-6 border-2 border-accent/30 border-t-accent rounded-full animate-spin" />
       </div>
     )
   }
@@ -45,13 +45,20 @@ export function AuthGate({ children }: AuthGateProps) {
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center px-6">
-      <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-4">
-        <h1 className="text-2xl font-bold text-white text-center">Sārathi</h1>
-        <p className="text-zinc-500 text-sm text-center">Sign in to your feed</p>
+    <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center px-6 relative overflow-hidden">
+      <div className="ambient-orb w-96 h-96 bg-accent top-[-10rem] right-[-10rem]" />
+      <div className="ambient-orb w-72 h-72 bg-pink-hot bottom-[-5rem] left-[-5rem]" />
+
+      <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-5 relative z-10">
+        <div className="text-center space-y-2">
+          <h1 className="text-3xl font-bold text-gradient">Sārathi</h1>
+          <p className="text-zinc-500 text-sm">Your research charioteer</p>
+        </div>
 
         {error && (
-          <div className="text-red-400 text-sm text-center">{error}</div>
+          <div className="text-red-400 text-sm text-center bg-red-400/10 border border-red-400/20 rounded-lg px-3 py-2">
+            {error}
+          </div>
         )}
 
         <input
@@ -59,7 +66,7 @@ export function AuthGate({ children }: AuthGateProps) {
           placeholder="Email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className="w-full px-4 py-3 bg-zinc-900 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-500"
+          className="w-full px-4 py-3 glass-card rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:border-accent/50"
           autoComplete="email"
         />
         <input
@@ -67,13 +74,13 @@ export function AuthGate({ children }: AuthGateProps) {
           placeholder="Password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="w-full px-4 py-3 bg-zinc-900 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-500"
+          className="w-full px-4 py-3 glass-card rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:border-accent/50"
           autoComplete="current-password"
         />
         <button
           type="submit"
           disabled={loading}
-          className="w-full py-3 bg-white text-black font-medium rounded-lg hover:bg-zinc-200 disabled:opacity-50 transition-colors"
+          className="w-full py-3 bg-accent hover:bg-accent-light text-white font-medium rounded-xl disabled:opacity-50 transition-all shadow-glow"
         >
           {loading ? 'Signing in...' : 'Sign in'}
         </button>

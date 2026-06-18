@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { useInfiniteQuery } from '@tanstack/react-query'
+import { motion } from 'framer-motion'
+import { LogOut } from 'lucide-react'
 import { getFeed } from '../api/feed'
 import { FeedCard } from '../components/FeedCard'
 import { LoadingSpinner } from '../components/LoadingSpinner'
@@ -29,41 +31,50 @@ export function Feed() {
 
   const allCards = data?.pages.flatMap((page) => page.cards) ?? []
   const cards = tab === 'unread' ? allCards.filter((c) => !c.read) : allCards
+  const unreadCount = allCards.filter((c) => !c.read).length
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f]">
-      <div className="max-w-lg mx-auto px-4 pt-safe-top pb-safe-bottom">
+    <div className="min-h-screen bg-[#0a0a0f] relative overflow-hidden">
+      {/* Ambient glow orbs */}
+      <div className="ambient-orb w-96 h-96 bg-accent top-[-10rem] right-[-10rem]" />
+      <div className="ambient-orb w-72 h-72 bg-pink-hot bottom-[20%] left-[-8rem]" />
+
+      <div className="max-w-lg mx-auto px-4 pt-safe-top pb-safe-bottom relative z-10">
         {/* Header */}
-        <div className="flex items-center justify-between py-4 sticky top-0 bg-[#0a0a0f]/90 backdrop-blur-sm z-10">
-          <h1 className="text-lg font-bold text-white">Sārathi</h1>
+        <div className="glass-header sticky top-0 z-20 -mx-4 px-4 py-4 flex items-center justify-between">
+          <h1 className="text-xl font-bold text-gradient">Sārathi</h1>
           <button
             onClick={() => { logout(); window.location.reload() }}
-            className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+            className="text-zinc-500 hover:text-zinc-300 transition-colors p-2"
           >
-            Sign out
+            <LogOut size={16} />
           </button>
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-4 pb-4">
+        <div className="flex gap-1 py-4">
           <button
             onClick={() => setTab('all')}
-            className={`text-sm font-medium transition-colors ${
-              tab === 'all' ? 'text-white' : 'text-zinc-500 hover:text-zinc-300'
+            className={`text-sm font-medium px-3 py-1.5 rounded-lg transition-all ${
+              tab === 'all'
+                ? 'text-white bg-accent/20 border border-accent-dim'
+                : 'text-zinc-500 hover:text-zinc-300'
             }`}
           >
             All
           </button>
           <button
             onClick={() => setTab('unread')}
-            className={`text-sm font-medium transition-colors ${
-              tab === 'unread' ? 'text-white' : 'text-zinc-500 hover:text-zinc-300'
+            className={`text-sm font-medium px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+              tab === 'unread'
+                ? 'text-white bg-accent/20 border border-accent-dim'
+                : 'text-zinc-500 hover:text-zinc-300'
             }`}
           >
             Unread
-            {allCards.filter((c) => !c.read).length > 0 && (
-              <span className="ml-1.5 text-xs bg-zinc-700 text-zinc-300 px-1.5 py-0.5 rounded-full">
-                {allCards.filter((c) => !c.read).length}
+            {unreadCount > 0 && (
+              <span className="text-xs bg-pink-hot/20 text-pink-hot px-1.5 py-0.5 rounded-full font-semibold">
+                {unreadCount}
               </span>
             )}
           </button>
@@ -79,7 +90,7 @@ export function Feed() {
             </p>
             <button
               onClick={() => refetch()}
-              className="text-sm text-zinc-400 hover:text-white transition-colors"
+              className="text-sm text-accent hover:text-accent-light transition-colors"
             >
               Try again
             </button>
@@ -87,19 +98,23 @@ export function Feed() {
         )}
 
         {!isLoading && !isError && cards.length === 0 && (
-          <div className="text-center py-20">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="text-center py-20"
+          >
             <p className="text-zinc-500 text-sm">
               {tab === 'unread'
                 ? 'All caught up. Nice.'
                 : 'No cards yet. The pipeline runs nightly at 2am UTC.'}
             </p>
-          </div>
+          </motion.div>
         )}
 
         {/* Feed cards */}
         <div className="space-y-4 pb-8">
-          {cards.map((card) => (
-            <FeedCard key={card.card_id} card={card} />
+          {cards.map((card, i) => (
+            <FeedCard key={card.card_id} card={card} index={i} />
           ))}
         </div>
 
@@ -109,7 +124,7 @@ export function Feed() {
             <button
               onClick={() => fetchNextPage()}
               disabled={isFetchingNextPage}
-              className="text-sm text-zinc-400 hover:text-white transition-colors disabled:opacity-50"
+              className="text-sm text-accent hover:text-accent-light transition-colors disabled:opacity-50"
             >
               {isFetchingNextPage ? 'Loading...' : 'Load more'}
             </button>

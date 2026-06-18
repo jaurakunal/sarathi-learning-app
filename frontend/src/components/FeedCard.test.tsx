@@ -13,7 +13,7 @@ vi.mock('react-router-dom', async () => {
 function renderCard(props = {}) {
   return render(
     <MemoryRouter>
-      <FeedCard card={{ ...mockCardSummary, ...props }} />
+      <FeedCard card={{ ...mockCardSummary, ...props }} index={0} />
     </MemoryRouter>,
   )
 }

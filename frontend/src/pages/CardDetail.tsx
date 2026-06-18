@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useCallback, useRef } from 'react'
+import { ArrowLeft, Clock, MessageCircle, ExternalLink } from 'lucide-react'
 import { getCard } from '../api/feed'
 import { CollapsibleSection } from '../components/CollapsibleSection'
 import { Glossary } from '../components/Glossary'
@@ -82,30 +83,36 @@ export function CardDetail() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f]" ref={contentRef}>
-      <div className="max-w-lg mx-auto px-4 pt-safe-top pb-safe-bottom">
-        {/* Back button */}
-        <div className="py-4 sticky top-0 bg-[#0a0a0f]/90 backdrop-blur-sm z-10 flex items-center justify-between">
+    <div className="min-h-screen bg-[#0a0a0f] relative" ref={contentRef}>
+      <div className="ambient-orb w-72 h-72 bg-accent top-[-5rem] right-[-5rem]" />
+      <div className="max-w-lg mx-auto px-4 pt-safe-top pb-safe-bottom relative z-10">
+        {/* Header */}
+        <div className="glass-header sticky top-0 z-20 -mx-4 px-4 py-4 flex items-center justify-between">
           <button
             onClick={() => navigate('/')}
-            className="text-sm text-zinc-400 hover:text-white transition-colors"
+            className="text-sm text-zinc-400 hover:text-white transition-colors flex items-center gap-1"
           >
-            ← Back
+            <ArrowLeft size={14} />
+            Back
           </button>
           <button
             onClick={handleAskQuestion}
-            className="text-xs text-zinc-400 border border-zinc-700 px-3 py-1.5 rounded-lg hover:text-white hover:border-zinc-500 transition-colors"
+            className="text-xs font-medium text-accent border border-accent-dim px-3 py-1.5 rounded-lg hover:bg-accent/10 transition-all"
           >
-            Ask a question
+            <span className="flex items-center gap-1.5">
+              <MessageCircle size={12} />
+              Ask a question
+            </span>
           </button>
         </div>
 
         {/* Hook */}
-        <div className="space-y-3 pb-6">
+        <div className="space-y-3 py-6">
           <div className="flex items-center gap-2">
-            <span className="text-xs text-zinc-500">{card.time_estimate}</span>
+            <Clock size={12} className="text-pink-hot" />
+            <span className="text-xs text-pink-hot font-medium">{card.time_estimate}</span>
             {card.card_type !== 'new_paper' && (
-              <span className="text-xs text-amber-400/80">
+              <span className="text-xs text-accent-light font-medium px-2 py-0.5 rounded-full bg-accent-dim">
                 {card.card_type.replace('_', ' ')}
               </span>
             )}
@@ -199,14 +206,14 @@ export function CardDetail() {
 
         {/* Source link */}
         {card.source_url && (
-          <div className="pt-6 pb-12 border-t border-zinc-800">
+          <div className="pt-6 pb-12 border-t border-white/5">
             <a
               href={card.source_url}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+              className="text-xs text-zinc-500 hover:text-accent transition-colors flex items-center gap-1"
             >
-              Read full paper ↗
+              Read full paper <ExternalLink size={10} />
             </a>
           </div>
         )}

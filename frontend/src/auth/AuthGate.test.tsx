@@ -17,8 +17,8 @@ describe('AuthGate', () => {
 
   it('shows loading while checking session', () => {
     mockGetSession.mockReturnValue(new Promise(() => {}))
-    render(<AuthGate><p>Protected</p></AuthGate>)
-    expect(screen.getByText('Loading...')).toBeInTheDocument()
+    const { container } = render(<AuthGate><p>Protected</p></AuthGate>)
+    expect(container.querySelector('.animate-spin')).toBeInTheDocument()
   })
 
   it('shows children when authenticated', async () => {

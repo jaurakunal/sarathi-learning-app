@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react'
+import { Send } from 'lucide-react'
 
 interface ChatInputProps {
   onSend: (message: string) => void
@@ -34,14 +35,14 @@ export function ChatInput({ onSend, disabled = false }: ChatInputProps) {
         disabled={disabled}
         placeholder="Ask about this paper..."
         rows={1}
-        className="flex-1 resize-none bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-500 disabled:opacity-50"
+        className="flex-1 resize-none glass-card rounded-xl px-4 py-3 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-accent/50 disabled:opacity-50"
       />
       <button
         type="submit"
         disabled={disabled || !text.trim()}
-        className="px-4 py-3 bg-white text-black text-sm font-medium rounded-xl hover:bg-zinc-200 disabled:opacity-30 transition-colors shrink-0"
+        className="p-3 bg-accent hover:bg-accent-light text-white rounded-xl disabled:opacity-30 transition-all shadow-glow disabled:shadow-none"
       >
-        →
+        <Send size={16} />
       </button>
     </form>
   )

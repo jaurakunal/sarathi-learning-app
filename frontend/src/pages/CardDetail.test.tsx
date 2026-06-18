@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { CardDetail } from './CardDetail'
@@ -71,9 +71,16 @@ describe('CardDetail page', () => {
     })
   })
 
-  it('renders glossary terms', async () => {
+  it('renders glossary terms after expanding section', async () => {
     mockGetCard.mockResolvedValue(mockCardDetail)
     renderCardDetail()
+
+    await waitFor(() => {
+      expect(screen.getByText('Glossary')).toBeInTheDocument()
+    })
+
+    // Glossary section is collapsed by default; click to expand
+    fireEvent.click(screen.getByText('Glossary'))
 
     await waitFor(() => {
       expect(screen.getByText('Reflection')).toBeInTheDocument()
@@ -114,9 +121,9 @@ describe('CardDetail page', () => {
     renderCardDetail()
 
     await waitFor(() => {
-      const link = screen.getByText('Read full paper ↗')
-      expect(link).toHaveAttribute('href', 'https://arxiv.org/abs/2304.03442')
-      expect(link).toHaveAttribute('target', '_blank')
+      const link = screen.getByText('Read full paper')
+      expect(link.closest('a')).toHaveAttribute('href', 'https://arxiv.org/abs/2304.03442')
+      expect(link.closest('a')).toHaveAttribute('target', '_blank')
     })
   })
 
@@ -125,7 +132,7 @@ describe('CardDetail page', () => {
     renderCardDetail()
 
     await waitFor(() => {
-      expect(screen.getByText('← Back')).toBeInTheDocument()
+      expect(screen.getByText('Back')).toBeInTheDocument()
     })
   })
 

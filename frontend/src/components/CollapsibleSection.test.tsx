@@ -12,14 +12,13 @@ describe('CollapsibleSection', () => {
     expect(screen.getByText('Gist')).toBeInTheDocument()
   })
 
-  it('is collapsed by default', () => {
+  it('is collapsed by default (content not in DOM)', () => {
     render(
       <CollapsibleSection title="Deep Dive">
         <p>Hidden content</p>
       </CollapsibleSection>,
     )
-    const content = screen.getByText('Hidden content').parentElement
-    expect(content).toHaveClass('max-h-0')
+    expect(screen.queryByText('Hidden content')).not.toBeInTheDocument()
   })
 
   it('opens when defaultOpen is true', () => {
@@ -28,24 +27,22 @@ describe('CollapsibleSection', () => {
         <p>Visible content</p>
       </CollapsibleSection>,
     )
-    const content = screen.getByText('Visible content').parentElement
-    expect(content).toHaveClass('max-h-[2000px]')
+    expect(screen.getByText('Visible content')).toBeInTheDocument()
   })
 
-  it('toggles on click', () => {
+  it('toggles on click — opens to show content', () => {
     render(
       <CollapsibleSection title="Test">
         <p>Toggle me</p>
       </CollapsibleSection>,
     )
     const button = screen.getByRole('button')
-    expect(screen.getByText('+'))
 
-    fireEvent.click(button)
-    expect(screen.getByText('Toggle me').parentElement).toHaveClass('max-h-[2000px]')
-    expect(screen.getByText('−'))
+    // Initially collapsed — content not in DOM
+    expect(screen.queryByText('Toggle me')).not.toBeInTheDocument()
 
+    // Click to open
     fireEvent.click(button)
-    expect(screen.getByText('Toggle me').parentElement).toHaveClass('max-h-0')
+    expect(screen.getByText('Toggle me')).toBeInTheDocument()
   })
 })

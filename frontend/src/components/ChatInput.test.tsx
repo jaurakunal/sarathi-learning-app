@@ -6,7 +6,7 @@ describe('ChatInput', () => {
   it('renders textarea and send button', () => {
     render(<ChatInput onSend={vi.fn()} />)
     expect(screen.getByPlaceholderText('Ask about this paper...')).toBeInTheDocument()
-    expect(screen.getByText('→')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '' })).toHaveAttribute('type', 'submit')
   })
 
   it('calls onSend with trimmed text on submit', () => {
@@ -14,7 +14,7 @@ describe('ChatInput', () => {
     render(<ChatInput onSend={onSend} />)
     const input = screen.getByPlaceholderText('Ask about this paper...')
     fireEvent.change(input, { target: { value: '  Hello world  ' } })
-    fireEvent.click(screen.getByText('→'))
+    fireEvent.click(screen.getByRole('button', { name: '' }))
     expect(onSend).toHaveBeenCalledWith('Hello world')
   })
 
@@ -22,14 +22,14 @@ describe('ChatInput', () => {
     render(<ChatInput onSend={vi.fn()} />)
     const input = screen.getByPlaceholderText('Ask about this paper...') as HTMLTextAreaElement
     fireEvent.change(input, { target: { value: 'Test' } })
-    fireEvent.click(screen.getByText('→'))
+    fireEvent.click(screen.getByRole('button', { name: '' }))
     expect(input.value).toBe('')
   })
 
   it('does not send empty messages', () => {
     const onSend = vi.fn()
     render(<ChatInput onSend={onSend} />)
-    fireEvent.click(screen.getByText('→'))
+    fireEvent.click(screen.getByRole('button', { name: '' }))
     expect(onSend).not.toHaveBeenCalled()
   })
 

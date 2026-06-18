@@ -77,10 +77,16 @@ describe('Feed page', () => {
 
   it('shows sign out button', async () => {
     mockGetFeed.mockResolvedValue(mockFeedResponse)
-    renderFeed()
+    const { container } = renderFeed()
 
     await waitFor(() => {
-      expect(screen.getByText('Sign out')).toBeInTheDocument()
+      // LogOut icon is rendered instead of text; verify the button exists
+      const buttons = container.querySelectorAll('button')
+      // The logout button is in the header area
+      const logoutButton = Array.from(buttons).find(
+        (btn) => btn.querySelector('svg') && !btn.textContent?.includes('All')
+      )
+      expect(logoutButton).toBeInTheDocument()
     })
   })
 })

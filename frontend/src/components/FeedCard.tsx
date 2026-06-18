@@ -1,33 +1,41 @@
 import { useNavigate } from 'react-router-dom'
+import { motion } from 'framer-motion'
+import { Clock, Check } from 'lucide-react'
 import type { FeedCardSummary } from '../types/feed'
 
 interface FeedCardProps {
   card: FeedCardSummary
+  index: number
 }
 
-export function FeedCard({ card }: FeedCardProps) {
+export function FeedCard({ card, index }: FeedCardProps) {
   const navigate = useNavigate()
 
   return (
-    <button
+    <motion.button
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, delay: index * 0.05 }}
       onClick={() => navigate(`/card/${card.card_id}`)}
-      className={`w-full text-left border rounded-2xl p-5 space-y-3 active:scale-[0.98] transition-transform duration-100 ${
-        card.read
-          ? 'bg-zinc-900/20 border-zinc-800/50 opacity-60'
-          : 'bg-zinc-900/50 border-zinc-800'
+      className={`w-full text-left glass-card rounded-2xl p-5 space-y-3 transition-all duration-200 active:scale-[0.98] ${
+        card.read ? 'opacity-50' : ''
       }`}
     >
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <span className="text-xs text-zinc-500 font-medium">
+          <Clock size={12} className="text-pink-hot" />
+          <span className="text-xs text-pink-hot font-medium">
             {card.time_estimate}
           </span>
           {card.read && (
-            <span className="text-xs text-zinc-600">✓ read</span>
+            <span className="flex items-center gap-1 text-xs text-zinc-500">
+              <Check size={10} />
+              read
+            </span>
           )}
         </div>
         {card.card_type !== 'new_paper' && (
-          <span className="text-xs text-amber-400/80 font-medium shrink-0">
+          <span className="text-xs text-accent-light font-medium px-2 py-0.5 rounded-full bg-accent-dim">
             {card.card_type.replace('_', ' ')}
           </span>
         )}
@@ -44,6 +52,6 @@ export function FeedCard({ card }: FeedCardProps) {
           {card.why_you_now}
         </p>
       )}
-    </button>
+    </motion.button>
   )
 }
