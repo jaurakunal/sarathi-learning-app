@@ -23,6 +23,7 @@ export function CardDetail() {
     paper_id: card?.paper_id ?? '',
     card_id: card?.card_id ?? '',
   })
+  const navigatingToChatRef = useRef(false)
 
   // Track scroll depth
   const handleScroll = useCallback(() => {
@@ -40,14 +41,20 @@ export function CardDetail() {
     return () => window.removeEventListener('scroll', handleScroll)
   }, [handleScroll])
 
-  // Fire "read" when leaving if scroll depth > 50%
+  // Fire "read" when leaving (back to feed), not when going deeper (chat)
   useEffect(() => {
     return () => {
+      if (navigatingToChatRef.current) return
       if (engagement.scrollDepthRef.current > 50) {
         engagement.fireRead()
       }
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleAskQuestion = () => {
+    navigatingToChatRef.current = true
+    navigate(`/card/${id}/chat`, { state: { paper_id: card?.paper_id } })
+  }
 
   if (isLoading) {
     return (
@@ -85,7 +92,7 @@ export function CardDetail() {
             ← Back
           </button>
           <button
-            onClick={() => navigate(`/card/${id}/chat`, { state: { paper_id: card.paper_id } })}
+            onClick={handleAskQuestion}
             className="text-xs text-zinc-400 border border-zinc-700 px-3 py-1.5 rounded-lg hover:text-white hover:border-zinc-500 transition-colors"
           >
             Ask a question

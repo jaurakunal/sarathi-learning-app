@@ -268,7 +268,7 @@ def _handle_get_history(event: dict, user_id: str) -> dict:
     formatted = []
     for turn in turns:
         formatted.append({
-            "seq": turn.get("seq", 0),
+            "seq": int(turn.get("seq", 0)),
             "request": turn.get("request", ""),
             "response": turn.get("response"),
             "request_ts": turn.get("request_ts", ""),
