@@ -90,11 +90,12 @@ def handler(event: dict, context) -> dict:
     db.put_turn(table, user_id, conv_id, seq, message, request_ts)
     db.update_conversation_last_active(table, user_id, conv_id)
 
-    # 7. Assemble LLM messages
-    llm_messages = _build_messages(turns, message, paper_text, summaries_text)
+    # 7. Assemble LLM context + messages
+    system_prompt = _build_system_prompt(paper_text, summaries_text)
+    llm_messages = _build_messages(turns, message)
 
     # 8. Call LLM (non-streaming for API Gateway compatibility)
-    llm_response = _call_llm_messages(llm_messages, MODEL_ID)
+    llm_response = _call_llm_messages(llm_messages, MODEL_ID, system_prompt)
 
     if llm_response is None:
         return _error_response(500, "LLM call failed")
@@ -207,18 +208,19 @@ def _format_summaries(summaries: list[dict]) -> str:
     return "\n".join(parts)
 
 
-def _build_messages(
-    turns: list[dict], new_message: str, paper_text: str, summaries_text: str
-) -> list[dict]:
-    """Assemble the full message history for the LLM."""
+def _build_system_prompt(paper_text: str, summaries_text: str) -> str:
+    """Build system prompt with paper text embedded."""
+    prompt = SYSTEM_PROMPT
+    prompt += f"\n\n<paper>\n{paper_text}\n</paper>"
+    if summaries_text:
+        prompt += f"\n\n<user_context>\n{summaries_text}\n</user_context>"
+    return prompt
+
+
+def _build_messages(turns: list[dict], new_message: str) -> list[dict]:
+    """Assemble the conversation message history for the LLM."""
     messages: list[dict] = []
 
-    # First message includes paper context
-    context_block = f"<paper>\n{paper_text}\n</paper>"
-    if summaries_text:
-        context_block += f"\n\n<user_context>\n{summaries_text}\n</user_context>"
-
-    # Add historical turns
     for turn in turns:
         req = turn.get("request", "")
         resp = turn.get("response", "")
@@ -227,13 +229,7 @@ def _build_messages(
         if resp:
             messages.append({"role": "assistant", "content": resp})
 
-    # Add new user message (with paper context on first message)
-    if not messages:
-        # First message in conversation: include paper text
-        messages.append({"role": "user", "content": f"{context_block}\n\n{new_message}"})
-    else:
-        messages.append({"role": "user", "content": new_message})
-
+    messages.append({"role": "user", "content": new_message})
     return messages
 
 
@@ -286,7 +282,7 @@ def _handle_get_history(event: dict, user_id: str) -> dict:
     }
 
 
-def _call_llm_messages(messages: list[dict], model_id: str) -> Optional[str]:
+def _call_llm_messages(messages: list[dict], model_id: str, system_prompt: str = SYSTEM_PROMPT) -> Optional[str]:
     """Call Bedrock with a full messages array (multi-turn)."""
     client = boto3.client(
         "bedrock-runtime",
@@ -299,7 +295,7 @@ def _call_llm_messages(messages: list[dict], model_id: str) -> Optional[str]:
         "anthropic_version": "bedrock-2023-05-31",
         "max_tokens": 4096,
         "temperature": 0.3,
-        "system": SYSTEM_PROMPT,
+        "system": system_prompt,
         "messages": messages,
     }
     try:

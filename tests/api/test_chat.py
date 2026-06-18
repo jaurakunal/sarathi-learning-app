@@ -10,6 +10,7 @@ import pytest
 from backend.streaming.chat import (
     handler,
     _build_messages,
+    _build_system_prompt,
     _format_summaries,
     _extract_sub_from_jwt,
     _sse_event,
@@ -25,40 +26,44 @@ def _make_event(body=None, token="eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiO
     }
 
 
-class TestBuildMessages:
-    def test_first_message_includes_paper_context(self):
-        msgs = _build_messages([], "What is reflection?", "Paper text here", "Summary here")
-        assert len(msgs) == 1
-        assert msgs[0]["role"] == "user"
-        assert "<paper>" in msgs[0]["content"]
-        assert "Paper text here" in msgs[0]["content"]
-        assert "Summary here" in msgs[0]["content"]
-        assert "What is reflection?" in msgs[0]["content"]
+class TestBuildSystemPrompt:
+    def test_includes_paper_text(self):
+        prompt = _build_system_prompt("Paper text here", "Summary here")
+        assert "<paper>" in prompt
+        assert "Paper text here" in prompt
+        assert "<user_context>" in prompt
+        assert "Summary here" in prompt
 
-    def test_subsequent_messages_no_paper_context(self):
+    def test_empty_summaries_not_included(self):
+        prompt = _build_system_prompt("Paper text", "")
+        assert "<paper>" in prompt
+        assert "<user_context>" not in prompt
+
+
+class TestBuildMessages:
+    def test_first_message_simple(self):
+        msgs = _build_messages([], "What is reflection?")
+        assert len(msgs) == 1
+        assert msgs[0] == {"role": "user", "content": "What is reflection?"}
+
+    def test_subsequent_messages_include_history(self):
         turns = [
             {"request": "First question", "response": "First answer"},
         ]
-        msgs = _build_messages(turns, "Follow-up", "Paper text", "Summaries")
-        assert len(msgs) == 3  # prev user, prev assistant, new user
+        msgs = _build_messages(turns, "Follow-up")
+        assert len(msgs) == 3
         assert msgs[0] == {"role": "user", "content": "First question"}
         assert msgs[1] == {"role": "assistant", "content": "First answer"}
         assert msgs[2] == {"role": "user", "content": "Follow-up"}
-        assert "<paper>" not in msgs[2]["content"]
 
     def test_skips_turns_with_no_response(self):
         turns = [
             {"request": "Question", "response": None},
         ]
-        msgs = _build_messages(turns, "New question", "Paper", "")
-        # Turn with no response: request is included, but no assistant message
+        msgs = _build_messages(turns, "New question")
         assert len(msgs) == 2
         assert msgs[0] == {"role": "user", "content": "Question"}
         assert msgs[1] == {"role": "user", "content": "New question"}
-
-    def test_empty_summaries_not_included(self):
-        msgs = _build_messages([], "Question", "Paper text", "")
-        assert "<user_context>" not in msgs[0]["content"]
 
 
 class TestFormatSummaries:
