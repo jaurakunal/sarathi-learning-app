@@ -85,7 +85,7 @@ export function CardDetail() {
             ← Back
           </button>
           <button
-            onClick={() => navigate(`/card/${id}/chat`)}
+            onClick={() => navigate(`/card/${id}/chat`, { state: { paper_id: card.paper_id } })}
             className="text-xs text-zinc-400 border border-zinc-700 px-3 py-1.5 rounded-lg hover:text-white hover:border-zinc-500 transition-colors"
           >
             Ask a question

@@ -1,13 +1,15 @@
 import { useState, useRef, useEffect } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { sendMessage } from '../api/chat'
 import { ChatMessage } from '../components/ChatMessage'
 import { ChatInput } from '../components/ChatInput'
 import type { ChatMessage as ChatMessageType } from '../types/chat'
 
 export function Chat() {
-  const { id: paperId } = useParams<{ id: string }>()
+  const { id: cardId } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
+  const paperId = (location.state as { paper_id?: string })?.paper_id || cardId
   const [messages, setMessages] = useState<ChatMessageType[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -51,7 +53,7 @@ export function Chat() {
       {/* Header */}
       <div className="max-w-lg mx-auto w-full px-4 py-4 sticky top-0 bg-[#0a0a0f]/90 backdrop-blur-sm z-10 border-b border-zinc-800/50">
         <button
-          onClick={() => navigate(`/card/${paperId}`)}
+          onClick={() => navigate(`/card/${cardId}`)}
           className="text-sm text-zinc-400 hover:text-white transition-colors"
         >
           ← Back to paper
