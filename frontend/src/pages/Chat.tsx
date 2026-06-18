@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { sendMessage } from '../api/chat'
+import { getCard } from '../api/feed'
 import { ChatMessage } from '../components/ChatMessage'
 import { ChatInput } from '../components/ChatInput'
 import type { ChatMessage as ChatMessageType } from '../types/chat'
@@ -9,7 +11,16 @@ export function Chat() {
   const { id: cardId } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const location = useLocation()
-  const paperId = (location.state as { paper_id?: string })?.paper_id || cardId
+  const statePayerId = (location.state as { paper_id?: string })?.paper_id
+
+  // Fetch card detail to get the real paper_id if not in route state
+  const { data: cardData } = useQuery({
+    queryKey: ['card', cardId],
+    queryFn: () => getCard(cardId!),
+    enabled: !!cardId && !statePayerId,
+  })
+
+  const paperId = statePayerId || cardData?.paper_id || ''
   const [messages, setMessages] = useState<ChatMessageType[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -85,7 +96,7 @@ export function Chat() {
 
       {/* Input */}
       <div className="max-w-lg mx-auto w-full px-4 py-4 pb-safe-bottom border-t border-zinc-800/50">
-        <ChatInput onSend={handleSend} disabled={loading} />
+        <ChatInput onSend={handleSend} disabled={loading || !paperId} />
       </div>
     </div>
   )
