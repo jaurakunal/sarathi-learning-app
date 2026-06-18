@@ -77,12 +77,18 @@ export function CardDetail() {
     <div className="min-h-screen bg-[#0a0a0f]" ref={contentRef}>
       <div className="max-w-lg mx-auto px-4 pt-safe-top pb-safe-bottom">
         {/* Back button */}
-        <div className="py-4 sticky top-0 bg-[#0a0a0f]/90 backdrop-blur-sm z-10">
+        <div className="py-4 sticky top-0 bg-[#0a0a0f]/90 backdrop-blur-sm z-10 flex items-center justify-between">
           <button
             onClick={() => navigate('/')}
             className="text-sm text-zinc-400 hover:text-white transition-colors"
           >
             ← Back
+          </button>
+          <button
+            onClick={() => navigate(`/card/${id}/chat`)}
+            className="text-xs text-zinc-400 border border-zinc-700 px-3 py-1.5 rounded-lg hover:text-white hover:border-zinc-500 transition-colors"
+          >
+            Ask a question
           </button>
         </div>
 
@@ -183,19 +189,9 @@ export function CardDetail() {
           )}
         </div>
 
-        {/* Ask a question */}
-        <div className="pt-6 border-t border-zinc-800">
-          <button
-            onClick={() => navigate(`/card/${id}/chat`)}
-            className="w-full py-3 bg-zinc-800 border border-zinc-700 text-white text-sm font-medium rounded-xl hover:bg-zinc-700 transition-colors"
-          >
-            Ask a question about this paper
-          </button>
-        </div>
-
         {/* Source link */}
         {card.source_url && (
-          <div className="pt-4 pb-12">
+          <div className="pt-6 pb-12 border-t border-zinc-800">
             <a
               href={card.source_url}
               target="_blank"
