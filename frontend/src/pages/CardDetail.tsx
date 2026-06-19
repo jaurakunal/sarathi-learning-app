@@ -34,6 +34,8 @@ export function CardDetail() {
     paper_id: card?.paper_id ?? '',
     card_id: card?.card_id ?? '',
   })
+  const engagementRef = useRef(engagement)
+  engagementRef.current = engagement
   const navigatingToChatRef = useRef(false)
 
   // Track scroll depth
@@ -60,16 +62,17 @@ export function CardDetail() {
   // Fire "read" or "dismiss" on unmount
   // Read if: scrolled >50%, OR spent >15s active (content fit in viewport)
   // Dismiss (bounce) if: neither condition met (quick visit, low scroll)
+  // Uses engagementRef to avoid stale closure (empty paper_id on first render)
   useEffect(() => {
     return () => {
       if (navigatingToChatRef.current) return
-      const scrolled = engagement.scrollDepthRef.current > 50
-      const dwelled = engagement.getActiveMs() > 15000
+      const eng = engagementRef.current
+      const scrolled = eng.scrollDepthRef.current > 50
+      const dwelled = eng.getActiveMs() > 15000
       if (scrolled || dwelled) {
-        engagement.fireRead()
+        eng.fireRead()
       } else {
-        // Fire dismiss directly (not fireBounce which has its own scroll check)
-        engagement.fireDismiss()
+        eng.fireDismiss()
       }
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
