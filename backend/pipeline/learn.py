@@ -339,7 +339,8 @@ def handler(event: dict, context) -> dict:
     elif isinstance(raw_areas, list):
         area_updates = [a for a in raw_areas if isinstance(a, dict)]
 
-    # Update areas
+    # Update areas (track before/after for history)
+    frontier_snapshots = {}
     for area_update in area_updates:
         area_id = area_update.get("area_id")
         if not area_id:
@@ -347,6 +348,8 @@ def handler(event: dict, context) -> dict:
         # Find existing area
         existing = next((a for a in profile.get("areas", []) if a.get("id") == area_id), None)
         if existing:
+            before_frontier = existing.get("frontier", "")
+            before_status = existing.get("status", "")
             if area_update.get("frontier"):
                 existing["frontier"] = area_update["frontier"]
             if area_update.get("status"):
@@ -354,6 +357,10 @@ def handler(event: dict, context) -> dict:
             existing["last_engaged"] = now_ts
             db.put_profile_area(table, user_id, existing)
             changes_made.append(f"area:{area_id}")
+            frontier_snapshots[area_id] = {
+                "before": {"frontier": before_frontier, "status": before_status},
+                "after": {"frontier": existing.get("frontier", ""), "status": existing.get("status", "")},
+            }
 
     # Update hypothesis evidence
     hyp_evidence = updates.get("hypothesis_evidence", {})
@@ -393,14 +400,19 @@ def handler(event: dict, context) -> dict:
     if summaries:
         changes_made.append("summaries")
 
-    # 10. Write profile history event
+    # 10. Write profile history event with frontier snapshots
     changelog = updates.get("changelog", "Learn step ran with no changelog.")
-    db.put_profile_history_event(table, user_id, {
+    history_event = {
         "ts": now_ts,
         "type": "learn_update",
         "changes": changes_made,
         "changelog": changelog,
-    })
+    }
+    if frontier_snapshots:
+        history_event["frontier_snapshots"] = frontier_snapshots
+    if hyp_evidence and any(hyp_evidence.get(k) for k in ("supporting", "refuting", "refining")):
+        history_event["hypothesis_evidence_added"] = hyp_evidence
+    db.put_profile_history_event(table, user_id, history_event)
 
     logger.info("Learn step complete: %s", changes_made)
     return {
