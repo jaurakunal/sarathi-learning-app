@@ -96,6 +96,32 @@ export function useEngagement({ paper_id, card_id }: UseEngagementOptions) {
     })
   }, [fireEvent, getActiveMs])
 
+  const fireView = useCallback(() => {
+    fireEvent('view')
+  }, [fireEvent])
+
+  const fireBounce = useCallback(() => {
+    if (firedReadRef.current) return
+    if (scrollDepthRef.current <= 50) {
+      fireEvent('dismiss', {
+        active_ms: getActiveMs(),
+        scroll_depth_pct: scrollDepthRef.current,
+      })
+    }
+  }, [fireEvent, getActiveMs])
+
+  const fireSourceClick = useCallback(() => {
+    fireEvent('source_click')
+  }, [fireEvent])
+
+  const fireBookmark = useCallback(() => {
+    fireEvent('bookmark')
+  }, [fireEvent])
+
+  const fireRate = useCallback((rating: number) => {
+    fireEvent('rate', { rating })
+  }, [fireEvent])
+
   return {
     trackScroll,
     trackInteraction,
@@ -104,6 +130,11 @@ export function useEngagement({ paper_id, card_id }: UseEngagementOptions) {
     fireAsk,
     fireRead,
     fireDismiss,
+    fireView,
+    fireBounce,
+    fireSourceClick,
+    fireBookmark,
+    fireRate,
     getActiveMs,
     scrollDepthRef,
   }

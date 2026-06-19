@@ -4,6 +4,11 @@ import { MemoryRouter } from 'react-router-dom'
 import { FeedCard } from './FeedCard'
 import { mockCardSummary } from '../test/mocks'
 
+vi.mock('../api/engagement', () => ({
+  postEngagement: vi.fn().mockResolvedValue(undefined),
+}))
+
+
 const mockNavigate = vi.fn()
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom')
@@ -36,7 +41,7 @@ describe('FeedCard', () => {
 
   it('navigates to card detail on click', () => {
     renderCard()
-    fireEvent.click(screen.getByRole('button'))
+    fireEvent.click(screen.getByText(/You built this cold two years ago/))
     expect(mockNavigate).toHaveBeenCalledWith('/card/20260615_023000_abc123')
   })
 

@@ -12,6 +12,7 @@ type TabFilter = 'all' | 'unread'
 
 export function Feed() {
   const [tab, setTab] = useState<TabFilter>('all')
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set())
 
   const {
     data,
@@ -29,9 +30,13 @@ export function Feed() {
     initialPageParam: null,
   })
 
-  const allCards = data?.pages.flatMap((page) => page.cards) ?? []
+  const allCards = data?.pages.flatMap((page) => page.cards).filter((c) => !dismissed.has(c.card_id)) ?? []
   const cards = tab === 'unread' ? allCards.filter((c) => !c.read) : allCards
   const unreadCount = allCards.filter((c) => !c.read).length
+
+  const handleDismiss = (cardId: string) => {
+    setDismissed((prev) => new Set([...prev, cardId]))
+  }
 
   return (
     <div className="min-h-screen bg-[#0a0a0f] relative overflow-hidden">
@@ -114,7 +119,7 @@ export function Feed() {
         {/* Feed cards */}
         <div className="space-y-4 pb-8">
           {cards.map((card, i) => (
-            <FeedCard key={card.card_id} card={card} index={i} />
+            <FeedCard key={card.card_id} card={card} index={i} onDismiss={handleDismiss} />
           ))}
         </div>
 

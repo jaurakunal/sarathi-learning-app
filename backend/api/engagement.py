@@ -16,7 +16,7 @@ logger.setLevel(logging.INFO)
 
 TABLE_NAME = os.environ.get("TABLE_NAME", "sarathi")
 
-VALID_ACTIONS = {"view", "expand", "read", "dismiss", "bookmark", "ask"}
+VALID_ACTIONS = {"view", "expand", "read", "dismiss", "bookmark", "ask", "rate", "impression", "source_click"}
 
 
 def _get_user_id(event: dict) -> str:
@@ -86,6 +86,8 @@ def handler(event: dict, context) -> dict:
         engagement_event["section"] = str(body["section"])
     if body.get("interactions") is not None:
         engagement_event["interactions"] = int(body["interactions"])
+    if body.get("rating") is not None:
+        engagement_event["rating"] = int(body["rating"])  # 1 (down) or 5 (up)
 
     # Write to DDB
     dynamodb = boto3.resource("dynamodb")

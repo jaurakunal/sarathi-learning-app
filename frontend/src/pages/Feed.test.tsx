@@ -13,6 +13,11 @@ vi.mock('../auth/cognito', () => ({
   logout: vi.fn(),
 }))
 
+vi.mock('../api/engagement', () => ({
+  postEngagement: vi.fn().mockResolvedValue(undefined),
+}))
+
+
 import { getFeed } from '../api/feed'
 
 const mockGetFeed = vi.mocked(getFeed)

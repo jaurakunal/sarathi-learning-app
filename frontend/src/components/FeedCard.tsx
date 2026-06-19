@@ -1,26 +1,77 @@
+import { useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Clock, Check } from 'lucide-react'
+import { Clock, Check, X } from 'lucide-react'
+import { postEngagement } from '../api/engagement'
 import type { FeedCardSummary } from '../types/feed'
 
 interface FeedCardProps {
   card: FeedCardSummary
   index: number
+  onDismiss?: (cardId: string) => void
 }
 
-export function FeedCard({ card, index }: FeedCardProps) {
+export function FeedCard({ card, index, onDismiss }: FeedCardProps) {
   const navigate = useNavigate()
+  const impressionFired = useRef(false)
+  const cardRef = useRef<HTMLDivElement>(null)
+
+  // IntersectionObserver for impression tracking
+  useEffect(() => {
+    const el = cardRef.current
+    if (!el || impressionFired.current) return
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && !impressionFired.current) {
+          impressionFired.current = true
+          postEngagement({
+            paper_id: card.paper_id,
+            card_id: card.card_id,
+            action: 'impression',
+          }).catch(() => {})
+          observer.disconnect()
+        }
+      },
+      { threshold: 0.5 },
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [card.paper_id, card.card_id])
+
+  const handleDismiss = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    postEngagement({
+      paper_id: card.paper_id,
+      card_id: card.card_id,
+      action: 'dismiss',
+    }).catch(() => {})
+    onDismiss?.(card.card_id)
+  }
 
   return (
-    <motion.button
+    <motion.div
+      ref={cardRef}
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, delay: index * 0.05 }}
       onClick={() => navigate(`/card/${card.card_id}`)}
-      className={`w-full text-left glass-card rounded-2xl p-5 space-y-3 transition-all duration-200 active:scale-[0.98] ${
+      role="button"
+      className={`w-full text-left glass-card rounded-2xl p-5 space-y-3 transition-all duration-200 active:scale-[0.98] relative group cursor-pointer ${
         card.read ? 'opacity-50' : ''
       }`}
     >
+      {/* Dismiss button */}
+      {!card.read && (
+        <button
+          onClick={handleDismiss}
+          className="absolute top-3 right-3 text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded"
+          title="Not interested"
+        >
+          <X size={14} />
+        </button>
+      )}
+
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Clock size={12} className="text-violet-neon" />
@@ -52,6 +103,6 @@ export function FeedCard({ card, index }: FeedCardProps) {
           {card.why_you_now}
         </p>
       )}
-    </motion.button>
+    </motion.div>
   )
 }

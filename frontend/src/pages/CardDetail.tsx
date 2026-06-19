@@ -1,7 +1,7 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useCallback, useRef } from 'react'
-import { ArrowLeft, Clock, MessageCircle, ExternalLink } from 'lucide-react'
+import { ArrowLeft, Clock, MessageCircle, ExternalLink, Bookmark, ThumbsUp, ThumbsDown } from 'lucide-react'
 import { getCard } from '../api/feed'
 import { CollapsibleSection } from '../components/CollapsibleSection'
 import { Glossary } from '../components/Glossary'
@@ -42,12 +42,19 @@ export function CardDetail() {
     return () => window.removeEventListener('scroll', handleScroll)
   }, [handleScroll])
 
-  // Fire "read" when leaving (back to feed), not when going deeper (chat)
+  // Fire "view" on mount (card was opened)
+  useEffect(() => {
+    if (card) engagement.fireView()
+  }, [card?.card_id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fire "read" or "bounce" on unmount
   useEffect(() => {
     return () => {
       if (navigatingToChatRef.current) return
       if (engagement.scrollDepthRef.current > 50) {
         engagement.fireRead()
+      } else {
+        engagement.fireBounce()
       }
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -204,19 +211,44 @@ export function CardDetail() {
           )}
         </div>
 
-        {/* Source link */}
-        {card.source_url && (
-          <div className="pt-6 pb-12 border-t border-white/5">
+        {/* Actions bar */}
+        <div className="pt-6 border-t border-white/5 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => engagement.fireBookmark()}
+              className="text-zinc-500 hover:text-accent transition-colors p-2 rounded-lg hover:bg-accent/10"
+              title="Bookmark"
+            >
+              <Bookmark size={16} />
+            </button>
+            <button
+              onClick={() => engagement.fireRate(5)}
+              className="text-zinc-500 hover:text-green-400 transition-colors p-2 rounded-lg hover:bg-green-400/10"
+              title="Useful"
+            >
+              <ThumbsUp size={16} />
+            </button>
+            <button
+              onClick={() => engagement.fireRate(1)}
+              className="text-zinc-500 hover:text-red-400 transition-colors p-2 rounded-lg hover:bg-red-400/10"
+              title="Not useful"
+            >
+              <ThumbsDown size={16} />
+            </button>
+          </div>
+          {card.source_url && (
             <a
               href={card.source_url}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={() => engagement.fireSourceClick()}
               className="text-xs text-zinc-500 hover:text-accent transition-colors flex items-center gap-1"
             >
               Read full paper <ExternalLink size={10} />
             </a>
-          </div>
-        )}
+          )}
+        </div>
+        <div className="pb-12" />
       </div>
     </div>
   )
