@@ -115,8 +115,8 @@ def _list_feed(table, user_id: str, event: dict) -> dict:
             "card_type": card.get("card_type", ""),
             "created_at": card.get("created_at", ""),
             "read": card.get("paper_id", "") in read_paper_ids,
-            "bookmarked": card.get("bookmarked", False),
-            "rating": card.get("rating"),
+            "bookmarked": bool(card.get("bookmarked", False)),
+            "rating": int(card["rating"]) if card.get("rating") and int(card.get("rating", 0)) != 0 else None,
         })
 
     body = {"cards": response_cards, "lastKey": next_key}

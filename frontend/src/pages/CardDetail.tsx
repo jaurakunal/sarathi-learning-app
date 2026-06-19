@@ -57,8 +57,9 @@ export function CardDetail() {
     if (card) engagement.fireView()
   }, [card?.card_id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fire "read" or "bounce" on unmount
-  // Read if: scrolled >50%, OR spent >15s active (read content that fit in viewport)
+  // Fire "read" or "dismiss" on unmount
+  // Read if: scrolled >50%, OR spent >15s active (content fit in viewport)
+  // Dismiss (bounce) if: neither condition met (quick visit, low scroll)
   useEffect(() => {
     return () => {
       if (navigatingToChatRef.current) return
@@ -67,7 +68,8 @@ export function CardDetail() {
       if (scrolled || dwelled) {
         engagement.fireRead()
       } else {
-        engagement.fireBounce()
+        // Fire dismiss directly (not fireBounce which has its own scroll check)
+        engagement.fireDismiss()
       }
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -228,7 +230,11 @@ export function CardDetail() {
         <div className="pt-6 border-t border-white/5 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <button
-              onClick={() => { engagement.fireBookmark(); setIsBookmarked(!isBookmarked) }}
+              onClick={() => {
+                const newState = !isBookmarked
+                setIsBookmarked(newState)
+                engagement.fireEvent('bookmark', { section: newState ? 'add' : 'remove' })
+              }}
               className={`p-2 rounded-lg transition-colors ${
                 isBookmarked
                   ? 'text-accent bg-accent/20'
@@ -239,7 +245,11 @@ export function CardDetail() {
               <Bookmark size={16} fill={isBookmarked ? 'currentColor' : 'none'} />
             </button>
             <button
-              onClick={() => { engagement.fireRate(5); setUserRating(userRating === 5 ? null : 5) }}
+              onClick={() => {
+                const newRating = userRating === 5 ? 0 : 5
+                setUserRating(newRating || null)
+                engagement.fireRate(newRating)
+              }}
               className={`p-2 rounded-lg transition-colors ${
                 userRating === 5
                   ? 'text-green-400 bg-green-400/20'
@@ -250,7 +260,11 @@ export function CardDetail() {
               <ThumbsUp size={16} fill={userRating === 5 ? 'currentColor' : 'none'} />
             </button>
             <button
-              onClick={() => { engagement.fireRate(1); setUserRating(userRating === 1 ? null : 1) }}
+              onClick={() => {
+                const newRating = userRating === 1 ? 0 : 1
+                setUserRating(newRating || null)
+                engagement.fireRate(newRating)
+              }}
               className={`p-2 rounded-lg transition-colors ${
                 userRating === 1
                   ? 'text-red-400 bg-red-400/20'

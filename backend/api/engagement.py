@@ -96,9 +96,13 @@ def handler(event: dict, context) -> dict:
 
     # Persist bookmark/rating state on the feed card for retrieval
     if action == "bookmark" and card_id:
-        db.update_feed_card_meta(table, user_id, card_id, {"bookmarked": True})
+        # section="add" means bookmark, section="remove" means un-bookmark
+        is_bookmarked = body.get("section") != "remove"
+        db.update_feed_card_meta(table, user_id, card_id, {"bookmarked": is_bookmarked})
     elif action == "rate" and card_id and body.get("rating") is not None:
-        db.update_feed_card_meta(table, user_id, card_id, {"rating": int(body["rating"])})
+        rating_val = int(body["rating"])
+        # rating=0 means cleared, store as 0 (feed API treats 0 as null)
+        db.update_feed_card_meta(table, user_id, card_id, {"rating": rating_val})
 
     logger.info("Engagement logged: user=%s action=%s paper=%s", user_id, action, paper_id)
 
