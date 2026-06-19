@@ -175,6 +175,17 @@ export class SarathiStack extends cdk.Stack {
       memorySize: 512,
     });
 
+    const learnFn = new lambda.Function(this, 'LearnFn', {
+      functionName: 'sarathi-learn',
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'backend.pipeline.learn.handler',
+      code: lambdaCode,
+      environment: lambdaEnv,
+      role: lambdaRole,
+      timeout: cdk.Duration.minutes(10),
+      memorySize: 512,
+    });
+
     // ─── Lambda: API handlers ────────────────────────────────────────
     const feedFn = new lambda.Function(this, 'FeedApiFn', {
       functionName: 'sarathi-api-feed',
@@ -308,12 +319,19 @@ export class SarathiStack extends cdk.Stack {
       resultPath: '$.lensResult',
     });
 
+    const learnTask = new sfnTasks.LambdaInvoke(this, 'LearnStep', {
+      lambdaFunction: learnFn,
+      payload: sfn.TaskInput.fromObject(pipelineInput),
+      resultPath: '$.learnResult',
+    });
+
     const pipelineChain = injectDefaults
       .next(discoverTask)
       .next(triageTask)
       .next(selectTask)
       .next(digestTask)
-      .next(lensTask);
+      .next(lensTask)
+      .next(learnTask);
 
     const stateMachine = new sfn.StateMachine(this, 'SarathiPipeline', {
       stateMachineName: 'sarathi-nightly-pipeline',
