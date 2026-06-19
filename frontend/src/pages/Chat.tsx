@@ -6,6 +6,7 @@ import { sendMessage, getChatHistory } from '../api/chat'
 import { getCard } from '../api/feed'
 import { ChatMessage } from '../components/ChatMessage'
 import { ChatInput } from '../components/ChatInput'
+import { ChatLoading } from '../components/ChatLoading'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import type { ChatMessage as ChatMessageType } from '../types/chat'
 
@@ -62,25 +63,13 @@ export function Chat() {
     setError('')
 
     setMessages((prev) => [...prev, { role: 'user', content: text }])
-    setMessages((prev) => [...prev, { role: 'assistant', content: '', streaming: true }])
     setLoading(true)
 
     try {
       const result = await sendMessage(paperId, text)
-      setMessages((prev) => {
-        const updated = [...prev]
-        updated[updated.length - 1] = { role: 'assistant', content: result.response }
-        return updated
-      })
+      setMessages((prev) => [...prev, { role: 'assistant', content: result.response }])
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to get response')
-      setMessages((prev) => {
-        const last = prev[prev.length - 1]
-        if (last?.role === 'assistant' && !last.content) {
-          return prev.slice(0, -1)
-        }
-        return prev
-      })
     } finally {
       setLoading(false)
     }
@@ -118,6 +107,8 @@ export function Chat() {
         {messages.map((msg, i) => (
           <ChatMessage key={i} message={msg} />
         ))}
+
+        {loading && <ChatLoading />}
 
         {error && (
           <div className="text-center">
