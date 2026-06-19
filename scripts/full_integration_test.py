@@ -24,7 +24,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Config
 # ---------------------------------------------------------------------------
 
-TEST_USER_ID = "447844a8-c0e1-700b-2fdf-f9512eee3e49"
+SOURCE_USER_ID = "00000000-0000-0000-0000-000000000000"  # Real user (data source, never modified)
+TEST_USER_ID = "447844a8-c0e1-700b-2fdf-f9512eee3e49"   # Test user (cloned into, cleaned after)
 TEST_USER_EMAIL = os.environ.get("TEST_USER_EMAIL", "kunal@example.com")
 TEST_USER_PASSWORD = os.environ.get("TEST_USER_PASSWORD", "SarathiTest1!")
 TABLE_NAME = "sarathi"
@@ -36,6 +37,78 @@ ORIGIN = "https://d0000000000000.cloudfront.net"
 passed = 0
 failed = 0
 errors = []
+
+
+# ---------------------------------------------------------------------------
+# Test Data Management
+# ---------------------------------------------------------------------------
+
+def cleanup_test_data():
+    """Delete ALL data for the test user from DDB. Idempotent."""
+    from boto3.dynamodb.conditions import Attr
+
+    session = boto3.Session(region_name="us-east-1")
+    dynamodb = session.resource("dynamodb")
+    table = dynamodb.Table(TABLE_NAME)
+
+    prefix = f"USER#{TEST_USER_ID}"
+    items = []
+    response = table.scan(FilterExpression=Attr("PK").begins_with(prefix))
+    items.extend(response.get("Items", []))
+    while response.get("LastEvaluatedKey"):
+        response = table.scan(
+            FilterExpression=Attr("PK").begins_with(prefix),
+            ExclusiveStartKey=response["LastEvaluatedKey"],
+        )
+        items.extend(response.get("Items", []))
+
+    if items:
+        with table.batch_writer() as batch:
+            for item in items:
+                batch.delete_item(Key={"PK": item["PK"], "SK": item["SK"]})
+
+    print(f"  Cleanup: deleted {len(items)} items for test user")
+
+
+def create_test_data():
+    """Clone ALL data from the real user to the test user.
+
+    Keeps S3 keys pointing at the real user's files (same account, Lambda
+    role can read both). Only DDB data is cloned.
+    """
+    from boto3.dynamodb.conditions import Attr
+
+    session = boto3.Session(region_name="us-east-1")
+    dynamodb = session.resource("dynamodb")
+    table = dynamodb.Table(TABLE_NAME)
+
+    prefix = f"USER#{SOURCE_USER_ID}"
+    items = []
+    response = table.scan(FilterExpression=Attr("PK").begins_with(prefix))
+    items.extend(response.get("Items", []))
+    while response.get("LastEvaluatedKey"):
+        response = table.scan(
+            FilterExpression=Attr("PK").begins_with(prefix),
+            ExclusiveStartKey=response["LastEvaluatedKey"],
+        )
+        items.extend(response.get("Items", []))
+
+    with table.batch_writer() as batch:
+        for item in items:
+            new_item = dict(item)
+            # Replace user ID in PK
+            new_item["PK"] = item["PK"].replace(SOURCE_USER_ID, TEST_USER_ID)
+            # Replace in user_id field
+            if "user_id" in new_item:
+                new_item["user_id"] = TEST_USER_ID
+            # Fix GSI keys that contain user_id
+            for key in ("gsi1pk", "gsi2pk", "gsi3pk", "gsi4pk"):
+                if key in new_item and SOURCE_USER_ID in str(new_item.get(key, "")):
+                    new_item[key] = str(new_item[key]).replace(SOURCE_USER_ID, TEST_USER_ID)
+            # NOTE: full_text_s3_key intentionally left pointing at source user's S3 path
+            batch.put_item(Item=new_item)
+
+    print(f"  Setup: cloned {len(items)} items from real user to test user")
 
 
 def test(name):
@@ -229,53 +302,67 @@ def main():
     global passed, failed
 
     print("\n=== Full Integration Test ===\n")
-    print(f"User: {TEST_USER_ID}")
-    print(f"API:  {API_URL}")
+    print(f"Source user: {SOURCE_USER_ID}")
+    print(f"Test user:   {TEST_USER_ID}")
+    print(f"API:         {API_URL}")
     print()
 
-    # Auth
-    print("[Auth]")
-    token = get_token()
-    print(f"  ✓ Got token")
+    # Setup: clean slate then clone fresh data
+    print("[Setup]")
+    cleanup_test_data()
+    create_test_data()
     print()
 
-    # API Tests
-    print("[Feed API]")
-    test_feed(token)
+    try:
+        # Auth
+        print("[Auth]")
+        token = get_token()
+        print(f"  ✓ Got token")
+        print()
 
-    r = requests.get(f"{API_URL}/feed?limit=5", headers={"Authorization": token})
-    cards = r.json().get("cards", [])
-    card = cards[0] if cards else None
+        # API Tests
+        print("[Feed API]")
+        test_feed(token)
 
-    if card:
-        test_card_detail(token, card["card_id"])
-    print()
+        r = requests.get(f"{API_URL}/feed?limit=5", headers={"Authorization": token})
+        cards = r.json().get("cards", [])
+        card = cards[0] if cards else None
 
-    print("[Engagement API]")
-    if card:
-        test_engagement(token, card)
-        test_bookmark_persists(token, card)
-        test_rate_persists(token, card)
-        test_dismiss_filters(token, cards)
-    print()
+        if card:
+            test_card_detail(token, card["card_id"])
+        print()
 
-    print("[Chat API]")
-    if card:
-        test_chat_history(token, card["paper_id"])
-    print()
+        print("[Engagement API]")
+        if card:
+            test_engagement(token, card)
+            test_bookmark_persists(token, card)
+            test_rate_persists(token, card)
+            test_dismiss_filters(token, cards)
+        print()
 
-    print("[CORS]")
-    test_cors(token)
-    print()
+        print("[Chat API]")
+        if card:
+            test_chat_history(token, card["paper_id"])
+        print()
 
-    print("[Learn Step]")
-    test_learn_step()
-    test_learn_history()
-    print()
+        print("[CORS]")
+        test_cors(token)
+        print()
+
+        print("[Learn Step]")
+        test_learn_step()
+        test_learn_history()
+        print()
+
+    finally:
+        # Cleanup: always delete test data, even if tests fail/crash
+        print("[Cleanup]")
+        cleanup_test_data()
+        print()
 
     # Summary
     total = passed + failed
-    print(f"\n{'='*50}")
+    print(f"{'='*50}")
     print(f"Results: {passed}/{total} passed, {failed} failed")
     if errors:
         print("\nFailures:")
