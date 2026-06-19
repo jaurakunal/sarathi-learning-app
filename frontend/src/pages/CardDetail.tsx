@@ -58,10 +58,13 @@ export function CardDetail() {
   }, [card?.card_id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fire "read" or "bounce" on unmount
+  // Read if: scrolled >50%, OR spent >15s active (read content that fit in viewport)
   useEffect(() => {
     return () => {
       if (navigatingToChatRef.current) return
-      if (engagement.scrollDepthRef.current > 50) {
+      const scrolled = engagement.scrollDepthRef.current > 50
+      const dwelled = engagement.getActiveMs() > 15000
+      if (scrolled || dwelled) {
         engagement.fireRead()
       } else {
         engagement.fireBounce()
