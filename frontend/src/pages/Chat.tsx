@@ -86,13 +86,19 @@ export function Chat() {
             if (!chunk) return
 
             if (chunk.done) {
-              setMessages((prev) => {
-                const updated = [...prev]
-                const last = updated[updated.length - 1]
-                if (last?.role === 'assistant') {
-                  updated[updated.length - 1] = { ...last, streaming: false }
+              // Fetch the complete response from DDB to fill any missed early chunks
+              getChatHistory(paperId).then((history) => {
+                const lastTurn = history.turns[history.turns.length - 1]
+                if (lastTurn?.response) {
+                  setMessages((prev) => {
+                    const updated = [...prev]
+                    const last = updated[updated.length - 1]
+                    if (last?.role === 'assistant') {
+                      updated[updated.length - 1] = { role: 'assistant', content: lastTurn.response! }
+                    }
+                    return updated
+                  })
                 }
-                return updated
               })
               setLoading(false)
             } else {
