@@ -403,7 +403,22 @@ export class SarathiStack extends cdk.Stack {
       },
     });
 
-    // Lambda data source for sendMessage mutation
+    // Dispatch Lambda — AppSync resolver, returns immediately
+    const chatDispatchFn = new lambda.Function(this, 'ChatDispatchFn', {
+      functionName: 'sarathi-chat-dispatch',
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'backend.streaming.chat_dispatch.handler',
+      code: lambdaCode,
+      environment: {
+        ...lambdaEnv,
+        STREAM_FUNCTION_NAME: 'sarathi-chat-stream',
+      },
+      role: lambdaRole,
+      timeout: cdk.Duration.seconds(10),
+      memorySize: 256,
+    });
+
+    // Stream Lambda — invoked async, runs up to 5 min
     const chatStreamFn = new lambda.Function(this, 'ChatStreamFn', {
       functionName: 'sarathi-chat-stream',
       runtime: lambda.Runtime.PYTHON_3_12,
@@ -418,10 +433,16 @@ export class SarathiStack extends cdk.Stack {
       memorySize: 512,
     });
 
+    // Grant the shared Lambda role permission to invoke the stream function
+    lambdaRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['lambda:InvokeFunction'],
+      resources: [`arn:aws:lambda:${this.region}:${this.account}:function:sarathi-chat-stream`],
+    }));
+
     // Grant the streaming Lambda permission to call AppSync mutations (publish chunks)
     chatApi.grant(chatStreamFn, appsync.IamResource.all(), 'appsync:GraphQL');
 
-    const chatLambdaDs = chatApi.addLambdaDataSource('ChatLambdaDs', chatStreamFn);
+    const chatLambdaDs = chatApi.addLambdaDataSource('ChatLambdaDs', chatDispatchFn);
     chatLambdaDs.createResolver('SendMessageResolver', {
       typeName: 'Mutation',
       fieldName: 'sendMessage',

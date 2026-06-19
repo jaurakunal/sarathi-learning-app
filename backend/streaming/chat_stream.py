@@ -110,60 +110,43 @@ def _publish_chunk(
 
 
 def handler(event: dict, context) -> dict:
-    """AppSync Lambda resolver for sendMessage mutation.
+    """Async Lambda: streams Bedrock response and publishes chunks to AppSync.
 
-    event is the AppSync resolver event with arguments + identity.
+    Invoked asynchronously by chat_dispatch. Event contains:
+    {user_id, paper_id, conv_id, message, turn_seq}
     """
-    # Extract user identity from Cognito claims in AppSync context
-    identity = event.get("identity", {})
-    user_id = identity.get("sub", "")
-    if not user_id:
-        # Fallback for testing
-        claims = identity.get("claims", {})
-        user_id = claims.get("sub", "")
-
-    if not user_id:
-        return {"conversationId": "", "turnSeq": 0, "status": "error:unauthorized"}
-
-    args = event.get("arguments", {})
-    paper_id = args.get("paperId", "")
-    message = args.get("message", "").strip()
-
-    if not paper_id or not message:
-        return {"conversationId": "", "turnSeq": 0, "status": "error:missing_fields"}
+    user_id = event["user_id"]
+    paper_id = event["paper_id"]
+    conv_id = event["conv_id"]
+    message = event["message"]
+    seq = event["turn_seq"]
 
     # Set up resources
     dynamodb = boto3.resource("dynamodb")
     table = dynamodb.Table(TABLE_NAME)
     s3_client = boto3.client("s3")
 
-    # 1. Get or create conversation
+    # 1. Get conversation to find S3 key
     conv = db.get_conversation_by_paper(table, user_id, paper_id)
     if conv is None:
-        full_text_s3_key = f"users/{user_id}/papers/{paper_id}/full_text.txt"
-        conv = db.create_conversation(table, user_id, paper_id, full_text_s3_key)
+        _publish_chunk(conv_id, seq, "[Error: conversation not found]", True)
+        return {"status": "error"}
 
-    conv_id = paper_id
     full_text_s3_key = conv.get("full_text_s3_key", "")
 
     # 2. Read paper full text
     paper_text = _read_s3_text(s3_client, BUCKET_NAME, full_text_s3_key)
     if not paper_text:
-        return {"conversationId": conv_id, "turnSeq": 0, "status": "error:paper_not_found"}
+        _publish_chunk(conv_id, seq, "[Error: paper not found in S3]", True)
+        return {"status": "error"}
 
-    # 3. Read existing turns + profile
+    # 3. Read existing turns (excluding the current one just created) + profile
     turns = db.get_conversation_turns(table, user_id, conv_id)
+    # Remove the current turn (last one) since it's the request we're answering
+    turns = [t for t in turns if int(t.get("seq", 0)) < seq]
     profile = db.get_full_profile(table, user_id)
 
-    # 4. Determine next turn sequence
-    seq = len(turns) + 1
-    request_ts = _now_iso()
-
-    # 5. Write turn with request (response=null)
-    db.put_turn(table, user_id, conv_id, seq, message, request_ts)
-    db.update_conversation_last_active(table, user_id, conv_id)
-
-    # 6. Build LLM context
+    # 4. Build LLM context
     system_prompt = _build_system_prompt(paper_text, profile)
     llm_messages = _build_messages(turns, message)
 
