@@ -167,4 +167,69 @@ describe('Chat page', () => {
       expect(screen.getByText('∞')).toBeInTheDocument()
     })
   })
+
+  it('creates a subscription for each message sent', async () => {
+    let subscribeCount = 0
+
+    mockGraphql.mockImplementation((opts: any) => {
+      if (opts.query === 'mock-on-chunk-subscription') {
+        subscribeCount++
+        return { subscribe: () => ({ unsubscribe: vi.fn() }) }
+      }
+      return Promise.resolve({ data: { sendMessage: { conversationId: 'p1', turnSeq: subscribeCount, status: 'ok' } } })
+    })
+
+    renderChat()
+    const input = screen.getByPlaceholderText('Ask about this paper...')
+
+    // Send first message
+    fireEvent.change(input, { target: { value: 'First' } })
+    fireEvent.click(screen.getByRole('button', { name: '' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('First')).toBeInTheDocument()
+    })
+
+    // Verify subscription was created
+    expect(subscribeCount).toBe(1)
+  })
+
+  it('does not duplicate chunks when subscription fires once per chunk', async () => {
+    let chunkHandler: ((data: any) => void) | null = null
+
+    mockGraphql.mockImplementation((opts: any) => {
+      if (opts.query === 'mock-on-chunk-subscription') {
+        return {
+          subscribe: (handlers: any) => {
+            chunkHandler = (data: any) => handlers.next({ data })
+            return { unsubscribe: vi.fn() }
+          },
+        }
+      }
+      return Promise.resolve({ data: { sendMessage: { conversationId: 'p1', turnSeq: 1, status: 'ok' } } })
+    })
+
+    mockGetChatHistory.mockResolvedValue({ turns: [{ seq: 1, request: 'Test', response: 'Hello world', request_ts: '', response_ts: '' }], conv_id: 'p1' })
+
+    renderChat()
+    const input = screen.getByPlaceholderText('Ask about this paper...')
+    fireEvent.change(input, { target: { value: 'Test' } })
+    fireEvent.click(screen.getByRole('button', { name: '' }))
+
+    await waitFor(() => expect(chunkHandler).not.toBeNull())
+
+    // Simulate chunks arriving one at a time
+    chunkHandler!({ onChunk: { conversationId: 'p1', turnSeq: 1, chunk: 'Hello ', done: false } })
+    chunkHandler!({ onChunk: { conversationId: 'p1', turnSeq: 1, chunk: 'world', done: false } })
+    chunkHandler!({ onChunk: { conversationId: 'p1', turnSeq: 1, chunk: '', done: true, tokensIn: 100, tokensOut: 5 } })
+
+    // After done + history fetch, the final text should be "Hello world" (no duplication)
+    await waitFor(() => {
+      expect(screen.getByText('Hello world')).toBeInTheDocument()
+    })
+
+    // Verify NO duplicated text like "Hello Hello world world"
+    const assistantMessages = screen.getAllByText(/Hello/)
+    expect(assistantMessages.length).toBe(1)
+  })
 })
