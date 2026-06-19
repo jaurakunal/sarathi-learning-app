@@ -285,6 +285,26 @@ def put_feed_card(table, user_id: str, card: dict) -> None:
     table.put_item(Item=_sanitize_item(item))
 
 
+def update_feed_card_meta(table, user_id: str, card_id: str, updates: dict) -> None:
+    """Update specific fields on a feed card (bookmark, rating, etc.)."""
+    expr_parts = []
+    attr_names = {}
+    attr_values = {}
+    for i, (key, value) in enumerate(updates.items()):
+        alias = f"#k{i}"
+        val_alias = f":v{i}"
+        expr_parts.append(f"{alias} = {val_alias}")
+        attr_names[alias] = key
+        attr_values[val_alias] = value
+
+    table.update_item(
+        Key={"PK": _feed_pk(user_id), "SK": f"CARD#{card_id}"},
+        UpdateExpression="SET " + ", ".join(expr_parts),
+        ExpressionAttributeNames=attr_names,
+        ExpressionAttributeValues=_sanitize_item(attr_values),
+    )
+
+
 def list_feed_cards(
     table, user_id: str, limit: int = 20, last_key: Optional[dict] = None
 ) -> tuple[list[dict], Optional[dict]]:

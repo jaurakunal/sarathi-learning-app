@@ -94,6 +94,12 @@ def handler(event: dict, context) -> dict:
     table = dynamodb.Table(TABLE_NAME)
     db.put_engagement_event(table, user_id, engagement_event)
 
+    # Persist bookmark/rating state on the feed card for retrieval
+    if action == "bookmark" and card_id:
+        db.update_feed_card_meta(table, user_id, card_id, {"bookmarked": True})
+    elif action == "rate" and card_id and body.get("rating") is not None:
+        db.update_feed_card_meta(table, user_id, card_id, {"rating": int(body["rating"])})
+
     logger.info("Engagement logged: user=%s action=%s paper=%s", user_id, action, paper_id)
 
     return _response(201, {"status": "ok", "ts": ts})

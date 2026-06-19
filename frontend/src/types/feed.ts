@@ -7,6 +7,8 @@ export interface FeedCardSummary {
   card_type: string
   created_at: string
   read: boolean
+  bookmarked: boolean
+  rating: number | null
 }
 
 export interface CardDetail {
@@ -28,6 +30,8 @@ export interface CardDetail {
   hypothesis_relevance: string
   honesty_note: string
   suggested_questions: string[]
+  bookmarked?: boolean
+  rating?: number | null
 }
 
 export interface FeedResponse {

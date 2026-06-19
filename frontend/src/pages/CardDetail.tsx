@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { useEffect, useCallback, useRef } from 'react'
+import { useEffect, useCallback, useRef, useState } from 'react'
 import { ArrowLeft, Clock, MessageCircle, ExternalLink, Bookmark, ThumbsUp, ThumbsDown } from 'lucide-react'
 import { getCard } from '../api/feed'
 import { CollapsibleSection } from '../components/CollapsibleSection'
@@ -19,6 +19,16 @@ export function CardDetail() {
     queryFn: () => getCard(id!),
     enabled: !!id,
   })
+
+  const [isBookmarked, setIsBookmarked] = useState(false)
+  const [userRating, setUserRating] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (card) {
+      setIsBookmarked(card.bookmarked ?? false)
+      setUserRating(card.rating ?? null)
+    }
+  }, [card?.card_id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const engagement = useEngagement({
     paper_id: card?.paper_id ?? '',
@@ -215,25 +225,37 @@ export function CardDetail() {
         <div className="pt-6 border-t border-white/5 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <button
-              onClick={() => engagement.fireBookmark()}
-              className="text-zinc-500 hover:text-accent transition-colors p-2 rounded-lg hover:bg-accent/10"
-              title="Bookmark"
+              onClick={() => { engagement.fireBookmark(); setIsBookmarked(!isBookmarked) }}
+              className={`p-2 rounded-lg transition-colors ${
+                isBookmarked
+                  ? 'text-accent bg-accent/20'
+                  : 'text-zinc-500 hover:text-accent hover:bg-accent/10'
+              }`}
+              title={isBookmarked ? 'Saved' : 'Save for later'}
             >
-              <Bookmark size={16} />
+              <Bookmark size={16} fill={isBookmarked ? 'currentColor' : 'none'} />
             </button>
             <button
-              onClick={() => engagement.fireRate(5)}
-              className="text-zinc-500 hover:text-green-400 transition-colors p-2 rounded-lg hover:bg-green-400/10"
+              onClick={() => { engagement.fireRate(5); setUserRating(userRating === 5 ? null : 5) }}
+              className={`p-2 rounded-lg transition-colors ${
+                userRating === 5
+                  ? 'text-green-400 bg-green-400/20'
+                  : 'text-zinc-500 hover:text-green-400 hover:bg-green-400/10'
+              }`}
               title="Useful"
             >
-              <ThumbsUp size={16} />
+              <ThumbsUp size={16} fill={userRating === 5 ? 'currentColor' : 'none'} />
             </button>
             <button
-              onClick={() => engagement.fireRate(1)}
-              className="text-zinc-500 hover:text-red-400 transition-colors p-2 rounded-lg hover:bg-red-400/10"
+              onClick={() => { engagement.fireRate(1); setUserRating(userRating === 1 ? null : 1) }}
+              className={`p-2 rounded-lg transition-colors ${
+                userRating === 1
+                  ? 'text-red-400 bg-red-400/20'
+                  : 'text-zinc-500 hover:text-red-400 hover:bg-red-400/10'
+              }`}
               title="Not useful"
             >
-              <ThumbsDown size={16} />
+              <ThumbsDown size={16} fill={userRating === 1 ? 'currentColor' : 'none'} />
             </button>
           </div>
           {card.source_url && (
