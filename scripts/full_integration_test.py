@@ -272,6 +272,49 @@ def test_learn_step():
     assert result["status"] == "ok", f"Learn step failed: {result}"
     assert len(result["changes"]) > 0, "Expected at least one profile change"
 
+    # Print the Learn output report
+    print(f"\n{'─'*50}")
+    print(f"  LEARN STEP REPORT")
+    print(f"{'─'*50}")
+    print(f"  Status: {result['status']}")
+    print(f"  Changes: {result['changes']}")
+    print(f"  Changelog: {result.get('changelog', '(none)')}")
+    print()
+
+    # Show updated profile
+    profile = db.get_full_profile(table, TEST_USER_ID)
+    print(f"  UPDATED AREAS:")
+    for area in profile.get("areas", []):
+        name = area.get("name", area.get("id", "?"))
+        status = area.get("status", "?")
+        frontier = str(area.get("frontier", ""))
+        print(f"    [{status.upper():8s}] {name}")
+        # Wrap frontier at ~80 chars
+        while frontier:
+            print(f"             {frontier[:80]}")
+            frontier = frontier[80:]
+
+    hyp = profile.get("hypothesis", {})
+    if hyp.get("supporting") or hyp.get("refuting") or hyp.get("refining"):
+        print(f"\n  HYPOTHESIS EVIDENCE:")
+        for k in ("supporting", "refuting", "refining"):
+            items = hyp.get(k, [])
+            if items:
+                print(f"    {k}:")
+                for item in items:
+                    print(f"      • {str(item)[:100]}")
+
+    summaries = profile.get("summaries", [])
+    active_summaries = [s for s in summaries if s.get("content") and s["content"] != "No activity yet."]
+    if active_summaries:
+        print(f"\n  SUMMARIES:")
+        for s in sorted(active_summaries, key=lambda x: x.get("SK", "")):
+            tier = s.get("tier", "?")
+            content = str(s.get("content", ""))[:150]
+            print(f"    [{tier}] {content}")
+
+    print(f"{'─'*50}\n")
+
 
 @test("Learn step writes frontier snapshots to history")
 def test_learn_history():
@@ -292,6 +335,20 @@ def test_learn_history():
     latest = items[0]
     assert latest.get("type") == "learn_update"
     assert "frontier_snapshots" in latest, f"No frontier_snapshots in history: {list(latest.keys())}"
+
+    # Print frontier diffs
+    snapshots = latest.get("frontier_snapshots", {})
+    if snapshots:
+        print(f"\n{'─'*50}")
+        print(f"  FRONTIER PROGRESSION (before → after)")
+        print(f"{'─'*50}")
+        for area_id, snap in snapshots.items():
+            before = snap.get("before", {}).get("frontier", "(empty)")
+            after = snap.get("after", {}).get("frontier", "(empty)")
+            print(f"\n    {area_id}:")
+            print(f"      BEFORE: {str(before)[:120]}")
+            print(f"      AFTER:  {str(after)[:120]}")
+        print(f"{'─'*50}\n")
 
 
 # ---------------------------------------------------------------------------
