@@ -109,7 +109,7 @@ export class SarathiStack extends cdk.Stack {
     table.grantReadWriteData(lambdaRole);
     bucket.grantReadWrite(lambdaRole);
     lambdaRole.addToPolicy(new iam.PolicyStatement({
-      actions: ['bedrock:InvokeModel'],
+      actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'],
       resources: ['*'],
     }));
 
