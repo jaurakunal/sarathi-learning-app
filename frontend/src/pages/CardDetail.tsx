@@ -2,6 +2,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useCallback, useRef, useState } from 'react'
 import { ArrowLeft, Clock, MessageCircle, ExternalLink, Bookmark, ThumbsUp, ThumbsDown } from 'lucide-react'
+import { postEngagement } from '../api/engagement'
 import { getCard } from '../api/feed'
 import { CollapsibleSection } from '../components/CollapsibleSection'
 import { Glossary } from '../components/Glossary'
@@ -36,6 +37,13 @@ export function CardDetail() {
   })
   const engagementRef = useRef(engagement)
   engagementRef.current = engagement
+
+  // Keep stable refs for unmount cleanup (avoids stale closures)
+  const paperIdRef = useRef('')
+  const cardIdRef = useRef('')
+  if (card?.paper_id) paperIdRef.current = card.paper_id
+  if (card?.card_id) cardIdRef.current = card.card_id
+
   const navigatingToChatRef = useRef(false)
 
   // Track scroll depth
@@ -60,19 +68,35 @@ export function CardDetail() {
   }, [card?.card_id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fire "read" or "dismiss" on unmount
-  // Read if: scrolled >50%, OR spent >15s active (content fit in viewport)
-  // Dismiss (bounce) if: neither condition met (quick visit, low scroll)
-  // Uses engagementRef to avoid stale closure (empty paper_id on first render)
+  // Bypasses the hook entirely — calls postEngagement directly with ref values
+  // to avoid any stale closure issues with useCallback/useEffect dependencies
   useEffect(() => {
     return () => {
       if (navigatingToChatRef.current) return
+      const pid = paperIdRef.current
+      const cid = cardIdRef.current
+      if (!pid) return
+
       const eng = engagementRef.current
       const scrolled = eng.scrollDepthRef.current > 50
       const dwelled = eng.getActiveMs() > 15000
+
       if (scrolled || dwelled) {
-        eng.fireRead()
+        postEngagement({
+          paper_id: pid,
+          card_id: cid,
+          action: 'read',
+          active_ms: eng.getActiveMs(),
+          scroll_depth_pct: eng.scrollDepthRef.current,
+        }).catch(() => {})
       } else {
-        eng.fireDismiss()
+        postEngagement({
+          paper_id: pid,
+          card_id: cid,
+          action: 'dismiss',
+          active_ms: eng.getActiveMs(),
+          scroll_depth_pct: eng.scrollDepthRef.current,
+        }).catch(() => {})
       }
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
