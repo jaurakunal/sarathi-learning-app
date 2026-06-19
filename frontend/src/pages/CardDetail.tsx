@@ -67,37 +67,67 @@ export function CardDetail() {
     if (card) engagement.fireView()
   }, [card?.card_id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fire "read" or "dismiss" on unmount
-  // Bypasses the hook entirely — calls postEngagement directly with ref values
-  // to avoid any stale closure issues with useCallback/useEffect dependencies
+  // Fire "read" as soon as threshold is met (scroll >50% OR dwell >15s)
+  // Fire "dismiss" on unmount only if read never triggered
+  const firedReadRef = useRef(false)
+
+  // Check dwell time every 5s
   useEffect(() => {
-    return () => {
-      if (navigatingToChatRef.current) return
-      const pid = paperIdRef.current
-      const cid = cardIdRef.current
-      if (!pid) return
-
+    if (!card) return
+    const interval = setInterval(() => {
+      if (firedReadRef.current) return
       const eng = engagementRef.current
-      const scrolled = eng.scrollDepthRef.current > 50
-      const dwelled = eng.getActiveMs() > 15000
-
-      if (scrolled || dwelled) {
+      if (eng.getActiveMs() > 15000) {
+        firedReadRef.current = true
         postEngagement({
-          paper_id: pid,
-          card_id: cid,
+          paper_id: paperIdRef.current,
+          card_id: cardIdRef.current,
           action: 'read',
           active_ms: eng.getActiveMs(),
           scroll_depth_pct: eng.scrollDepthRef.current,
         }).catch(() => {})
-      } else {
-        postEngagement({
-          paper_id: pid,
-          card_id: cid,
-          action: 'dismiss',
-          active_ms: eng.getActiveMs(),
-          scroll_depth_pct: eng.scrollDepthRef.current,
-        }).catch(() => {})
+        clearInterval(interval)
       }
+    }, 5000)
+    return () => clearInterval(interval)
+  }, [card?.card_id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Check scroll threshold on every scroll event
+  const handleScrollForRead = useCallback(() => {
+    if (firedReadRef.current) return
+    const eng = engagementRef.current
+    if (eng.scrollDepthRef.current > 50) {
+      firedReadRef.current = true
+      postEngagement({
+        paper_id: paperIdRef.current,
+        card_id: cardIdRef.current,
+        action: 'read',
+        active_ms: eng.getActiveMs(),
+        scroll_depth_pct: eng.scrollDepthRef.current,
+      }).catch(() => {})
+    }
+  }, [])
+
+  useEffect(() => {
+    window.addEventListener('scroll', handleScrollForRead, { passive: true })
+    return () => window.removeEventListener('scroll', handleScrollForRead)
+  }, [handleScrollForRead])
+
+  // Fire "dismiss" on unmount ONLY if read never fired
+  useEffect(() => {
+    return () => {
+      if (navigatingToChatRef.current) return
+      if (firedReadRef.current) return
+      const pid = paperIdRef.current
+      if (!pid) return
+      const eng = engagementRef.current
+      postEngagement({
+        paper_id: pid,
+        card_id: cardIdRef.current,
+        action: 'dismiss',
+        active_ms: eng.getActiveMs(),
+        scroll_depth_pct: eng.scrollDepthRef.current,
+      }).catch(() => {})
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
