@@ -59,10 +59,23 @@ export function Chat() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  // Cleanup subscription on unmount
+  useEffect(() => {
+    return () => { activeSubRef.current?.unsubscribe() }
+  }, [])
+
+  const activeSubRef = useRef<{ unsubscribe: () => void } | null>(null)
+
   const handleSend = useCallback(async (text: string) => {
     if (!paperId) return
     setError('')
     setLoading(true)
+
+    // Unsubscribe from any previous subscription
+    if (activeSubRef.current) {
+      activeSubRef.current.unsubscribe()
+      activeSubRef.current = null
+    }
 
     // Add user message + empty streaming assistant message
     setMessages((prev) => [
@@ -80,12 +93,17 @@ export function Chat() {
 
       // Set up subscription handler
       if ('subscribe' in sub) {
-        (sub as any).subscribe({
+        activeSubRef.current = (sub as any).subscribe({
           next: ({ data }: any) => {
             const chunk = data?.onChunk
             if (!chunk) return
 
             if (chunk.done) {
+              // Unsubscribe immediately so no stale events leak into next message
+              if (activeSubRef.current) {
+                activeSubRef.current.unsubscribe()
+                activeSubRef.current = null
+              }
               // Fetch the complete response from DDB to fill any missed early chunks
               getChatHistory(paperId).then((history) => {
                 const lastTurn = history.turns[history.turns.length - 1]
