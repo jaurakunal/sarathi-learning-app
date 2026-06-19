@@ -13,6 +13,7 @@ import os
 from datetime import datetime, timezone
 from typing import Optional
 
+import urllib.error
 import boto3
 from botocore.config import Config
 from botocore.auth import SigV4Auth
@@ -104,7 +105,13 @@ def _publish_chunk(
         method="POST",
     )
     try:
-        urllib.request.urlopen(req)
+        resp = urllib.request.urlopen(req)
+        resp_body = resp.read().decode("utf-8")
+        if '"errors"' in resp_body:
+            logger.error("AppSync publish returned errors: %s", resp_body[:500])
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8") if e.fp else ""
+        logger.error("AppSync publish HTTP %d: %s", e.code, body[:500])
     except Exception:
         logger.exception("Failed to publish chunk to AppSync")
 

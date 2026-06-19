@@ -1,4 +1,4 @@
-type ChatChunk {
+type ChatChunk @aws_iam @aws_cognito_user_pools {
   conversationId: String!
   turnSeq: Int!
   chunk: String!
@@ -16,6 +16,7 @@ type ChatResponse {
 type Mutation {
   sendMessage(paperId: String!, message: String!): ChatResponse!
   publishChunk(conversationId: String!, turnSeq: Int!, chunk: String!, done: Boolean!, tokensIn: Int, tokensOut: Int): ChatChunk!
+    @aws_iam
 }
 
 type Subscription {
