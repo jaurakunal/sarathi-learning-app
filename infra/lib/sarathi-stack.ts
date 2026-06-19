@@ -17,6 +17,7 @@ import * as apigw from 'aws-cdk-lib/aws-apigateway';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
+import * as appsync from 'aws-cdk-lib/aws-appsync';
 import { Construct } from 'constructs';
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
@@ -385,6 +386,59 @@ export class SarathiStack extends cdk.Stack {
       authorizationType: apigw.AuthorizationType.COGNITO,
     });
 
+    // ─── AppSync: real-time streaming chat ─────────────────────────
+    const chatApi = new appsync.GraphqlApi(this, 'SarathiChatApi', {
+      name: 'sarathi-chat',
+      definition: appsync.Definition.fromFile(
+        path.resolve(__dirname, 'schema.graphql'),
+      ),
+      authorizationConfig: {
+        defaultAuthorization: {
+          authorizationType: appsync.AuthorizationType.USER_POOL,
+          userPoolConfig: { userPool },
+        },
+        additionalAuthorizationModes: [
+          { authorizationType: appsync.AuthorizationType.IAM },
+        ],
+      },
+    });
+
+    // Lambda data source for sendMessage mutation
+    const chatStreamFn = new lambda.Function(this, 'ChatStreamFn', {
+      functionName: 'sarathi-chat-stream',
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'backend.streaming.chat_stream.handler',
+      code: lambdaCode,
+      environment: {
+        ...lambdaEnv,
+        APPSYNC_ENDPOINT: chatApi.graphqlUrl,
+      },
+      role: lambdaRole,
+      timeout: cdk.Duration.minutes(5),
+      memorySize: 512,
+    });
+
+    // Grant the streaming Lambda permission to call AppSync mutations (publish chunks)
+    chatApi.grant(chatStreamFn, appsync.IamResource.all(), 'appsync:GraphQL');
+
+    const chatLambdaDs = chatApi.addLambdaDataSource('ChatLambdaDs', chatStreamFn);
+    chatLambdaDs.createResolver('SendMessageResolver', {
+      typeName: 'Mutation',
+      fieldName: 'sendMessage',
+    });
+
+    // NONE data source for publishChunk (called by Lambda via IAM, passes through to subscriptions)
+    const noneDs = chatApi.addNoneDataSource('NoneDs');
+    noneDs.createResolver('PublishChunkResolver', {
+      typeName: 'Mutation',
+      fieldName: 'publishChunk',
+      requestMappingTemplate: appsync.MappingTemplate.fromString(`{
+        "version": "2017-02-28",
+        "payload": $util.toJson($context.arguments)
+      }`),
+      responseMappingTemplate: appsync.MappingTemplate.fromString('$util.toJson($context.result)'),
+    });
+
     // ─── Frontend: S3 + CloudFront ─────────────────────────────────
     const frontendBucket = new s3.Bucket(this, 'FrontendBucket', {
       bucketName: `sarathi-frontend-${this.account}-${this.region}`,
@@ -430,6 +484,7 @@ export class SarathiStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'UserPoolClientId', { value: userPoolClient.userPoolClientId });
     new cdk.CfnOutput(this, 'ApiUrl', { value: api.url });
     new cdk.CfnOutput(this, 'StateMachineArn', { value: stateMachine.stateMachineArn });
+    new cdk.CfnOutput(this, 'AppSyncUrl', { value: chatApi.graphqlUrl });
     new cdk.CfnOutput(this, 'DistributionUrl', { value: `https://${distribution.distributionDomainName}` });
   }
 }

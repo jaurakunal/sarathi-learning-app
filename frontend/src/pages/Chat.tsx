@@ -1,9 +1,10 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
-import { sendMessage, getChatHistory } from '../api/chat'
+import { getChatHistory } from '../api/chat'
 import { getCard } from '../api/feed'
+import { client, SEND_MESSAGE, ON_CHUNK } from '../api/appsync'
 import { ChatMessage } from '../components/ChatMessage'
 import { ChatInput } from '../components/ChatInput'
 import { ChatLoading } from '../components/ChatLoading'
@@ -58,22 +59,90 @@ export function Chat() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  const handleSend = async (text: string) => {
+  const handleSend = useCallback(async (text: string) => {
     if (!paperId) return
     setError('')
-
-    setMessages((prev) => [...prev, { role: 'user', content: text }])
     setLoading(true)
 
+    // Add user message + empty streaming assistant message
+    setMessages((prev) => [
+      ...prev,
+      { role: 'user', content: text },
+      { role: 'assistant', content: '', streaming: true },
+    ])
+
     try {
-      const result = await sendMessage(paperId, text)
-      setMessages((prev) => [...prev, { role: 'assistant', content: result.response }])
+      // Send the mutation — this triggers the Lambda which streams back
+      const result = await client.graphql({
+        query: SEND_MESSAGE,
+        variables: { paperId, message: text },
+      })
+
+      const { conversationId, turnSeq, status } = (result as any).data.sendMessage
+
+      if (status.startsWith('error:')) {
+        throw new Error(status.replace('error:', ''))
+      }
+
+      // Subscribe to chunks for this specific conversation + turn
+      const sub = client.graphql({
+        query: ON_CHUNK,
+        variables: { conversationId, turnSeq },
+      })
+
+      // Handle the subscription
+      if ('subscribe' in sub) {
+        (sub as any).subscribe({
+          next: ({ data }: any) => {
+            const chunk = data?.onChunk
+            if (!chunk) return
+
+            if (chunk.done) {
+              // Final chunk — mark streaming done
+              setMessages((prev) => {
+                const updated = [...prev]
+                const last = updated[updated.length - 1]
+                if (last?.role === 'assistant') {
+                  updated[updated.length - 1] = { ...last, streaming: false }
+                }
+                return updated
+              })
+              setLoading(false)
+            } else {
+              // Append text chunk
+              setMessages((prev) => {
+                const updated = [...prev]
+                const last = updated[updated.length - 1]
+                if (last?.role === 'assistant') {
+                  updated[updated.length - 1] = {
+                    ...last,
+                    content: last.content + chunk.chunk,
+                  }
+                }
+                return updated
+              })
+            }
+          },
+          error: (err: any) => {
+            logger.error('Subscription error:', err)
+            setError('Stream connection lost')
+            setLoading(false)
+          },
+        })
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to get response')
-    } finally {
+      setError(err instanceof Error ? err.message : 'Failed to send message')
+      // Remove empty assistant message on error
+      setMessages((prev) => {
+        const last = prev[prev.length - 1]
+        if (last?.role === 'assistant' && !last.content) {
+          return prev.slice(0, -1)
+        }
+        return prev
+      })
       setLoading(false)
     }
-  }
+  }, [paperId])
 
   return (
     <div className="min-h-screen bg-[#0a0a0f] flex flex-col relative">
@@ -108,7 +177,7 @@ export function Chat() {
           <ChatMessage key={i} message={msg} />
         ))}
 
-        {loading && <ChatLoading />}
+        {loading && messages[messages.length - 1]?.content === '' && <ChatLoading />}
 
         {error && (
           <div className="text-center">
@@ -128,3 +197,5 @@ export function Chat() {
     </div>
   )
 }
+
+const logger = { error: console.error }

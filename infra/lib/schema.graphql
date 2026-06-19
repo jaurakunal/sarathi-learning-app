@@ -1,0 +1,34 @@
+type ChatChunk {
+  conversationId: String!
+  turnSeq: Int!
+  chunk: String!
+  done: Boolean!
+  tokensIn: Int
+  tokensOut: Int
+}
+
+type ChatResponse {
+  conversationId: String!
+  turnSeq: Int!
+  status: String!
+}
+
+type Mutation {
+  sendMessage(paperId: String!, message: String!): ChatResponse!
+  publishChunk(conversationId: String!, turnSeq: Int!, chunk: String!, done: Boolean!, tokensIn: Int, tokensOut: Int): ChatChunk!
+}
+
+type Subscription {
+  onChunk(conversationId: String!, turnSeq: Int!): ChatChunk
+    @aws_subscribe(mutations: ["publishChunk"])
+}
+
+type Query {
+  _placeholder: String
+}
+
+schema {
+  query: Query
+  mutation: Mutation
+  subscription: Subscription
+}
