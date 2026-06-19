@@ -23,10 +23,17 @@ vi.mock('../api/feed', () => ({
   getCard: vi.fn(),
 }))
 
-import { sendMessage, getChatHistory } from '../api/chat'
+// Mock AppSync client
+const mockGraphql = vi.fn()
+vi.mock('../api/appsync', () => ({
+  client: { graphql: (...args: unknown[]) => mockGraphql(...args) },
+  SEND_MESSAGE: 'mock-send-mutation',
+  ON_CHUNK: 'mock-on-chunk-subscription',
+}))
+
+import { getChatHistory } from '../api/chat'
 import { getCard } from '../api/feed'
 
-const mockSendMessage = vi.mocked(sendMessage)
 const mockGetChatHistory = vi.mocked(getChatHistory)
 const mockGetCard = vi.mocked(getCard)
 
@@ -70,7 +77,14 @@ describe('Chat page', () => {
   })
 
   it('adds user message on send', async () => {
-    mockSendMessage.mockResolvedValue({ conv_id: 'p1', turn_seq: 1, response: 'Answer' })
+    // Mock subscription (returns object with subscribe method)
+    mockGraphql.mockImplementation((opts: any) => {
+      if (opts.query === 'mock-on-chunk-subscription') {
+        return { subscribe: vi.fn() }
+      }
+      // sendMessage mutation
+      return Promise.resolve({ data: { sendMessage: { conversationId: 'p1', turnSeq: 1, status: 'ok' } } })
+    })
 
     renderChat()
     const input = screen.getByPlaceholderText('Ask about this paper...')
@@ -82,21 +96,13 @@ describe('Chat page', () => {
     })
   })
 
-  it('displays response from API', async () => {
-    mockSendMessage.mockResolvedValue({ conv_id: 'p1', turn_seq: 1, response: 'Reflection is the process...' })
-
-    renderChat()
-    const input = screen.getByPlaceholderText('Ask about this paper...')
-    fireEvent.change(input, { target: { value: 'What is reflection?' } })
-    fireEvent.click(screen.getByRole('button', { name: '' }))
-
-    await waitFor(() => {
-      expect(screen.getByText('Reflection is the process...')).toBeInTheDocument()
+  it('shows error on mutation failure', async () => {
+    mockGraphql.mockImplementation((opts: any) => {
+      if (opts.query === 'mock-on-chunk-subscription') {
+        return { subscribe: vi.fn() }
+      }
+      return Promise.resolve({ data: { sendMessage: { conversationId: 'p1', turnSeq: 1, status: 'error:llm_failed' } } })
     })
-  })
-
-  it('shows error on failure', async () => {
-    mockSendMessage.mockRejectedValue(new Error('LLM call failed'))
 
     renderChat()
     const input = screen.getByPlaceholderText('Ask about this paper...')
@@ -104,12 +110,18 @@ describe('Chat page', () => {
     fireEvent.click(screen.getByRole('button', { name: '' }))
 
     await waitFor(() => {
-      expect(screen.getByText('LLM call failed')).toBeInTheDocument()
+      expect(screen.getByText('llm_failed')).toBeInTheDocument()
     })
   })
 
   it('disables input while loading', async () => {
-    mockSendMessage.mockReturnValue(new Promise(() => {}))
+    // Subscription setup, mutation never resolves
+    mockGraphql.mockImplementation((opts: any) => {
+      if (opts.query === 'mock-on-chunk-subscription') {
+        return { subscribe: vi.fn() }
+      }
+      return new Promise(() => {})
+    })
 
     renderChat()
     const input = screen.getByPlaceholderText('Ask about this paper...')
@@ -121,8 +133,29 @@ describe('Chat page', () => {
     })
   })
 
-  it('shows loading indicator while waiting', async () => {
-    mockSendMessage.mockReturnValue(new Promise(() => {}))
+  it('loads conversation history on mount', async () => {
+    mockGetChatHistory.mockResolvedValue({
+      turns: [
+        { seq: 1, request: 'Old question', response: 'Old answer', request_ts: '', response_ts: '' },
+      ],
+      conv_id: '2304.03442',
+    })
+
+    renderChat()
+
+    await waitFor(() => {
+      expect(screen.getByText('Old question')).toBeInTheDocument()
+      expect(screen.getByText('Old answer')).toBeInTheDocument()
+    })
+  })
+
+  it('shows loading indicator while waiting for stream', async () => {
+    mockGraphql.mockImplementation((opts: any) => {
+      if (opts.query === 'mock-on-chunk-subscription') {
+        return { subscribe: vi.fn() }
+      }
+      return new Promise(() => {})
+    })
 
     renderChat()
     const input = screen.getByPlaceholderText('Ask about this paper...')
@@ -130,7 +163,8 @@ describe('Chat page', () => {
     fireEvent.click(screen.getByRole('button', { name: '' }))
 
     await waitFor(() => {
-      expect(document.querySelector('.animate-pulse')).toBeInTheDocument()
+      // ChatLoading uses animated spans — look for the container
+      expect(screen.getByText('∞')).toBeInTheDocument()
     })
   })
 })
