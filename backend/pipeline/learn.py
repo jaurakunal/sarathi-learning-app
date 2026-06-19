@@ -304,7 +304,7 @@ def handler(event: dict, context) -> dict:
         system=LEARN_SYSTEM_PROMPT,
         user_message=user_message,
         model_id=model_id,
-        max_tokens=4096,
+        max_tokens=8192,
         temperature=0.3,
     )
 
@@ -328,8 +328,19 @@ def handler(event: dict, context) -> dict:
     # 9. Apply updates to DDB
     changes_made = []
 
+    # Normalize areas format — LLM may return as array or as object keyed by area_id
+    raw_areas = updates.get("areas", [])
+    area_updates = []
+    if isinstance(raw_areas, dict):
+        # Object format: {"area_id": {...fields...}, ...}
+        for area_id, fields in raw_areas.items():
+            if isinstance(fields, dict):
+                area_updates.append({"area_id": area_id, **fields})
+    elif isinstance(raw_areas, list):
+        area_updates = [a for a in raw_areas if isinstance(a, dict)]
+
     # Update areas
-    for area_update in updates.get("areas", []):
+    for area_update in area_updates:
         area_id = area_update.get("area_id")
         if not area_id:
             continue
