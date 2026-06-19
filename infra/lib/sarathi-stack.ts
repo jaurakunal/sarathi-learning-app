@@ -209,6 +209,17 @@ export class SarathiStack extends cdk.Stack {
       memorySize: 256,
     });
 
+    const profileFn = new lambda.Function(this, 'ProfileApiFn', {
+      functionName: 'sarathi-api-profile',
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'backend.api.profile.handler',
+      code: lambdaCode,
+      environment: lambdaEnv,
+      role: lambdaRole,
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 256,
+    });
+
     const chatFn = new lambda.Function(this, 'ChatFn', {
       functionName: 'sarathi-chat',
       runtime: lambda.Runtime.PYTHON_3_12,
@@ -388,6 +399,12 @@ export class SarathiStack extends cdk.Stack {
 
     const engagementResource = api.root.addResource('engagement');
     engagementResource.addMethod('POST', new apigw.LambdaIntegration(engagementFn), {
+      authorizer,
+      authorizationType: apigw.AuthorizationType.COGNITO,
+    });
+
+    const profileResource = api.root.addResource('profile');
+    profileResource.addMethod('GET', new apigw.LambdaIntegration(profileFn), {
       authorizer,
       authorizationType: apigw.AuthorizationType.COGNITO,
     });

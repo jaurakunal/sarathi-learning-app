@@ -4,6 +4,7 @@ import { AuthGate } from './auth/AuthGate'
 import { Feed } from './pages/Feed'
 import { CardDetail } from './pages/CardDetail'
 import { Chat } from './pages/Chat'
+import { Profile } from './pages/Profile'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -23,6 +24,7 @@ export default function App() {
             <Route path="/" element={<Feed />} />
             <Route path="/card/:id" element={<CardDetail />} />
             <Route path="/card/:id/chat" element={<Chat />} />
+            <Route path="/profile" element={<Profile />} />
           </Routes>
         </BrowserRouter>
       </AuthGate>

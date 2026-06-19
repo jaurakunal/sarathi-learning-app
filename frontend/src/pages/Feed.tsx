@@ -1,7 +1,8 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { LogOut } from 'lucide-react'
+import { LogOut, TrendingUp } from 'lucide-react'
 import { getFeed } from '../api/feed'
 import { FeedCard } from '../components/FeedCard'
 import { LoadingSpinner } from '../components/LoadingSpinner'
@@ -11,6 +12,7 @@ import type { FeedResponse } from '../types/feed'
 type TabFilter = 'all' | 'unread'
 
 export function Feed() {
+  const navigate = useNavigate()
   const [tab, setTab] = useState<TabFilter>('all')
   const [dismissed, setDismissed] = useState<Set<string>>(new Set())
 
@@ -48,12 +50,21 @@ export function Feed() {
         {/* Header */}
         <div className="glass-header sticky top-0 z-20 -mx-4 px-4 py-4 flex items-center justify-between">
           <h1 className="text-xl font-bold text-gradient">Sārathi</h1>
-          <button
-            onClick={() => { logout(); window.location.reload() }}
-            className="text-zinc-500 hover:text-zinc-300 transition-colors p-2"
-          >
-            <LogOut size={16} />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => navigate('/profile')}
+              className="text-zinc-500 hover:text-accent transition-colors p-2"
+              title="Progress"
+            >
+              <TrendingUp size={16} />
+            </button>
+            <button
+              onClick={() => { logout(); window.location.reload() }}
+              className="text-zinc-500 hover:text-zinc-300 transition-colors p-2"
+            >
+              <LogOut size={16} />
+            </button>
+          </div>
         </div>
 
         {/* Tabs */}
