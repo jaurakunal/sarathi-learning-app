@@ -23,24 +23,18 @@ TABLE_NAME = os.environ.get("TABLE_NAME", "sarathi")
 BUCKET_NAME = os.environ.get("BUCKET_NAME", "")
 MODEL_ID = os.environ.get("MODEL_ID", "us.anthropic.claude-sonnet-4-6")
 
-SYSTEM_PROMPT = """You are Sārathi, a research assistant for a single user named Kunal. You answer questions about academic papers with precision, honesty, and clarity.
-
-About the user:
-- Kunal is a practitioner who builds things but has zero academic vocabulary. He's never read a paper end-to-end. Your high-value move is connecting formal theory to things he's already built by instinct.
-- He's building a "faithful AI clone of a person" — a system that thinks, remembers, decides, and reacts like a specific human. This is his core project (the "clone-person project").
-- His thesis: "brain-structure + agentic harness >> the LLM" — the architecture/scaffolding matters more than the underlying model.
-- His areas of interest: person-cloning/mental models, human + Eastern memory models, long-running agents, adversarial/security agents.
-- Math: route around it. Explain in plain language. Only show equations if he explicitly asks.
+SYSTEM_PROMPT = """You are Sārathi, a research assistant. You answer questions about academic papers with precision, honesty, and clarity.
 
 Rules:
 - Ground every answer in the paper text provided. Cite specific sections when possible.
-- When he references "my project" or "clone-person", he means the AI-clone-of-a-person system described above.
-- Translate dense academic language into clear, applied terms.
+- Translate dense academic language into clear, applied terms. The user is a practitioner, not an academic.
+- Math: explain in plain language first. Only show equations if the user explicitly asks.
 - Be concise. One clear paragraph is better than three meandering ones.
 - If the paper doesn't address a question, say so honestly. Don't fabricate.
-- Never flatter. Be a sharp, accurate mirror. Credit at exact scope, no more.
-- Connect ideas to what he has previously asked in this conversation when relevant.
-- When relevant, note whether the paper supports, refutes, or refines his thesis."""
+- Never flatter. Be a sharp, accurate mirror.
+- Connect ideas to what the user has previously asked in this conversation when relevant.
+- When the user references "my project" or their work, use the context provided in <user_context> to understand what they mean.
+- When relevant, note whether the paper supports, refutes, or refines the user's hypothesis (if one is provided in context)."""
 
 
 def handler(event: dict, context) -> dict:
@@ -220,9 +214,26 @@ def _build_system_prompt(paper_text: str, profile: dict) -> str:
     prompt = SYSTEM_PROMPT
     prompt += f"\n\n<paper>\n{paper_text}\n</paper>"
 
-    # Add profile context (areas, hypothesis, summaries)
+    # Build user context from profile data (all from DDB, nothing hardcoded)
     context_parts = []
 
+    # Learning style
+    meta = profile.get("meta")
+    if meta:
+        learning_style = meta.get("learning_style", {})
+        if learning_style:
+            style_lines = []
+            for key, val in learning_style.items():
+                if val:
+                    style_lines.append(f"- {key}: {val}")
+            if style_lines:
+                context_parts.append("Learning style:\n" + "\n".join(style_lines))
+
+        paper_goal = meta.get("paper_goal", "")
+        if paper_goal:
+            context_parts.append(f"Goal: {paper_goal}")
+
+    # Research areas with frontiers
     areas = profile.get("areas", [])
     if areas:
         area_lines = []
@@ -230,20 +241,27 @@ def _build_system_prompt(paper_text: str, profile: dict) -> str:
             label = a.get("label", "")
             frontier = a.get("frontier", "")
             role = a.get("role", "")
-            if label:
+            status = a.get("status", "active")
+            if label and status == "active":
                 line = f"- {label} ({role})"
                 if frontier:
-                    line += f": {frontier}"
+                    line += f" — current frontier: {frontier}"
                 area_lines.append(line)
         if area_lines:
             context_parts.append("Research areas:\n" + "\n".join(area_lines))
 
+    # Hypothesis
     hypothesis = profile.get("hypothesis")
     if hypothesis:
         stmt = hypothesis.get("statement", "")
+        status = hypothesis.get("status", "")
         if stmt:
-            context_parts.append(f"Core hypothesis: {stmt}")
+            h_text = f"Core hypothesis: {stmt}"
+            if status:
+                h_text += f" (status: {status})"
+            context_parts.append(h_text)
 
+    # Rolling summaries (recent activity context)
     summaries = profile.get("summaries", [])
     summary_text = _format_summaries(summaries)
     if summary_text:

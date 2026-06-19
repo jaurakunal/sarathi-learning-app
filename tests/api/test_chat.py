@@ -27,17 +27,27 @@ def _make_event(body=None, token="eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiO
 
 
 class TestBuildSystemPrompt:
-    def test_includes_paper_text(self):
-        prompt = _build_system_prompt("Paper text here", "Summary here")
+    def test_includes_paper_text_and_profile(self):
+        profile = {
+            "meta": {"learning_style": {"math": "route-around"}, "paper_goal": "Write my own paper"},
+            "areas": [{"label": "Person-cloning", "role": "spine", "frontier": "Read GenAgents", "status": "active"}],
+            "hypothesis": {"statement": "Brain-structure >> LLM", "status": "untested"},
+            "summaries": [{"SK": "SUMMARY#yesterday", "tier": "yesterday", "content": "Engaged with MemGPT"}],
+        }
+        prompt = _build_system_prompt("Paper text here", profile)
         assert "<paper>" in prompt
         assert "Paper text here" in prompt
         assert "<user_context>" in prompt
-        assert "Summary here" in prompt
+        assert "Person-cloning" in prompt
+        assert "Brain-structure >> LLM" in prompt
+        assert "route-around" in prompt
+        assert "Engaged with MemGPT" in prompt
 
-    def test_empty_summaries_not_included(self):
-        prompt = _build_system_prompt("Paper text", "")
+    def test_empty_profile_no_user_context_block(self):
+        profile = {"meta": None, "areas": [], "hypothesis": None, "summaries": []}
+        prompt = _build_system_prompt("Paper text", profile)
         assert "<paper>" in prompt
-        assert "<user_context>" not in prompt
+        assert "\n<user_context>\n" not in prompt
 
 
 class TestBuildMessages:
