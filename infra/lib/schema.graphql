@@ -19,7 +19,7 @@ type Mutation {
 }
 
 type Subscription {
-  onChunk(conversationId: String!, turnSeq: Int!): ChatChunk
+  onChunk(conversationId: String!): ChatChunk
     @aws_subscribe(mutations: ["publishChunk"])
 }
 

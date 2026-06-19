@@ -72,25 +72,13 @@ export function Chat() {
     ])
 
     try {
-      // Send the mutation — this triggers the Lambda which streams back
-      const result = await client.graphql({
-        query: SEND_MESSAGE,
-        variables: { paperId, message: text },
-      })
-
-      const { conversationId, turnSeq, status } = (result as any).data.sendMessage
-
-      if (status.startsWith('error:')) {
-        throw new Error(status.replace('error:', ''))
-      }
-
-      // Subscribe to chunks for this specific conversation + turn
+      // Subscribe FIRST, then send — so we don't miss early chunks
       const sub = client.graphql({
         query: ON_CHUNK,
-        variables: { conversationId, turnSeq },
+        variables: { conversationId: paperId },
       })
 
-      // Handle the subscription
+      // Set up subscription handler
       if ('subscribe' in sub) {
         (sub as any).subscribe({
           next: ({ data }: any) => {
@@ -98,7 +86,6 @@ export function Chat() {
             if (!chunk) return
 
             if (chunk.done) {
-              // Final chunk — mark streaming done
               setMessages((prev) => {
                 const updated = [...prev]
                 const last = updated[updated.length - 1]
@@ -109,7 +96,6 @@ export function Chat() {
               })
               setLoading(false)
             } else {
-              // Append text chunk
               setMessages((prev) => {
                 const updated = [...prev]
                 const last = updated[updated.length - 1]
@@ -129,6 +115,20 @@ export function Chat() {
             setLoading(false)
           },
         })
+      }
+
+      // Small delay to ensure subscription is established before Lambda starts streaming
+      await new Promise((r) => setTimeout(r, 500))
+
+      // NOW send the mutation — Lambda will start streaming chunks
+      const result = await client.graphql({
+        query: SEND_MESSAGE,
+        variables: { paperId, message: text },
+      })
+
+      const { status } = (result as any).data.sendMessage
+      if (status.startsWith('error:')) {
+        throw new Error(status.replace('error:', ''))
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send message')

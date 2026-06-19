@@ -33,8 +33,8 @@ export const SEND_MESSAGE = /* GraphQL */ `
 `
 
 export const ON_CHUNK = /* GraphQL */ `
-  subscription OnChunk($conversationId: String!, $turnSeq: Int!) {
-    onChunk(conversationId: $conversationId, turnSeq: $turnSeq) {
+  subscription OnChunk($conversationId: String!) {
+    onChunk(conversationId: $conversationId) {
       conversationId
       turnSeq
       chunk
