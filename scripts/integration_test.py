@@ -1,11 +1,10 @@
-"""Full pipeline integration test using the sarathi-test user.
+"""Full pipeline integration test using the test Cognito user.
 
-Runs discover → triage → select → digest → lens against real AWS
-(DDB + Bedrock + arXiv). Uses a dedicated test user 'sarathi-test'
-so it never pollutes production data.
+Runs discover → triage → select → digest → lens → learn against real AWS
+(DDB + Bedrock + arXiv). Uses the dedicated test user (447844a8-...)
+which has cloned data from the real user for testing.
 
 Usage:
-    source .venv/bin/activate
     AWS_PROFILE=poc AWS_DEFAULT_REGION=us-east-1 python scripts/integration_test.py
 
 Exit code 0 = all steps passed. Non-zero = failure (blocks commit).
@@ -22,7 +21,8 @@ logger = logging.getLogger("integration_test")
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-TEST_USER_ID = "sarathi-test"
+# Test user: kunal@example.com (Cognito sub)
+TEST_USER_ID = "447844a8-c0e1-700b-2fdf-f9512eee3e49"
 TABLE_NAME = "sarathi"
 S3_BUCKET = "sarathi-123456789012-us-east-1"
 

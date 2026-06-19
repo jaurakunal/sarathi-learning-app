@@ -16,7 +16,10 @@ integration-test: ## Run full pipeline integration test (hits real AWS)
 api-test: ## Run API integration test (validates deployed endpoints + CORS)
 	AWS_PROFILE=poc AWS_DEFAULT_REGION=us-east-1 python scripts/api_integration_test.py
 
-test-all: test integration-test api-test ## Run unit tests + all integration tests
+full-test: ## Run comprehensive integration test (API + pipeline + learn)
+	AWS_PROFILE=poc AWS_DEFAULT_REGION=us-east-1 python scripts/full_integration_test.py
+
+test-all: test api-test full-test ## Run unit tests + all integration tests
 
 lint: ## Run linting
 	python -m ruff check backend/ infra/

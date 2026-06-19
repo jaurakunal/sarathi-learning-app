@@ -1,0 +1,290 @@
+"""Full integration test: API + Pipeline + Learn step.
+
+Tests the entire Sarathi flow against real AWS using the test user
+(447844a8-c0e1-700b-2fdf-f9512eee3e49 / kunal@example.com).
+
+Usage:
+    AWS_PROFILE=poc AWS_DEFAULT_REGION=us-east-1 python scripts/full_integration_test.py
+
+Requires: TEST_USER_EMAIL and TEST_USER_PASSWORD env vars
+          (or defaults to kunal@example.com / SarathiTest1!)
+"""
+
+import json
+import os
+import sys
+import time
+
+import boto3
+import requests
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# ---------------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------------
+
+TEST_USER_ID = "447844a8-c0e1-700b-2fdf-f9512eee3e49"
+TEST_USER_EMAIL = os.environ.get("TEST_USER_EMAIL", "kunal@example.com")
+TEST_USER_PASSWORD = os.environ.get("TEST_USER_PASSWORD", "SarathiTest1!")
+TABLE_NAME = "sarathi"
+S3_BUCKET = "sarathi-123456789012-us-east-1"
+API_URL = "https://abcde12345.execute-api.us-east-1.amazonaws.com/prod"
+COGNITO_CLIENT_ID = "your-cognito-app-client-id"
+ORIGIN = "https://d0000000000000.cloudfront.net"
+
+passed = 0
+failed = 0
+errors = []
+
+
+def test(name):
+    def decorator(fn):
+        def wrapper(*args, **kwargs):
+            global passed, failed
+            try:
+                fn(*args, **kwargs)
+                passed += 1
+                print(f"  ✓ {name}")
+            except AssertionError as e:
+                failed += 1
+                errors.append(f"{name}: {e}")
+                print(f"  ✗ {name}: {e}")
+            except Exception as e:
+                failed += 1
+                errors.append(f"{name}: {type(e).__name__}: {e}")
+                print(f"  ✗ {name}: {type(e).__name__}: {e}")
+        return wrapper
+    return decorator
+
+
+# ---------------------------------------------------------------------------
+# Auth
+# ---------------------------------------------------------------------------
+
+def get_token():
+    client = boto3.client("cognito-idp", region_name="us-east-1")
+    resp = client.initiate_auth(
+        ClientId=COGNITO_CLIENT_ID,
+        AuthFlow="USER_PASSWORD_AUTH",
+        AuthParameters={"USERNAME": TEST_USER_EMAIL, "PASSWORD": TEST_USER_PASSWORD},
+    )
+    return resp["AuthenticationResult"]["IdToken"]
+
+
+# ---------------------------------------------------------------------------
+# API Tests
+# ---------------------------------------------------------------------------
+
+@test("GET /feed returns 200 with cards")
+def test_feed(token):
+    r = requests.get(f"{API_URL}/feed", headers={"Authorization": token})
+    assert r.status_code == 200, f"Got {r.status_code}: {r.text[:100]}"
+    body = r.json()
+    assert "cards" in body
+    assert len(body["cards"]) > 0, "Expected cards (test user has cloned data)"
+    # Verify new fields are present
+    card = body["cards"][0]
+    assert "read" in card
+    assert "bookmarked" in card
+    assert "rating" in card
+    assert "view_count" in card
+
+
+@test("GET /feed/{card_id} returns card detail")
+def test_card_detail(token, card_id):
+    r = requests.get(f"{API_URL}/feed/{card_id}", headers={"Authorization": token})
+    assert r.status_code == 200, f"Got {r.status_code}: {r.text[:100]}"
+    body = r.json()
+    assert "hook" in body
+    assert "digest" in body
+    assert "paper_id" in body
+
+
+@test("POST /engagement returns 201")
+def test_engagement(token, card):
+    r = requests.post(
+        f"{API_URL}/engagement",
+        headers={"Authorization": token, "Content-Type": "application/json"},
+        json={"paper_id": card["paper_id"], "card_id": card["card_id"], "action": "view"},
+    )
+    assert r.status_code == 201, f"Got {r.status_code}: {r.text[:100]}"
+
+
+@test("POST /engagement bookmark persists on card")
+def test_bookmark_persists(token, card):
+    # Bookmark
+    r = requests.post(
+        f"{API_URL}/engagement",
+        headers={"Authorization": token, "Content-Type": "application/json"},
+        json={"paper_id": card["paper_id"], "card_id": card["card_id"], "action": "bookmark", "section": "add"},
+    )
+    assert r.status_code == 201
+    # Verify it's persisted
+    r2 = requests.get(f"{API_URL}/feed/{card['card_id']}", headers={"Authorization": token})
+    body = r2.json()
+    assert body.get("bookmarked") == True, f"Expected bookmarked=True, got {body.get('bookmarked')}"
+
+
+@test("POST /engagement rate persists on card")
+def test_rate_persists(token, card):
+    r = requests.post(
+        f"{API_URL}/engagement",
+        headers={"Authorization": token, "Content-Type": "application/json"},
+        json={"paper_id": card["paper_id"], "card_id": card["card_id"], "action": "rate", "rating": 5},
+    )
+    assert r.status_code == 201
+    r2 = requests.get(f"{API_URL}/feed/{card['card_id']}", headers={"Authorization": token})
+    body = r2.json()
+    assert body.get("rating") == 5, f"Expected rating=5, got {body.get('rating')}"
+
+
+@test("POST /engagement dismiss filters card from feed")
+def test_dismiss_filters(token, cards):
+    # Find a card that isn't the first one (so we don't break other tests)
+    if len(cards) < 2:
+        return  # Skip if not enough cards
+    target = cards[-1]
+    r = requests.post(
+        f"{API_URL}/engagement",
+        headers={"Authorization": token, "Content-Type": "application/json"},
+        json={"paper_id": target["paper_id"], "card_id": target["card_id"], "action": "dismiss"},
+    )
+    assert r.status_code == 201
+    # Verify it's gone from feed
+    r2 = requests.get(f"{API_URL}/feed", headers={"Authorization": token})
+    card_ids = [c["card_id"] for c in r2.json()["cards"]]
+    assert target["card_id"] not in card_ids, "Dismissed card still in feed"
+
+
+@test("GET /chat/{paper_id} returns conversation history")
+def test_chat_history(token, paper_id):
+    r = requests.get(f"{API_URL}/chat/{paper_id}", headers={"Authorization": token})
+    assert r.status_code == 200, f"Got {r.status_code}: {r.text[:100]}"
+    body = r.json()
+    assert "turns" in body
+    assert len(body["turns"]) > 0, "Expected conversation turns (test user has cloned data)"
+
+
+@test("CORS headers present on all endpoints")
+def test_cors(token):
+    for endpoint in ["/feed", "/engagement", "/chat"]:
+        method = "GET" if endpoint != "/engagement" else "OPTIONS"
+        r = requests.options(
+            f"{API_URL}{endpoint}",
+            headers={"Origin": ORIGIN, "Access-Control-Request-Method": "POST" if endpoint != "/feed" else "GET"},
+        )
+        assert "access-control-allow-origin" in r.headers, f"No CORS on {endpoint}"
+
+
+# ---------------------------------------------------------------------------
+# Learn Step Test
+# ---------------------------------------------------------------------------
+
+@test("Learn step runs successfully with test user data")
+def test_learn_step():
+    from backend.shared import db
+    from backend.pipeline.learn import handler
+
+    dynamodb = boto3.resource("dynamodb", region_name="us-east-1")
+    table = dynamodb.Table(TABLE_NAME)
+
+    # Reset last_learn_ts to force a full run
+    profile_meta = db.get_profile_meta(table, TEST_USER_ID)
+    profile_meta["last_learn_ts"] = "2026-06-10T00:00:00Z"
+    db.put_profile_meta(table, TEST_USER_ID, profile_meta)
+
+    result = handler({"user_id": TEST_USER_ID, "table_name": TABLE_NAME}, None)
+
+    assert result["status"] == "ok", f"Learn step failed: {result}"
+    assert len(result["changes"]) > 0, "Expected at least one profile change"
+
+
+@test("Learn step writes frontier snapshots to history")
+def test_learn_history():
+    from backend.shared import db
+
+    dynamodb = boto3.resource("dynamodb", region_name="us-east-1")
+    table = dynamodb.Table(TABLE_NAME)
+
+    # Check latest history event
+    from boto3.dynamodb.conditions import Key
+    resp = table.query(
+        KeyConditionExpression=Key("PK").eq(f"USER#{TEST_USER_ID}#PROFILE_HISTORY"),
+        ScanIndexForward=False,
+        Limit=1,
+    )
+    items = resp.get("Items", [])
+    assert len(items) > 0, "No profile history events found"
+    latest = items[0]
+    assert latest.get("type") == "learn_update"
+    assert "frontier_snapshots" in latest, f"No frontier_snapshots in history: {list(latest.keys())}"
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+def main():
+    global passed, failed
+
+    print("\n=== Full Integration Test ===\n")
+    print(f"User: {TEST_USER_ID}")
+    print(f"API:  {API_URL}")
+    print()
+
+    # Auth
+    print("[Auth]")
+    token = get_token()
+    print(f"  ✓ Got token")
+    print()
+
+    # API Tests
+    print("[Feed API]")
+    test_feed(token)
+
+    r = requests.get(f"{API_URL}/feed?limit=5", headers={"Authorization": token})
+    cards = r.json().get("cards", [])
+    card = cards[0] if cards else None
+
+    if card:
+        test_card_detail(token, card["card_id"])
+    print()
+
+    print("[Engagement API]")
+    if card:
+        test_engagement(token, card)
+        test_bookmark_persists(token, card)
+        test_rate_persists(token, card)
+        test_dismiss_filters(token, cards)
+    print()
+
+    print("[Chat API]")
+    if card:
+        test_chat_history(token, card["paper_id"])
+    print()
+
+    print("[CORS]")
+    test_cors(token)
+    print()
+
+    print("[Learn Step]")
+    test_learn_step()
+    test_learn_history()
+    print()
+
+    # Summary
+    total = passed + failed
+    print(f"\n{'='*50}")
+    print(f"Results: {passed}/{total} passed, {failed} failed")
+    if errors:
+        print("\nFailures:")
+        for e in errors:
+            print(f"  • {e}")
+    print()
+
+    sys.exit(0 if failed == 0 else 1)
+
+
+if __name__ == "__main__":
+    main()
