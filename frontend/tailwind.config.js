@@ -9,20 +9,20 @@ export default {
           light: '#24243E',
         },
         accent: {
-          DEFAULT: '#8B5CF6',
-          light: '#A855F7',
-          dim: 'rgba(139, 92, 246, 0.2)',
+          DEFAULT: '#EC4899',
+          light: '#F472B6',
+          dim: 'rgba(236, 72, 153, 0.2)',
         },
-        pink: {
-          hot: '#EC4899',
+        violet: {
+          neon: '#8B5CF6',
         },
       },
       fontFamily: {
         sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'system-ui', 'sans-serif'],
       },
       boxShadow: {
-        glow: '0 0 20px rgba(139, 92, 246, 0.3)',
-        'glow-pink': '0 0 20px rgba(236, 72, 153, 0.3)',
+        glow: '0 0 20px rgba(236, 72, 153, 0.3)',
+        'glow-violet': '0 0 20px rgba(139, 92, 246, 0.3)',
       },
     },
   },

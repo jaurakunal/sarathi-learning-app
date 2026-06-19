@@ -88,7 +88,7 @@ export function Chat() {
 
   return (
     <div className="min-h-screen bg-[#0a0a0f] flex flex-col relative">
-      <div className="ambient-orb w-64 h-64 bg-pink-hot top-[-5rem] left-[-5rem]" />
+      <div className="ambient-orb w-64 h-64 bg-violet-neon top-[-5rem] left-[-5rem]" />
 
       {/* Header */}
       <div className="glass-header sticky top-0 z-20">

@@ -28,24 +28,24 @@ body {
 .glass-card {
   background: rgba(26, 26, 46, 0.7);
   backdrop-filter: blur(12px);
-  border: 1px solid rgba(139, 92, 246, 0.15);
+  border: 1px solid rgba(236, 72, 153, 0.15);
 }
 
 .glass-card:hover {
-  border-color: rgba(139, 92, 246, 0.35);
-  box-shadow: 0 0 24px rgba(139, 92, 246, 0.12);
+  border-color: rgba(236, 72, 153, 0.35);
+  box-shadow: 0 0 24px rgba(236, 72, 153, 0.12);
 }
 
 /* Glass header */
 .glass-header {
   background: rgba(10, 10, 15, 0.85);
   backdrop-filter: blur(16px);
-  border-bottom: 1px solid rgba(139, 92, 246, 0.1);
+  border-bottom: 1px solid rgba(236, 72, 153, 0.1);
 }
 
 /* Gradient text */
 .text-gradient {
-  background: linear-gradient(135deg, #8B5CF6, #EC4899);
+  background: linear-gradient(135deg, #EC4899, #8B5CF6);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;

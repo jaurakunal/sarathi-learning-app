@@ -47,7 +47,7 @@ export function AuthGate({ children }: AuthGateProps) {
   return (
     <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center px-6 relative overflow-hidden">
       <div className="ambient-orb w-96 h-96 bg-accent top-[-10rem] right-[-10rem]" />
-      <div className="ambient-orb w-72 h-72 bg-pink-hot bottom-[-5rem] left-[-5rem]" />
+      <div className="ambient-orb w-72 h-72 bg-violet-neon bottom-[-5rem] left-[-5rem]" />
 
       <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-5 relative z-10">
         <div className="text-center space-y-2">

@@ -23,16 +23,24 @@ TABLE_NAME = os.environ.get("TABLE_NAME", "sarathi")
 BUCKET_NAME = os.environ.get("BUCKET_NAME", "")
 MODEL_ID = os.environ.get("MODEL_ID", "us.anthropic.claude-sonnet-4-6")
 
-SYSTEM_PROMPT = """You are Sārathi, a research assistant for a single user. You answer questions about academic papers with precision, honesty, and clarity.
+SYSTEM_PROMPT = """You are Sārathi, a research assistant for a single user named Kunal. You answer questions about academic papers with precision, honesty, and clarity.
+
+About the user:
+- Kunal is a practitioner who builds things but has zero academic vocabulary. He's never read a paper end-to-end. Your high-value move is connecting formal theory to things he's already built by instinct.
+- He's building a "faithful AI clone of a person" — a system that thinks, remembers, decides, and reacts like a specific human. This is his core project (the "clone-person project").
+- His thesis: "brain-structure + agentic harness >> the LLM" — the architecture/scaffolding matters more than the underlying model.
+- His areas of interest: person-cloning/mental models, human + Eastern memory models, long-running agents, adversarial/security agents.
+- Math: route around it. Explain in plain language. Only show equations if he explicitly asks.
 
 Rules:
 - Ground every answer in the paper text provided. Cite specific sections when possible.
-- Translate dense academic language into clear, applied terms. The user is a practitioner, not an academic.
-- Math: explain in plain language first. Only show equations if the user asks.
+- When he references "my project" or "clone-person", he means the AI-clone-of-a-person system described above.
+- Translate dense academic language into clear, applied terms.
 - Be concise. One clear paragraph is better than three meandering ones.
 - If the paper doesn't address a question, say so honestly. Don't fabricate.
-- Never flatter. Be a sharp, accurate mirror.
-- Connect ideas to what the user has previously asked in this conversation when relevant."""
+- Never flatter. Be a sharp, accurate mirror. Credit at exact scope, no more.
+- Connect ideas to what he has previously asked in this conversation when relevant.
+- When relevant, note whether the paper supports, refutes, or refines his thesis."""
 
 
 def handler(event: dict, context) -> dict:
@@ -78,9 +86,8 @@ def handler(event: dict, context) -> dict:
     # 3. Read existing turns
     turns = db.get_conversation_turns(table, user_id, conv_id)
 
-    # 4. Read profile summaries for context
+    # 4. Read full profile for context
     profile = db.get_full_profile(table, user_id)
-    summaries_text = _format_summaries(profile.get("summaries", []))
 
     # 5. Determine next turn sequence
     seq = len(turns) + 1
@@ -91,7 +98,7 @@ def handler(event: dict, context) -> dict:
     db.update_conversation_last_active(table, user_id, conv_id)
 
     # 7. Assemble LLM context + messages
-    system_prompt = _build_system_prompt(paper_text, summaries_text)
+    system_prompt = _build_system_prompt(paper_text, profile)
     llm_messages = _build_messages(turns, message)
 
     # 8. Call LLM (non-streaming for API Gateway compatibility)
@@ -208,12 +215,43 @@ def _format_summaries(summaries: list[dict]) -> str:
     return "\n".join(parts)
 
 
-def _build_system_prompt(paper_text: str, summaries_text: str) -> str:
-    """Build system prompt with paper text embedded."""
+def _build_system_prompt(paper_text: str, profile: dict) -> str:
+    """Build system prompt with paper text + profile context embedded."""
     prompt = SYSTEM_PROMPT
     prompt += f"\n\n<paper>\n{paper_text}\n</paper>"
-    if summaries_text:
-        prompt += f"\n\n<user_context>\n{summaries_text}\n</user_context>"
+
+    # Add profile context (areas, hypothesis, summaries)
+    context_parts = []
+
+    areas = profile.get("areas", [])
+    if areas:
+        area_lines = []
+        for a in areas:
+            label = a.get("label", "")
+            frontier = a.get("frontier", "")
+            role = a.get("role", "")
+            if label:
+                line = f"- {label} ({role})"
+                if frontier:
+                    line += f": {frontier}"
+                area_lines.append(line)
+        if area_lines:
+            context_parts.append("Research areas:\n" + "\n".join(area_lines))
+
+    hypothesis = profile.get("hypothesis")
+    if hypothesis:
+        stmt = hypothesis.get("statement", "")
+        if stmt:
+            context_parts.append(f"Core hypothesis: {stmt}")
+
+    summaries = profile.get("summaries", [])
+    summary_text = _format_summaries(summaries)
+    if summary_text:
+        context_parts.append(f"Recent activity:\n{summary_text}")
+
+    if context_parts:
+        prompt += "\n\n<user_context>\n" + "\n\n".join(context_parts) + "\n</user_context>"
+
     return prompt
 
 

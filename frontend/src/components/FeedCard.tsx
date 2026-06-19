@@ -23,8 +23,8 @@ export function FeedCard({ card, index }: FeedCardProps) {
     >
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <Clock size={12} className="text-pink-hot" />
-          <span className="text-xs text-pink-hot font-medium">
+          <Clock size={12} className="text-violet-neon" />
+          <span className="text-xs text-violet-neon font-medium">
             {card.time_estimate}
           </span>
           {card.read && (

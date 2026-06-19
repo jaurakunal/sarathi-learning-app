@@ -26,7 +26,7 @@ export function ChatMessage({ message }: ChatMessageProps) {
         {isUser ? (
           <p className="whitespace-pre-wrap">{message.content}</p>
         ) : (
-          <div className="prose prose-invert prose-sm max-w-none prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-headings:my-3 prose-code:text-pink-hot prose-code:bg-surface prose-code:px-1 prose-code:rounded prose-pre:bg-surface prose-pre:border prose-pre:border-accent-dim prose-strong:text-white prose-a:text-accent">
+          <div className="prose prose-invert prose-sm max-w-none prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-headings:my-3 prose-code:text-violet-neon prose-code:bg-surface prose-code:px-1 prose-code:rounded prose-pre:bg-surface prose-pre:border prose-pre:border-accent-dim prose-strong:text-white prose-a:text-accent">
             <Markdown>{message.content}</Markdown>
           </div>
         )}

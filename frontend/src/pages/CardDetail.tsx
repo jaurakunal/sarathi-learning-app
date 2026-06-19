@@ -109,8 +109,8 @@ export function CardDetail() {
         {/* Hook */}
         <div className="space-y-3 py-6">
           <div className="flex items-center gap-2">
-            <Clock size={12} className="text-pink-hot" />
-            <span className="text-xs text-pink-hot font-medium">{card.time_estimate}</span>
+            <Clock size={12} className="text-violet-neon" />
+            <span className="text-xs text-violet-neon font-medium">{card.time_estimate}</span>
             {card.card_type !== 'new_paper' && (
               <span className="text-xs text-accent-light font-medium px-2 py-0.5 rounded-full bg-accent-dim">
                 {card.card_type.replace('_', ' ')}

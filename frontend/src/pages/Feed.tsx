@@ -37,7 +37,7 @@ export function Feed() {
     <div className="min-h-screen bg-[#0a0a0f] relative overflow-hidden">
       {/* Ambient glow orbs */}
       <div className="ambient-orb w-96 h-96 bg-accent top-[-10rem] right-[-10rem]" />
-      <div className="ambient-orb w-72 h-72 bg-pink-hot bottom-[20%] left-[-8rem]" />
+      <div className="ambient-orb w-72 h-72 bg-violet-neon bottom-[20%] left-[-8rem]" />
 
       <div className="max-w-lg mx-auto px-4 pt-safe-top pb-safe-bottom relative z-10">
         {/* Header */}
@@ -73,7 +73,7 @@ export function Feed() {
           >
             Unread
             {unreadCount > 0 && (
-              <span className="text-xs bg-pink-hot/20 text-pink-hot px-1.5 py-0.5 rounded-full font-semibold">
+              <span className="text-xs bg-violet-neon/20 text-violet-neon px-1.5 py-0.5 rounded-full font-semibold">
                 {unreadCount}
               </span>
             )}
