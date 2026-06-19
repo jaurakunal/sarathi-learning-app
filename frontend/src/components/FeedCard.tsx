@@ -17,26 +17,39 @@ export function FeedCard({ card, index, onDismiss }: FeedCardProps) {
   const cardRef = useRef<HTMLDivElement>(null)
 
   // IntersectionObserver for impression tracking
+  // Card must be 50% visible for 1.5s to count as a real impression (not fast scrolling)
   useEffect(() => {
     const el = cardRef.current
     if (!el || impressionFired.current) return
 
+    let dwellTimer: ReturnType<typeof setTimeout> | null = null
+
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting && !impressionFired.current) {
-          impressionFired.current = true
-          postEngagement({
-            paper_id: card.paper_id,
-            card_id: card.card_id,
-            action: 'impression',
-          }).catch(() => {})
-          observer.disconnect()
+          dwellTimer = setTimeout(() => {
+            if (!impressionFired.current) {
+              impressionFired.current = true
+              postEngagement({
+                paper_id: card.paper_id,
+                card_id: card.card_id,
+                action: 'impression',
+              }).catch(() => {})
+              observer.disconnect()
+            }
+          }, 1500)
+        } else if (dwellTimer) {
+          clearTimeout(dwellTimer)
+          dwellTimer = null
         }
       },
       { threshold: 0.5 },
     )
     observer.observe(el)
-    return () => observer.disconnect()
+    return () => {
+      observer.disconnect()
+      if (dwellTimer) clearTimeout(dwellTimer)
+    }
   }, [card.paper_id, card.card_id])
 
   const handleDismiss = (e: React.MouseEvent) => {

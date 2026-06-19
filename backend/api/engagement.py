@@ -94,8 +94,21 @@ def handler(event: dict, context) -> dict:
     table = dynamodb.Table(TABLE_NAME)
     db.put_engagement_event(table, user_id, engagement_event)
 
-    # Persist bookmark/rating state on the feed card for retrieval
-    if action == "bookmark" and card_id:
+    # Persist state on the feed card for retrieval
+    if action == "view" and card_id:
+        # Increment view count — signal for "keeps coming back to this card"
+        try:
+            table.update_item(
+                Key={"PK": f"USER#{user_id}#FEED", "SK": f"CARD#{card_id}"},
+                UpdateExpression="ADD view_count :one",
+                ExpressionAttributeValues={":one": 1},
+            )
+        except Exception:
+            pass  # Non-critical — don't fail the engagement write
+    elif action == "dismiss" and card_id:
+        # Mark card as dismissed — filtered from default feed view
+        db.update_feed_card_meta(table, user_id, card_id, {"dismissed": True})
+    elif action == "bookmark" and card_id:
         # section="add" means bookmark, section="remove" means un-bookmark
         is_bookmarked = body.get("section") != "remove"
         db.update_feed_card_meta(table, user_id, card_id, {"bookmarked": is_bookmarked})

@@ -100,6 +100,11 @@ def _list_feed(table, user_id: str, event: dict) -> dict:
 
     cards, next_key = db.list_feed_cards(table, user_id, limit=limit, last_key=last_key)
 
+    # Filter dismissed cards unless explicitly requested
+    show_dismissed = query_params.get("show_dismissed") == "true"
+    if not show_dismissed:
+        cards = [c for c in cards if not c.get("dismissed")]
+
     # Get set of read paper IDs for marking cards
     read_paper_ids = db.get_read_paper_ids(table, user_id)
 
@@ -117,6 +122,7 @@ def _list_feed(table, user_id: str, event: dict) -> dict:
             "read": card.get("paper_id", "") in read_paper_ids,
             "bookmarked": bool(card.get("bookmarked", False)),
             "rating": int(card["rating"]) if card.get("rating") and int(card.get("rating", 0)) != 0 else None,
+            "view_count": int(card.get("view_count", 0)),
         })
 
     body = {"cards": response_cards, "lastKey": next_key}
