@@ -199,15 +199,21 @@ export function Profile() {
         {/* Frontier Timeline */}
         <div className="py-4">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-4">Frontier Evolution</h2>
-          {timeline.length > 0 ? (
-            <div>
-              {timeline.map((entry, i) => (
-                <TimelineNode key={entry.ts} entry={entry} isLast={i === timeline.length - 1} />
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-zinc-500">No learning updates yet. The pipeline runs nightly.</p>
-          )}
+          {(() => {
+            const meaningfulEntries = timeline.filter(
+              (e) => e.frontier_snapshots || e.hypothesis_evidence_added ||
+                     (e.changelog && e.changelog !== 'Learn step ran with no changelog.')
+            )
+            return meaningfulEntries.length > 0 ? (
+              <div>
+                {meaningfulEntries.map((entry, i) => (
+                  <TimelineNode key={entry.ts} entry={entry} isLast={i === meaningfulEntries.length - 1} />
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-zinc-500">No learning updates yet. The pipeline runs nightly at 2am UTC.</p>
+            )
+          })()}
         </div>
 
         {/* Current frontiers */}
