@@ -79,32 +79,42 @@ def handler(event: dict, context) -> dict:
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     events = db.list_engagement_events(table, user_id, since, now)
 
-    # Aggregate stats
-    stats = {
-        "papers_read": 0,
-        "papers_dismissed": 0,
-        "papers_bookmarked": 0,
-        "questions_asked": 0,
-        "source_clicks": 0,
-        "sections_expanded": 0,
-        "total_active_ms": 0,
-    }
+    # Aggregate stats (unique papers, not event counts)
+    read_papers: set = set()
+    dismissed_papers: set = set()
+    bookmarked_papers: set = set()
+    asked_papers: set = set()
+    source_click_papers: set = set()
+    total_active_ms = 0
+    sections_expanded = 0
+
     for e in events:
         action = e.get("action", "")
+        paper_id = e.get("paper_id", "")
         if action == "read":
-            stats["papers_read"] += 1
+            read_papers.add(paper_id)
             if e.get("active_ms"):
-                stats["total_active_ms"] += int(e["active_ms"])
+                total_active_ms += int(e["active_ms"])
         elif action == "dismiss":
-            stats["papers_dismissed"] += 1
+            dismissed_papers.add(paper_id)
         elif action == "bookmark":
-            stats["papers_bookmarked"] += 1
+            bookmarked_papers.add(paper_id)
         elif action == "ask":
-            stats["questions_asked"] += 1
+            asked_papers.add(paper_id)
         elif action == "source_click":
-            stats["source_clicks"] += 1
+            source_click_papers.add(paper_id)
         elif action == "expand":
-            stats["sections_expanded"] += 1
+            sections_expanded += 1
+
+    stats = {
+        "papers_read": len(read_papers),
+        "papers_dismissed": len(dismissed_papers),
+        "papers_bookmarked": len(bookmarked_papers),
+        "questions_asked": len(asked_papers),
+        "source_clicks": len(source_click_papers),
+        "sections_expanded": sections_expanded,
+        "total_active_ms": total_active_ms,
+    }
 
     # 4. Build response
     areas = []
