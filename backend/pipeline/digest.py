@@ -399,6 +399,12 @@ if __name__ == "__main__":
 
     result = run(event)
     print(json.dumps(result))
-    # Exit 1 only if zero cards were generated (total failure).
-    # Partial failures (some papers skipped) are normal — don't fail the pipeline.
-    sys.exit(0 if result.get("cards_generated", 0) > 0 else 1)
+    # Exit 1 only if papers were attempted but ALL failed.
+    # Zero surfaced papers (nothing to do) = success (exit 0).
+    # Partial failures (some papers skipped) = success (exit 0).
+    papers_failed = result.get("papers_failed", 0)
+    cards_generated = result.get("cards_generated", 0)
+    if papers_failed > 0 and cards_generated == 0:
+        sys.exit(1)
+    else:
+        sys.exit(0)

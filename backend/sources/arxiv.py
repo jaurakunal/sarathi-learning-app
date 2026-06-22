@@ -46,39 +46,48 @@ class ArxivSource:
     def discover(self, areas: list[Area], since: datetime, queries: list[str] | None = None) -> list[dict]:
         """Query arXiv for papers matching areas published since `since`."""
         if queries:
-            # Use 'all:' prefix without quotes for multi-word terms (AND-implicit within each term)
-            # arXiv interprets unquoted multi-word as AND within the field
             clauses = [f"all:{q}" for q in queries]
-            query = " OR ".join(clauses)
         else:
-            query = _build_query(areas)
-        if not query:
-            logger.warning("ArxivSource.discover: empty query from areas")
-            return []
+            raw_query = _build_query(areas)
+            if not raw_query:
+                logger.warning("ArxivSource.discover: empty query from areas")
+                return []
+            clauses = raw_query.split(" OR ")
 
-        logger.info("ArxivSource query: %s", query)
+        if not clauses:
+            return []
 
         if since.tzinfo is None:
             since = since.replace(tzinfo=timezone.utc)
 
-        time.sleep(_ARXIV_DELAY_S)
+        # Batch queries to avoid arXiv 500 errors on long URLs (max 5 per request)
+        BATCH_SIZE = 5
+        all_results: list[dict] = []
 
-        params = {
-            "search_query": query,
-            "start": 0,
-            "max_results": self._max_results,
-            "sortBy": "submittedDate",
-            "sortOrder": "descending",
-        }
+        for i in range(0, len(clauses), BATCH_SIZE):
+            batch = clauses[i:i + BATCH_SIZE]
+            query = " OR ".join(batch)
+            logger.info("ArxivSource query batch %d: %s", i // BATCH_SIZE + 1, query[:200])
 
-        try:
-            resp = requests.get(_ARXIV_API_URL, params=params, timeout=60)
-            resp.raise_for_status()
-        except requests.RequestException:
-            logger.exception("ArxivSource.discover: API request failed")
-            return []
+            time.sleep(_ARXIV_DELAY_S)
 
-        return self._parse_atom_response(resp.text, since)
+            params = {
+                "search_query": query,
+                "start": 0,
+                "max_results": self._max_results,
+                "sortBy": "submittedDate",
+                "sortOrder": "descending",
+            }
+
+            try:
+                resp = requests.get(_ARXIV_API_URL, params=params, timeout=60)
+                resp.raise_for_status()
+                all_results.extend(self._parse_atom_response(resp.text, since))
+            except requests.RequestException:
+                logger.warning("ArxivSource.discover: batch %d failed, continuing", i // BATCH_SIZE + 1)
+                continue
+
+        return all_results
 
     def _parse_atom_response(self, xml_text: str, since: datetime) -> list[dict]:
         """Parse the Atom XML response from arXiv API."""
