@@ -54,6 +54,7 @@ def _strip_ddb_keys(item: dict) -> dict:
 def _build_insights(
     read_papers, asked_papers, source_click_papers, dismissed_papers,
     section_counts, total_active_ms, impressions, views, areas, conv_turns,
+    viewed_papers=None,
 ) -> list[dict]:
     """Generate plain-language insights about what the system is observing."""
     insights = []
@@ -107,14 +108,21 @@ def _build_insights(
             "text": f"Average reading time: {avg_min} min per paper (across {len(read_papers)} read)",
         })
 
-    # Funnel: unique papers seen (viewed) → reads
-    # Use views (unique card opens) as the top of funnel, not raw impressions
-    if views > 0:
-        read_rate = round(len(read_papers) / views * 100)
+    # Funnel: unique papers opened → reads
+    unique_opened = len(viewed_papers) if viewed_papers else 0
+    if unique_opened > 0:
+        read_rate = round(len(read_papers) / unique_opened * 100)
         insights.append({
             "icon": "📈",
-            "text": f"Funnel: {views} papers opened → {len(read_papers)} read deeply ({read_rate}%)",
+            "text": f"Funnel: {unique_opened} papers opened → {len(read_papers)} read deeply ({read_rate}%)",
         })
+        revisited = unique_opened - len(read_papers | asked_papers | dismissed_papers)
+        if views > unique_opened:
+            revisit_count = views - unique_opened
+            insights.append({
+                "icon": "🔁",
+                "text": f"You revisited papers {revisit_count} time{'s' if revisit_count > 1 else ''} — coming back to reference or re-read",
+            })
 
     return insights
 
@@ -170,6 +178,7 @@ def handler(event: dict, context) -> dict:
     bookmarked_papers: set = set()
     asked_papers: set = set()
     source_click_papers: set = set()
+    viewed_papers: set = set()
     total_active_ms = 0
     sections_expanded = 0
     section_counts: dict = {"glossary": 0, "deep_dive": 0, "math_notes": 0, "other": 0}
@@ -202,6 +211,7 @@ def handler(event: dict, context) -> dict:
             impressions += 1
         elif action == "view":
             views += 1
+            viewed_papers.add(paper_id)
 
     stats = {
         "papers_read": len(read_papers),
@@ -281,5 +291,6 @@ def handler(event: dict, context) -> dict:
         "insights": _build_insights(
             read_papers, asked_papers, source_click_papers, dismissed_papers,
             section_counts, total_active_ms, impressions, views, areas, conv_turns,
+            viewed_papers=viewed_papers,
         ),
     })
