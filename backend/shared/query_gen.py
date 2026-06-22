@@ -31,12 +31,19 @@ def generate_queries_for_area(area: Area, model_id: Optional[str] = None) -> lis
     """Use an LLM to generate 3-5 search queries for a given research area.
 
     Falls back to basic keyword extraction if LLM call fails.
+    Uses the current date as a variation seed so each run produces slightly
+    different queries, discovering papers from new angles.
     """
+    from datetime import datetime, timezone
+    date_seed = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
     user_message = f"""Generate search queries for this research area:
 
 Label: {area.label}
 Key topics I'm interested in: {', '.join(area.just_right)}
 Current frontier: {area.frontier}
+
+Today's date: {date_seed} (use this to vary your query angles from previous runs — explore different facets, adjacent topics, or newer terminology each time)
 
 Return a JSON array of 3-5 search query strings."""
 

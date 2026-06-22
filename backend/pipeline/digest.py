@@ -21,8 +21,10 @@ import boto3
 from backend.shared import db
 from backend.shared.llm import call_llm
 from backend.sources.arxiv import ArxivSource
+from backend.sources.arxiv_rss import ArxivRssSource
 from backend.sources.hf_daily_papers import HFDailyPapersSource
 from backend.sources.openreview import OpenReviewSource
+from backend.sources.papers_with_code import PapersWithCodeSource
 from backend.sources.semantic_scholar import SemanticScholarSource
 
 logger = logging.getLogger(__name__)
@@ -37,9 +39,11 @@ logging.basicConfig(
 
 _SOURCES = {
     "arxiv": ArxivSource(),
+    "arxiv_rss": ArxivRssSource(),
     "semantic_scholar": SemanticScholarSource(),
     "openreview": OpenReviewSource(),
     "hf_daily_papers": HFDailyPapersSource(),
+    "papers_with_code": PapersWithCodeSource(),
 }
 
 DEFAULT_MODEL = "us.anthropic.claude-sonnet-4-6"

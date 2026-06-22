@@ -10,8 +10,10 @@ import boto3
 from backend.shared import db
 from backend.shared.models import Area, PaperStatus
 from backend.sources.arxiv import ArxivSource
+from backend.sources.arxiv_rss import ArxivRssSource
 from backend.sources.hf_daily_papers import HFDailyPapersSource
 from backend.sources.openreview import OpenReviewSource
+from backend.sources.papers_with_code import PapersWithCodeSource
 from backend.sources.semantic_scholar import SemanticScholarSource
 
 logger = logging.getLogger(__name__)
@@ -95,7 +97,7 @@ def handler(event: dict, context) -> dict:
     """
     user_id = event["user_id"]
     table_name = event["table_name"]
-    since_days = event.get("since_days", 7)
+    since_days = event.get("since_days", 14)
 
     # Create the DDB table resource
     dynamodb = boto3.resource("dynamodb")
@@ -125,7 +127,9 @@ def handler(event: dict, context) -> dict:
 
     # Step 5: Query all sources with the pre-generated queries
     sources = [
+        ArxivRssSource(),
         ArxivSource(),
+        PapersWithCodeSource(),
         SemanticScholarSource(),
         HFDailyPapersSource(),
         OpenReviewSource(),

@@ -18,11 +18,11 @@ _OPENREVIEW_DELAY_S = 1.0
 
 # Top ML venues on OpenReview we care about
 _VENUES = [
+    "ICLR.cc/2026/Conference",
     "ICLR.cc/2025/Conference",
-    "ICLR.cc/2024/Conference",
-    "NeurIPS.cc/2024/Conference",
+    "NeurIPS.cc/2026/Conference",
     "NeurIPS.cc/2025/Conference",
-    "ICML.cc/2024/Conference",
+    "ICML.cc/2026/Conference",
     "ICML.cc/2025/Conference",
 ]
 
