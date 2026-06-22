@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { LogOut, TrendingUp } from 'lucide-react'
+import { LogOut, TrendingUp, BookOpen } from 'lucide-react'
 import { getFeed } from '../api/feed'
 import { FeedCard } from '../components/FeedCard'
 import { LoadingSpinner } from '../components/LoadingSpinner'
@@ -50,7 +50,14 @@ export function Feed() {
         {/* Header */}
         <div className="glass-header sticky top-0 z-20 -mx-4 px-4 py-4 flex items-center justify-between">
           <h1 className="text-xl font-bold text-gradient">Sārathi</h1>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => navigate('/library')}
+              className="text-zinc-500 hover:text-accent transition-colors p-2"
+              title="Library"
+            >
+              <BookOpen size={16} />
+            </button>
             <button
               onClick={() => navigate('/profile')}
               className="text-zinc-500 hover:text-accent transition-colors p-2"
