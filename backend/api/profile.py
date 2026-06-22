@@ -67,27 +67,14 @@ def _build_insights(
             "text": f"You expand {section_labels.get(top_section, top_section)} most often ({section_counts[top_section]}x this week) — serving you deeper content in that style",
         })
 
-    # Hottest area (most engagement actions)
-    if areas:
-        area_engagement = {}
-        for a in areas:
-            aid = a.get("id", "")
-            count = 0
-            if aid in [p.split("/")[-1] if "/" in p else p for p in read_papers]:
-                count += 3
-            # Use conversation turns as proxy for deep engagement
-            count += conv_turns.get(aid, 0) * 2
-            area_engagement[a.get("name", aid)] = count
-        # Hottest by last_engaged or status
-        hot_areas = [a for a in areas if a.get("status") in ("hot", "active")]
-        if hot_areas:
-            hottest = max(hot_areas, key=lambda a: a.get("last_engaged") or "")
-            insights.append({
-                "icon": "🔥",
-                "text": f"{hottest.get('name', hottest.get('id'))} is your hottest area — weighting discovery toward this",
-            })
+    # Area heat (only show if Learn step has run and set meaningful statuses)
+    hot_areas = [a for a in areas if a.get("status") == "hot"]
+    for a in hot_areas[:1]:
+        insights.append({
+            "icon": "🔥",
+            "text": f"{a.get('name', a.get('id'))} is your hottest area — weighting discovery toward this",
+        })
 
-    # Cooling areas
     cold_areas = [a for a in areas if a.get("status") in ("cool", "dormant")]
     for a in cold_areas[:1]:
         insights.append({
@@ -120,13 +107,13 @@ def _build_insights(
             "text": f"Average reading time: {avg_min} min per paper (across {len(read_papers)} read)",
         })
 
-    # Funnel: impressions → views → reads
-    if impressions > 0 and views > 0:
-        view_rate = round(views / impressions * 100)
-        read_rate = round(len(read_papers) / max(views, 1) * 100)
+    # Funnel: unique papers seen (viewed) → reads
+    # Use views (unique card opens) as the top of funnel, not raw impressions
+    if views > 0:
+        read_rate = round(len(read_papers) / views * 100)
         insights.append({
             "icon": "📈",
-            "text": f"Funnel: {impressions} seen → {views} opened ({view_rate}%) → {len(read_papers)} read ({read_rate}% of opened)",
+            "text": f"Funnel: {views} papers opened → {len(read_papers)} read deeply ({read_rate}%)",
         })
 
     return insights
