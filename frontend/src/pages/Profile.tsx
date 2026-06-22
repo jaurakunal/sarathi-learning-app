@@ -117,6 +117,8 @@ function TimelineNode({ entry, isLast }: { entry: TimelineEntry; isLast: boolean
 
 export function Profile() {
   const navigate = useNavigate()
+  const [tab, setTab] = useState<'overview' | 'insights' | 'timeline'>('overview')
+
   const { data, isLoading, isError } = useQuery({
     queryKey: ['profile'],
     queryFn: getProfile,
@@ -125,7 +127,6 @@ export function Profile() {
   if (isLoading) return <div className="min-h-screen bg-[#0a0a0f]"><LoadingSpinner /></div>
   if (isError || !data) return <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center"><p className="text-red-400 text-sm">Failed to load profile</p></div>
 
-  const [tab, setTab] = useState<'overview' | 'insights' | 'timeline'>('overview')
   const { areas, hypothesis, stats_7d, timeline } = data
 
   return (
