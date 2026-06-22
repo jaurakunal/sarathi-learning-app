@@ -44,6 +44,12 @@ export interface ProfileData {
   }
   timeline: TimelineEntry[]
   learning_style: Record<string, unknown> | null
+  latest_brief: {
+    week: string
+    content: string
+    created_at: string
+    stats: { papers_read: number; questions_asked: number; source_clicks: number }
+  } | null
 }
 
 export function getProfile(): Promise<ProfileData> {

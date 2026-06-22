@@ -74,6 +74,23 @@ def handler(event: dict, context) -> dict:
     )
     history = history_resp.get("Items", [])
 
+    # 2b. Latest weekly brief
+    brief_resp = table.query(
+        KeyConditionExpression=Key("PK").eq(f"USER#{user_id}#BRIEF"),
+        ScanIndexForward=False,
+        Limit=1,
+    )
+    brief_items = brief_resp.get("Items", [])
+    latest_brief = None
+    if brief_items:
+        b = brief_items[0]
+        latest_brief = {
+            "week": b.get("week", ""),
+            "content": b.get("content", ""),
+            "created_at": b.get("created_at", ""),
+            "stats": b.get("stats", {}),
+        }
+
     # 3. Engagement stats for the last 7 days
     since = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -165,4 +182,5 @@ def handler(event: dict, context) -> dict:
         "stats_7d": stats,
         "timeline": timeline,
         "learning_style": profile.get("meta", {}).get("learning_style"),
+        "latest_brief": latest_brief,
     })

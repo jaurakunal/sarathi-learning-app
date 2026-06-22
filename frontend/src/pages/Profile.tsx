@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ArrowLeft, BookOpen, MessageCircle, ExternalLink, Flame, Snowflake, ChevronDown } from 'lucide-react'
+import Markdown from 'react-markdown'
 import { getProfile } from '../api/profile'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import type { TimelineEntry } from '../api/profile'
@@ -154,6 +155,20 @@ export function Profile() {
             <div className="text-xs text-zinc-500 flex items-center justify-center gap-1"><ExternalLink size={10} /> deep</div>
           </div>
         </div>
+
+        {/* Weekly Brief */}
+        {data.latest_brief && (
+          <div className="py-4">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-2">
+              Weekly Brief — {data.latest_brief.week}
+            </h2>
+            <div className="glass-card rounded-xl p-4">
+              <div className="prose prose-invert prose-sm max-w-none prose-p:my-2 prose-ul:my-2 prose-li:my-0.5 prose-strong:text-white prose-a:text-accent">
+                <Markdown>{data.latest_brief.content}</Markdown>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Area status pills */}
         <div className="py-2">
