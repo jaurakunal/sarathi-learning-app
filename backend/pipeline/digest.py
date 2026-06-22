@@ -329,6 +329,23 @@ def run(event: dict) -> dict:
             # 3b. Store full text in S3
             s3_key = _upload_full_text(s3_client, s3_bucket, user_id, paper_id, full_text)
 
+            # 3b-ii. Chunk + embed for RAG (skip if already embedded globally)
+            if not db.is_paper_embedded(table, paper_id):
+                try:
+                    from backend.shared.chunker import chunk_paper_into_sections
+                    from backend.shared.embeddings import embed_batch
+                    from backend.shared.vectors import put_vectors
+
+                    chunks = chunk_paper_into_sections(full_text, title, paper_id)
+                    if chunks:
+                        embeddings = embed_batch([c["chunk_text"] for c in chunks])
+                        stored = put_vectors(chunks, embeddings)
+                        if stored > 0:
+                            db.mark_paper_embedded(table, paper_id, stored)
+                            logger.info("Embedded paper %s: %d sections", paper_id, stored)
+                except Exception:
+                    logger.warning("Embedding failed for paper %s — continuing without RAG", paper_id)
+
             # 3c. Call LLM to generate feed card content
             user_prompt = _build_user_prompt(paper, full_text)
             llm_result = _generate_card(model, system_prompt, user_prompt)

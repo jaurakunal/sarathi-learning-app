@@ -19,6 +19,7 @@ import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
 import * as appsync from 'aws-cdk-lib/aws-appsync';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
+import * as s3vectors from 'aws-cdk-lib/aws-s3vectors';
 import { Construct } from 'constructs';
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
@@ -76,6 +77,20 @@ export class SarathiStack extends cdk.Stack {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
     });
 
+    // ─── S3 Vectors: embeddings for RAG ──────────────────────────────
+    const vectorBucket = new s3vectors.CfnVectorBucket(this, 'SarathiVectorBucket', {
+      vectorBucketName: `sarathi-vectors-${this.account}-${this.region}`,
+    });
+
+    const vectorIndex = new s3vectors.CfnIndex(this, 'PaperSectionsIndex', {
+      vectorBucketName: `sarathi-vectors-${this.account}-${this.region}`,
+      indexName: 'paper-sections',
+      dimension: 1024,
+      distanceMetric: 'cosine',
+      dataType: 'float32',
+    });
+    vectorIndex.addDependency(vectorBucket);
+
     // ─── Cognito ─────────────────────────────────────────────────────
     const userPool = new cognito.UserPool(this, 'SarathiUserPool', {
       userPoolName: 'sarathi-users',
@@ -117,6 +132,13 @@ export class SarathiStack extends cdk.Stack {
       actions: ['ssm:GetParameter'],
       resources: [`arn:aws:ssm:${this.region}:${this.account}:parameter/sarathi/*`],
     }));
+    lambdaRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['s3vectors:*'],
+      resources: [
+        `arn:aws:s3vectors:${this.region}:${this.account}:vector-bucket/sarathi-vectors-${this.account}-${this.region}`,
+        `arn:aws:s3vectors:${this.region}:${this.account}:vector-bucket/sarathi-vectors-${this.account}-${this.region}/*`,
+      ],
+    }));
 
     // SSM Parameter for Semantic Scholar API key
     const s2ApiKeyParam = new ssm.StringParameter(this, 'S2ApiKeyParam', {
@@ -129,6 +151,8 @@ export class SarathiStack extends cdk.Stack {
       TABLE_NAME: table.tableName,
       BUCKET_NAME: bucket.bucketName,
       S2_API_KEY_PARAM: s2ApiKeyParam.parameterName,
+      VECTOR_BUCKET_NAME: `sarathi-vectors-${this.account}-${this.region}`,
+      VECTOR_INDEX_NAME: 'paper-sections',
     };
 
     const lambdaCode = lambda.Code.fromAsset(REPO_ROOT, {
@@ -283,6 +307,13 @@ export class SarathiStack extends cdk.Stack {
     digestTaskDef.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
       actions: ['bedrock:InvokeModel'],
       resources: ['*'],
+    }));
+    digestTaskDef.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      actions: ['s3vectors:*'],
+      resources: [
+        `arn:aws:s3vectors:${this.region}:${this.account}:vector-bucket/sarathi-vectors-${this.account}-${this.region}`,
+        `arn:aws:s3vectors:${this.region}:${this.account}:vector-bucket/sarathi-vectors-${this.account}-${this.region}/*`,
+      ],
     }));
 
     digestTaskDef.addContainer('DigestContainer', {

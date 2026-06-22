@@ -187,12 +187,22 @@ def handler(event: dict, context) -> dict:
             logger.debug("Skipping paper with empty id: %s", paper.get("title", ""))
             continue
 
-        # Check if we've already seen this paper
+        # Check if we've already seen this paper (user-scoped)
         if db.paper_exists(table, user_id, paper_id):
             duplicates_skipped += 1
             continue
 
-        # Write the new candidate to DDB
+        # Write to global paper registry (first-writer-wins, shared across users)
+        db.put_global_paper(table, {
+            "paper_id": paper_id,
+            "title": paper.get("title", ""),
+            "abstract": paper.get("abstract", "")[:2000],
+            "source_url": paper.get("url", ""),
+            "sources": [paper.get("source", "")],
+            "discovered_by": user_id,
+        })
+
+        # Write the user-scoped candidate to DDB (for pipeline state: triage, select, etc.)
         paper_record = _make_paper_record(paper, discovered_at)
         try:
             db.put_paper(table, user_id, paper_record)

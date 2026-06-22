@@ -92,6 +92,10 @@ def _conv_archive_pk(user_id: str, conv_id: str, batch_id: str) -> str:
     return f"USER#{user_id}#CONV_ARCHIVE#{conv_id}#{batch_id}"
 
 
+def _global_paper_pk(paper_id: str) -> str:
+    return f"PAPER#{paper_id}"
+
+
 # ---------------------------------------------------------------------------
 # Profile
 # ---------------------------------------------------------------------------
@@ -515,3 +519,93 @@ def update_conversation_last_active(table, user_id: str, conv_id: str) -> None:
             ":one": 1,
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Global Paper Registry
+# ---------------------------------------------------------------------------
+
+def get_global_paper(table, paper_id: str) -> Optional[dict]:
+    """Get the global paper registry entry (shared across all users)."""
+    resp = table.get_item(
+        Key={"PK": _global_paper_pk(paper_id), "SK": "META"},
+    )
+    return resp.get("Item")
+
+
+def put_global_paper(table, paper: dict) -> bool:
+    """Write a global paper entry (first-writer-wins).
+
+    Returns True if the item was written (new paper), False if it already existed.
+    """
+    paper_id = paper["paper_id"]
+    item = {
+        "PK": _global_paper_pk(paper_id),
+        "SK": "META",
+        "paper_id": paper_id,
+        "discovered_at": _now_iso(),
+        "embedded": False,
+        **paper,
+    }
+    try:
+        table.put_item(
+            Item=_sanitize_item(item),
+            ConditionExpression="attribute_not_exists(PK)",
+        )
+        return True
+    except table.meta.client.exceptions.ConditionalCheckFailedException:
+        return False
+
+
+def mark_paper_embedded(table, paper_id: str, chunk_count: int) -> None:
+    """Mark a paper as embedded in the global registry."""
+    table.update_item(
+        Key={"PK": _global_paper_pk(paper_id), "SK": "META"},
+        UpdateExpression="SET embedded = :t, embedded_at = :ts, chunk_count = :c",
+        ExpressionAttributeValues={
+            ":t": True,
+            ":ts": _now_iso(),
+            ":c": chunk_count,
+        },
+    )
+
+
+def is_paper_embedded(table, paper_id: str) -> bool:
+    """Check if a paper has already been embedded."""
+    resp = table.get_item(
+        Key={"PK": _global_paper_pk(paper_id), "SK": "META"},
+        ProjectionExpression="embedded",
+    )
+    item = resp.get("Item")
+    return bool(item and item.get("embedded"))
+
+
+def list_user_paper_ids(table, user_id: str) -> set[str]:
+    """Get all paper_ids the user has in their feed (for scoping vector queries)."""
+    resp = table.query(
+        KeyConditionExpression=(
+            Key("PK").eq(f"USER#{user_id}#FEED")
+            & Key("SK").begins_with("CARD#")
+        ),
+        ProjectionExpression="paper_id",
+    )
+    paper_ids = set()
+    for item in resp.get("Items", []):
+        pid = item.get("paper_id", "")
+        if pid:
+            paper_ids.add(pid)
+    # Handle pagination
+    while resp.get("LastEvaluatedKey"):
+        resp = table.query(
+            KeyConditionExpression=(
+                Key("PK").eq(f"USER#{user_id}#FEED")
+                & Key("SK").begins_with("CARD#")
+            ),
+            ProjectionExpression="paper_id",
+            ExclusiveStartKey=resp["LastEvaluatedKey"],
+        )
+        for item in resp.get("Items", []):
+            pid = item.get("paper_id", "")
+            if pid:
+                paper_ids.add(pid)
+    return paper_ids

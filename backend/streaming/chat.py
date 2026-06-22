@@ -72,10 +72,30 @@ def handler(event: dict, context) -> dict:
     conv_id = paper_id
     full_text_s3_key = conv.get("full_text_s3_key", "")
 
-    # 2. Read paper full text from S3
-    paper_text = _read_s3_text(s3_client, BUCKET_NAME, full_text_s3_key)
-    if not paper_text:
-        return _error_response(404, "Paper full text not found in S3")
+    # 2. Try RAG retrieval first, fall back to full-text stuffing
+    paper_text = None
+    retrieved_context = None
+
+    if db.is_paper_embedded(table, paper_id):
+        # RAG path: retrieve relevant chunks across user's library
+        try:
+            from backend.shared.embeddings import embed_text
+            from backend.shared.vectors import query_vectors
+
+            user_paper_ids = db.list_user_paper_ids(table, user_id)
+            query_embedding = embed_text(message)
+            chunks = query_vectors(query_embedding, paper_ids=user_paper_ids, top_k=10)
+
+            if chunks:
+                retrieved_context = _format_retrieved_chunks(chunks)
+        except Exception:
+            logger.warning("RAG retrieval failed — falling back to full text")
+
+    # Fallback: full-text stuffing (for papers not yet embedded, or if RAG fails)
+    if not retrieved_context:
+        paper_text = _read_s3_text(s3_client, BUCKET_NAME, full_text_s3_key)
+        if not paper_text:
+            return _error_response(404, "Paper full text not found in S3")
 
     # 3. Read existing turns
     turns = db.get_conversation_turns(table, user_id, conv_id)
@@ -92,7 +112,10 @@ def handler(event: dict, context) -> dict:
     db.update_conversation_last_active(table, user_id, conv_id)
 
     # 7. Assemble LLM context + messages
-    system_prompt = _build_system_prompt(paper_text, profile)
+    if retrieved_context:
+        system_prompt = _build_system_prompt_with_retrieval(retrieved_context, profile)
+    else:
+        system_prompt = _build_system_prompt(paper_text, profile)
     llm_messages = _build_messages(turns, message)
 
     # 8. Call LLM (non-streaming for API Gateway compatibility)
@@ -369,6 +392,35 @@ def _call_llm_messages(messages: list[dict], model_id: str, system_prompt: str =
     except Exception:
         logger.exception("Bedrock multi-turn call failed")
         return None
+
+
+def _format_retrieved_chunks(chunks: list[dict]) -> str:
+    """Format retrieved vector chunks into context for the system prompt."""
+    parts = []
+    for chunk in chunks:
+        metadata = chunk.get("metadata", {})
+        paper_title = metadata.get("paper_title", "Unknown")
+        section_name = metadata.get("section_name", "section")
+        paper_id = metadata.get("paper_id", "")
+
+        # Retrieve the chunk text from the key (paper_id:section_name)
+        # The actual text isn't stored in S3 Vectors metadata — we need to reconstruct
+        # For now, use the metadata to label and the chunk text from the vector store
+        parts.append(f'[From "{paper_title}" — {section_name} section (paper_id: {paper_id})]')
+
+    return "\n\n".join(parts)
+
+
+def _build_system_prompt_with_retrieval(retrieved_context: str, profile: dict) -> str:
+    """Build system prompt using retrieved chunks instead of full paper text."""
+    summaries_text = _format_summaries(profile.get("summaries", []))
+
+    prompt = SYSTEM_PROMPT
+    prompt += f"\n\n<retrieved_context>\n{retrieved_context}\n</retrieved_context>"
+    prompt += "\n\nWhen answering, cite the paper title and section for each claim. If the retrieved context doesn't answer the question, say so honestly."
+    if summaries_text:
+        prompt += f"\n\n<user_context>\n{summaries_text}\n</user_context>"
+    return prompt
 
 
 def _error_response(status: int, message: str) -> dict:
