@@ -125,6 +125,7 @@ export function Profile() {
   if (isLoading) return <div className="min-h-screen bg-[#0a0a0f]"><LoadingSpinner /></div>
   if (isError || !data) return <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center"><p className="text-red-400 text-sm">Failed to load profile</p></div>
 
+  const [tab, setTab] = useState<'overview' | 'insights' | 'timeline'>('overview')
   const { areas, hypothesis, stats_7d, timeline } = data
 
   return (
@@ -133,140 +134,178 @@ export function Profile() {
       <div className="max-w-lg mx-auto px-4 pt-safe-top pb-safe-bottom relative z-10">
 
         {/* Header */}
-        <div className="glass-header sticky top-0 z-20 -mx-4 px-4 py-4 flex items-center justify-between">
-          <button onClick={() => navigate('/')} className="text-sm text-zinc-400 hover:text-white transition-colors flex items-center gap-1">
-            <ArrowLeft size={14} /> Feed
-          </button>
-          <h1 className="text-sm font-semibold text-zinc-300">Progress</h1>
-        </div>
-
-        {/* Stats cards */}
-        <div className="grid grid-cols-3 gap-2 py-4">
-          <div className="glass-card rounded-xl p-3 text-center">
-            <div className="text-lg font-bold text-white">{stats_7d.papers_read}</div>
-            <div className="text-xs text-zinc-500 flex items-center justify-center gap-1"><BookOpen size={10} /> read</div>
+        <div className="glass-header sticky top-0 z-20 -mx-4 px-4 py-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <button onClick={() => navigate('/')} className="text-sm text-zinc-400 hover:text-white transition-colors flex items-center gap-1">
+              <ArrowLeft size={14} /> Feed
+            </button>
+            <h1 className="text-sm font-semibold text-zinc-300">Progress</h1>
           </div>
-          <div className="glass-card rounded-xl p-3 text-center">
-            <div className="text-lg font-bold text-white">{stats_7d.questions_asked}</div>
-            <div className="text-xs text-zinc-500 flex items-center justify-center gap-1"><MessageCircle size={10} /> asked</div>
-          </div>
-          <div className="glass-card rounded-xl p-3 text-center">
-            <div className="text-lg font-bold text-white">{stats_7d.source_clicks}</div>
-            <div className="text-xs text-zinc-500 flex items-center justify-center gap-1"><ExternalLink size={10} /> deep</div>
-          </div>
-        </div>
 
-        {/* Weekly Brief */}
-        {data.latest_brief && (
-          <div className="py-4">
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-2">
-              Weekly Brief — {data.latest_brief.week}
-            </h2>
-            <div className="glass-card rounded-xl p-4">
-              <div className="prose prose-invert prose-sm max-w-none prose-p:my-2 prose-ul:my-2 prose-li:my-0.5 prose-strong:text-white prose-a:text-accent">
-                <Markdown>{data.latest_brief.content}</Markdown>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Insights: What the system is learning */}
-        {data.insights && data.insights.length > 0 && (
-          <div className="py-4">
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-3">What Sārathi is Noticing</h2>
-            <div className="space-y-2">
-              {data.insights.map((insight, i) => (
-                <motion.div
-                  key={i}
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: i * 0.05 }}
-                  className="glass-card rounded-lg px-3 py-2.5 flex items-start gap-2.5"
-                >
-                  <span className="text-sm shrink-0">{insight.icon}</span>
-                  <p className="text-xs text-zinc-300 leading-relaxed">{insight.text}</p>
-                </motion.div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Area status pills */}
-        <div className="py-2">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-2">Research Areas</h2>
-          <div className="flex flex-wrap gap-2">
-            {areas.map((area) => {
-              const Icon = STATUS_ICONS[area.status] || Flame
-              const colorClass = STATUS_COLORS[area.status] || STATUS_COLORS.active
-              return (
-                <div key={area.id} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium ${colorClass}`}>
-                  <Icon size={11} />
-                  {area.name}
-                </div>
-              )
-            })}
-          </div>
-        </div>
-
-        {/* Hypothesis */}
-        {hypothesis && (
-          <div className="py-4">
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-2">Hypothesis</h2>
-            <div className="glass-card rounded-xl p-4">
-              <p className="text-sm text-zinc-200 italic">"{hypothesis.statement}"</p>
-              <div className="mt-2 flex gap-3 text-xs">
-                {hypothesis.supporting.length > 0 && (
-                  <span className="text-green-400">+{hypothesis.supporting.length} supporting</span>
-                )}
-                {hypothesis.refuting.length > 0 && (
-                  <span className="text-red-400">−{hypothesis.refuting.length} refuting</span>
-                )}
-                {hypothesis.refining.length > 0 && (
-                  <span className="text-amber-400">~{hypothesis.refining.length} refining</span>
-                )}
-                {hypothesis.supporting.length === 0 && hypothesis.refuting.length === 0 && hypothesis.refining.length === 0 && (
-                  <span className="text-zinc-500">No evidence yet</span>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Frontier Timeline */}
-        <div className="py-4">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-4">Frontier Evolution</h2>
-          {(() => {
-            const meaningfulEntries = timeline.filter(
-              (e) => e.frontier_snapshots || e.hypothesis_evidence_added ||
-                     (e.changelog && e.changelog !== 'Learn step ran with no changelog.')
-            )
-            return meaningfulEntries.length > 0 ? (
-              <div>
-                {meaningfulEntries.map((entry, i) => (
-                  <TimelineNode key={entry.ts} entry={entry} isLast={i === meaningfulEntries.length - 1} />
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-zinc-500">No learning updates yet. The pipeline runs nightly at 2am UTC.</p>
-            )
-          })()}
-        </div>
-
-        {/* Current frontiers */}
-        <div className="py-4 pb-12">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-3">Current Knowledge Edge</h2>
-          <div className="space-y-3">
-            {areas.map((area) => (
-              <div key={area.id} className="glass-card rounded-xl p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-xs font-medium text-accent">{area.name}</span>
-                  <span className={`text-xs px-1.5 py-0.5 rounded ${STATUS_COLORS[area.status] || ''}`}>{area.status}</span>
-                </div>
-                <p className="text-sm text-zinc-300 leading-relaxed">{area.frontier || 'Not yet established'}</p>
-              </div>
+          {/* Tabs */}
+          <div className="flex gap-1">
+            {(['overview', 'insights', 'timeline'] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-all capitalize ${
+                  tab === t
+                    ? 'text-white bg-accent/20 border border-accent-dim'
+                    : 'text-zinc-500 hover:text-zinc-300'
+                }`}
+              >
+                {t}
+              </button>
             ))}
           </div>
         </div>
+
+        {/* Tab: Overview */}
+        {tab === 'overview' && (
+          <div>
+            {/* Stats cards */}
+            <div className="grid grid-cols-3 gap-2 py-4">
+              <div className="glass-card rounded-xl p-3 text-center">
+                <div className="text-lg font-bold text-white">{stats_7d.papers_read}</div>
+                <div className="text-xs text-zinc-500 flex items-center justify-center gap-1"><BookOpen size={10} /> read</div>
+              </div>
+              <div className="glass-card rounded-xl p-3 text-center">
+                <div className="text-lg font-bold text-white">{stats_7d.questions_asked}</div>
+                <div className="text-xs text-zinc-500 flex items-center justify-center gap-1"><MessageCircle size={10} /> asked</div>
+              </div>
+              <div className="glass-card rounded-xl p-3 text-center">
+                <div className="text-lg font-bold text-white">{stats_7d.source_clicks}</div>
+                <div className="text-xs text-zinc-500 flex items-center justify-center gap-1"><ExternalLink size={10} /> deep</div>
+              </div>
+            </div>
+
+            {/* Area status pills */}
+            <div className="py-2">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-2">Research Areas</h2>
+              <div className="flex flex-wrap gap-2">
+                {areas.map((area) => {
+                  const Icon = STATUS_ICONS[area.status] || Flame
+                  const colorClass = STATUS_COLORS[area.status] || STATUS_COLORS.active
+                  return (
+                    <div key={area.id} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium ${colorClass}`}>
+                      <Icon size={11} />
+                      {area.name}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Hypothesis */}
+            {hypothesis && (
+              <div className="py-4">
+                <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-2">Hypothesis</h2>
+                <div className="glass-card rounded-xl p-4">
+                  <p className="text-sm text-zinc-200 italic">"{hypothesis.statement}"</p>
+                  <div className="mt-2 flex gap-3 text-xs">
+                    {hypothesis.supporting.length > 0 && (
+                      <span className="text-green-400">+{hypothesis.supporting.length} supporting</span>
+                    )}
+                    {hypothesis.refuting.length > 0 && (
+                      <span className="text-red-400">−{hypothesis.refuting.length} refuting</span>
+                    )}
+                    {hypothesis.refining.length > 0 && (
+                      <span className="text-amber-400">~{hypothesis.refining.length} refining</span>
+                    )}
+                    {hypothesis.supporting.length === 0 && hypothesis.refuting.length === 0 && hypothesis.refining.length === 0 && (
+                      <span className="text-zinc-500">No evidence yet</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Current frontiers */}
+            <div className="py-4 pb-12">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-3">Current Knowledge Edge</h2>
+              <div className="space-y-3">
+                {areas.map((area) => (
+                  <div key={area.id} className="glass-card rounded-xl p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-xs font-medium text-accent">{area.name}</span>
+                      <span className={`text-xs px-1.5 py-0.5 rounded ${STATUS_COLORS[area.status] || ''}`}>{area.status}</span>
+                    </div>
+                    <p className="text-sm text-zinc-300 leading-relaxed">{area.frontier || 'Not yet established'}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Tab: Insights */}
+        {tab === 'insights' && (
+          <div>
+            {/* Weekly Brief */}
+            {data.latest_brief && (
+              <div className="py-4">
+                <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-2">
+                  Weekly Brief — {data.latest_brief.week}
+                </h2>
+                <div className="glass-card rounded-xl p-4">
+                  <div className="prose prose-invert prose-sm max-w-none prose-p:my-2 prose-ul:my-2 prose-li:my-0.5 prose-strong:text-white prose-a:text-accent">
+                    <Markdown>{data.latest_brief.content}</Markdown>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* What the system is noticing */}
+            {data.insights && data.insights.length > 0 && (
+              <div className="py-4 pb-12">
+                <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-3">What Sārathi is Noticing</h2>
+                <div className="space-y-2">
+                  {data.insights.map((insight, i) => (
+                    <motion.div
+                      key={i}
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: i * 0.05 }}
+                      className="glass-card rounded-lg px-3 py-2.5 flex items-start gap-2.5"
+                    >
+                      <span className="text-sm shrink-0">{insight.icon}</span>
+                      <p className="text-xs text-zinc-300 leading-relaxed">{insight.text}</p>
+                    </motion.div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {!data.latest_brief && (!data.insights || data.insights.length === 0) && (
+              <div className="py-12 text-center">
+                <p className="text-sm text-zinc-500">No insights yet. Use the app for a few days and check back.</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Tab: Timeline */}
+        {tab === 'timeline' && (
+          <div className="py-4 pb-12">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-4">Frontier Evolution</h2>
+            {(() => {
+              const meaningfulEntries = timeline.filter(
+                (e) => e.frontier_snapshots || e.hypothesis_evidence_added ||
+                       (e.changelog && e.changelog !== 'Learn step ran with no changelog.')
+              )
+              return meaningfulEntries.length > 0 ? (
+                <div>
+                  {meaningfulEntries.map((entry, i) => (
+                    <TimelineNode key={entry.ts} entry={entry} isLast={i === meaningfulEntries.length - 1} />
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-zinc-500">No learning updates yet. The pipeline runs nightly at 2am UTC.</p>
+              )
+            })()}
+          </div>
+        )}
+
       </div>
     </div>
   )
