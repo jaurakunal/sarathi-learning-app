@@ -50,6 +50,7 @@ export interface ProfileData {
     created_at: string
     stats: { papers_read: number; questions_asked: number; source_clicks: number }
   } | null
+  insights: { icon: string; text: string }[]
 }
 
 export function getProfile(): Promise<ProfileData> {

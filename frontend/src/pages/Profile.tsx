@@ -170,6 +170,27 @@ export function Profile() {
           </div>
         )}
 
+        {/* Insights: What the system is learning */}
+        {data.insights && data.insights.length > 0 && (
+          <div className="py-4">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-3">What Sārathi is Noticing</h2>
+            <div className="space-y-2">
+              {data.insights.map((insight, i) => (
+                <motion.div
+                  key={i}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: i * 0.05 }}
+                  className="glass-card rounded-lg px-3 py-2.5 flex items-start gap-2.5"
+                >
+                  <span className="text-sm shrink-0">{insight.icon}</span>
+                  <p className="text-xs text-zinc-300 leading-relaxed">{insight.text}</p>
+                </motion.div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Area status pills */}
         <div className="py-2">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-2">Research Areas</h2>

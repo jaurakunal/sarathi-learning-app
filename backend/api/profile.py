@@ -51,6 +51,87 @@ def _strip_ddb_keys(item: dict) -> dict:
     return {k: v for k, v in item.items() if not k.startswith(("PK", "SK", "gsi")) and k != "user_id"}
 
 
+def _build_insights(
+    read_papers, asked_papers, source_click_papers, dismissed_papers,
+    section_counts, total_active_ms, impressions, views, areas, conv_turns,
+) -> list[dict]:
+    """Generate plain-language insights about what the system is observing."""
+    insights = []
+
+    # Section preferences
+    top_section = max(section_counts, key=section_counts.get) if any(section_counts.values()) else None
+    if top_section and section_counts[top_section] > 2:
+        section_labels = {"deep_dive": "Deep Dive", "glossary": "Glossary", "math_notes": "Math Notes", "other": "other sections"}
+        insights.append({
+            "icon": "📊",
+            "text": f"You expand {section_labels.get(top_section, top_section)} most often ({section_counts[top_section]}x this week) — serving you deeper content in that style",
+        })
+
+    # Hottest area (most engagement actions)
+    if areas:
+        area_engagement = {}
+        for a in areas:
+            aid = a.get("id", "")
+            count = 0
+            if aid in [p.split("/")[-1] if "/" in p else p for p in read_papers]:
+                count += 3
+            # Use conversation turns as proxy for deep engagement
+            count += conv_turns.get(aid, 0) * 2
+            area_engagement[a.get("name", aid)] = count
+        # Hottest by last_engaged or status
+        hot_areas = [a for a in areas if a.get("status") in ("hot", "active")]
+        if hot_areas:
+            hottest = max(hot_areas, key=lambda a: a.get("last_engaged") or "")
+            insights.append({
+                "icon": "🔥",
+                "text": f"{hottest.get('name', hottest.get('id'))} is your hottest area — weighting discovery toward this",
+            })
+
+    # Cooling areas
+    cold_areas = [a for a in areas if a.get("status") in ("cool", "dormant")]
+    for a in cold_areas[:1]:
+        insights.append({
+            "icon": "❄️",
+            "text": f"{a.get('name', a.get('id'))}: no recent engagement — cooling it down in discovery",
+        })
+
+    # Questions asked (depth signal)
+    if asked_papers:
+        total_turns = sum(conv_turns.values())
+        if total_turns > 5:
+            insights.append({
+                "icon": "💬",
+                "text": f"You asked questions about {len(asked_papers)} paper{'s' if len(asked_papers) > 1 else ''} ({total_turns} total turns) — this signals deep interest",
+            })
+
+    # Source clicks (went beyond the digest)
+    if source_click_papers:
+        insights.append({
+            "icon": "📄",
+            "text": f"You clicked through to {len(source_click_papers)} full paper{'s' if len(source_click_papers) > 1 else ''} — the digest alone wasn't enough",
+        })
+
+    # Reading speed estimate
+    if total_active_ms > 0 and read_papers:
+        avg_ms_per_paper = total_active_ms / len(read_papers)
+        avg_min = round(avg_ms_per_paper / 60000, 1)
+        insights.append({
+            "icon": "⏱️",
+            "text": f"Average reading time: {avg_min} min per paper (across {len(read_papers)} read)",
+        })
+
+    # Funnel: impressions → views → reads
+    if impressions > 0 and views > 0:
+        view_rate = round(views / impressions * 100)
+        read_rate = round(len(read_papers) / max(views, 1) * 100)
+        insights.append({
+            "icon": "📈",
+            "text": f"Funnel: {impressions} seen → {views} opened ({view_rate}%) → {len(read_papers)} read ({read_rate}% of opened)",
+        })
+
+    return insights
+
+
 def handler(event: dict, context) -> dict:
     """Lambda handler for profile API.
 
@@ -104,6 +185,9 @@ def handler(event: dict, context) -> dict:
     source_click_papers: set = set()
     total_active_ms = 0
     sections_expanded = 0
+    section_counts: dict = {"glossary": 0, "deep_dive": 0, "math_notes": 0, "other": 0}
+    impressions = 0
+    views = 0
 
     for e in events:
         action = e.get("action", "")
@@ -122,6 +206,15 @@ def handler(event: dict, context) -> dict:
             source_click_papers.add(paper_id)
         elif action == "expand":
             sections_expanded += 1
+            section = e.get("section", "other")
+            if section in section_counts:
+                section_counts[section] += 1
+            else:
+                section_counts["other"] += 1
+        elif action == "impression":
+            impressions += 1
+        elif action == "view":
+            views += 1
 
     stats = {
         "papers_read": len(read_papers),
@@ -132,6 +225,21 @@ def handler(event: dict, context) -> dict:
         "sections_expanded": sections_expanded,
         "total_active_ms": total_active_ms,
     }
+
+    # 3b. Get conversation turn counts for insights
+    conv_resp = table.query(
+        IndexName="GSI1",
+        KeyConditionExpression=(
+            Key("gsi1pk").eq(f"USER#{user_id}")
+            & Key("gsi1sk").begins_with("CONV#")
+        ),
+    )
+    conv_turns: dict[str, int] = {}
+    for c in conv_resp.get("Items", []):
+        conv_id = c.get("conv_id", "")
+        turn_count = int(c.get("turn_count", 0))
+        if conv_id:
+            conv_turns[conv_id] = turn_count
 
     # 4. Build response
     areas = []
@@ -183,4 +291,8 @@ def handler(event: dict, context) -> dict:
         "timeline": timeline,
         "learning_style": profile.get("meta", {}).get("learning_style"),
         "latest_brief": latest_brief,
+        "insights": _build_insights(
+            read_papers, asked_papers, source_click_papers, dismissed_papers,
+            section_counts, total_active_ms, impressions, views, areas, conv_turns,
+        ),
     })
