@@ -13,10 +13,9 @@ from backend.shared.models import Area
 
 logger = logging.getLogger(__name__)
 
-# With API key: 100 req/sec. Without: 100 req/5min (~1 per 3s).
-# Delay is set dynamically based on whether an API key is present.
-_S2_DELAY_AUTHENTICATED = 0.2  # 5 req/sec (conservative for a batch job)
-_S2_DELAY_UNAUTHENTICATED = 3.0  # 1 req/3s (free tier limit)
+# With API key: 1 req/sec max. Without: 100 req/5min (~1 per 3s).
+_S2_DELAY_AUTHENTICATED = 1.1  # Just over 1 req/sec (API key limit)
+_S2_DELAY_UNAUTHENTICATED = 3.0  # Free tier shared pool
 
 _S2_SEARCH_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
 _S2_PAPER_URL = "https://api.semanticscholar.org/graph/v1/paper"
