@@ -13,9 +13,10 @@ from backend.shared.models import Area
 
 logger = logging.getLogger(__name__)
 
-# Semantic Scholar rate-limits free tier to 100 requests per 5 minutes.
-# That's ~1 request per 3 seconds on average; we use a conservative delay.
-_S2_DELAY_S = 3.0
+# With API key: 100 req/sec. Without: 100 req/5min (~1 per 3s).
+# Delay is set dynamically based on whether an API key is present.
+_S2_DELAY_AUTHENTICATED = 0.2  # 5 req/sec (conservative for a batch job)
+_S2_DELAY_UNAUTHENTICATED = 3.0  # 1 req/3s (free tier limit)
 
 _S2_SEARCH_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
 _S2_PAPER_URL = "https://api.semanticscholar.org/graph/v1/paper"
@@ -49,8 +50,10 @@ class SemanticScholarSource:
     def __init__(self, max_results_per_query: int = 50, api_key: Optional[str] = None):
         self._max_results = max_results_per_query
         self._session = requests.Session()
+        self._delay = _S2_DELAY_UNAUTHENTICATED
         if api_key:
             self._session.headers["x-api-key"] = api_key
+            self._delay = _S2_DELAY_AUTHENTICATED
 
     def discover(self, areas: list[Area], since: datetime, queries: list[str] | None = None) -> list[dict]:
         """Query Semantic Scholar for papers matching areas published since `since`."""
@@ -91,7 +94,7 @@ class SemanticScholarSource:
         page_size = min(100, self._max_results)  # S2 max is 100 per page
 
         while offset < self._max_results:
-            time.sleep(_S2_DELAY_S)  # Rate-limit courtesy
+            time.sleep(self._delay)
 
             params = {
                 "query": query,
@@ -206,7 +209,7 @@ class SemanticScholarSource:
 
     def _get_open_access_pdf_url(self, paper_id: str) -> Optional[str]:
         """Query S2 for the open access PDF URL of a paper."""
-        time.sleep(_S2_DELAY_S)  # Rate-limit courtesy
+        time.sleep(self._delay)
 
         url = f"{_S2_PAPER_URL}/{paper_id}"
         params = {"fields": "openAccessPdf"}
@@ -246,7 +249,7 @@ class SemanticScholarSource:
     def _download_pdf(self, url: str) -> Optional[bytes]:
         """Download a PDF from the given URL."""
         logger.info("Downloading PDF: %s", url)
-        time.sleep(_S2_DELAY_S)  # Rate-limit courtesy
+        time.sleep(self._delay)
 
         try:
             resp = self._session.get(url, timeout=60)
