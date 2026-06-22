@@ -18,6 +18,7 @@ import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
 import * as appsync from 'aws-cdk-lib/aws-appsync';
+import * as ssm from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
@@ -112,10 +113,22 @@ export class SarathiStack extends cdk.Stack {
       actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'],
       resources: ['*'],
     }));
+    lambdaRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['ssm:GetParameter'],
+      resources: [`arn:aws:ssm:${this.region}:${this.account}:parameter/sarathi/*`],
+    }));
+
+    // SSM Parameter for Semantic Scholar API key
+    const s2ApiKeyParam = new ssm.StringParameter(this, 'S2ApiKeyParam', {
+      parameterName: '/sarathi/semantic-scholar-api-key',
+      stringValue: 'CHANGE_ME',
+      description: 'Semantic Scholar API key (free tier, apply at semanticscholar.org/product/api)',
+    });
 
     const lambdaEnv = {
       TABLE_NAME: table.tableName,
       BUCKET_NAME: bucket.bucketName,
+      S2_API_KEY_PARAM: s2ApiKeyParam.parameterName,
     };
 
     const lambdaCode = lambda.Code.fromAsset(REPO_ROOT, {

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime, timedelta, timezone
 
 import boto3
@@ -125,12 +126,26 @@ def handler(event: dict, context) -> dict:
     queries = generate_all_queries(areas)
     logger.info("Generated %d search queries: %s", len(queries), queries)
 
-    # Step 5: Query all sources with the pre-generated queries
+    # Step 5: Load S2 API key from SSM (if available)
+    s2_api_key = None
+    s2_param_name = os.environ.get("S2_API_KEY_PARAM")
+    if s2_param_name:
+        try:
+            ssm_client = boto3.client("ssm")
+            resp = ssm_client.get_parameter(Name=s2_param_name)
+            key = resp["Parameter"]["Value"]
+            if key and key != "CHANGE_ME":
+                s2_api_key = key
+                logger.info("Using Semantic Scholar API key from SSM")
+        except Exception:
+            logger.warning("Failed to read S2 API key from SSM — using unauthenticated pool")
+
+    # Step 6: Query all sources with the pre-generated queries
     sources = [
         ArxivRssSource(),
         ArxivSource(),
         PapersWithCodeSource(),
-        SemanticScholarSource(),
+        SemanticScholarSource(api_key=s2_api_key),
         HFDailyPapersSource(),
         OpenReviewSource(),
     ]
