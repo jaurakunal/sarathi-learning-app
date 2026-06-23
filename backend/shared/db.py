@@ -539,6 +539,54 @@ def update_conversation_last_active(table, user_id: str, conv_id: str) -> None:
     )
 
 
+def pin_turn(table, user_id: str, conv_id: str, seq: int, pin_note: str = "") -> None:
+    """Pin a conversation turn as a key insight."""
+    update_expr = "SET pinned = :t, pinned_at = :ts"
+    values: dict = {":t": True, ":ts": _now_iso()}
+    if pin_note:
+        update_expr += ", pin_note = :note"
+        values[":note"] = pin_note
+    table.update_item(
+        Key={"PK": _conv_pk(user_id, conv_id), "SK": f"TURN#{seq:05d}"},
+        UpdateExpression=update_expr,
+        ExpressionAttributeValues=values,
+    )
+
+
+def unpin_turn(table, user_id: str, conv_id: str, seq: int) -> None:
+    """Unpin a conversation turn."""
+    table.update_item(
+        Key={"PK": _conv_pk(user_id, conv_id), "SK": f"TURN#{seq:05d}"},
+        UpdateExpression="REMOVE pinned, pinned_at, pin_note",
+    )
+
+
+def get_pinned_turns(table, user_id: str, conv_id: str) -> list[dict]:
+    """Get all pinned turns for a conversation."""
+    resp = table.query(
+        KeyConditionExpression=(
+            Key("PK").eq(_conv_pk(user_id, conv_id))
+            & Key("SK").begins_with("TURN#")
+        ),
+        FilterExpression="pinned = :t",
+        ExpressionAttributeValues={":t": True},
+    )
+    return resp.get("Items", [])
+
+
+def tag_paper(table, user_id: str, card_id: str, relevance: str, tags: list[str]) -> None:
+    """Set relevance level and tags on a feed card."""
+    table.update_item(
+        Key={"PK": _feed_pk(user_id), "SK": f"CARD#{card_id}"},
+        UpdateExpression="SET relevance = :r, tags = :t, tagged_at = :ts",
+        ExpressionAttributeValues={
+            ":r": relevance,
+            ":t": tags,
+            ":ts": _now_iso(),
+        },
+    )
+
+
 # ---------------------------------------------------------------------------
 # Global Paper Registry
 # ---------------------------------------------------------------------------

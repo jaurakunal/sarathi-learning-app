@@ -26,4 +26,6 @@ export interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
   streaming?: boolean
+  seq?: number
+  pinned?: boolean
 }

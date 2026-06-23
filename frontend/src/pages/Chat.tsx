@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
 import { getChatHistory } from '../api/chat'
 import { getCard } from '../api/feed'
+import { postEngagement } from '../api/engagement'
 import { client, SEND_MESSAGE, ON_CHUNK } from '../api/appsync'
 import { ChatMessage } from '../components/ChatMessage'
 import { ChatInput } from '../components/ChatInput'
@@ -42,11 +43,12 @@ export function Chat() {
       historyLoadedRef.current = true
       const restored: ChatMessageType[] = []
       for (const turn of history.turns) {
+        const seq = turn.seq as number
         if (turn.request) {
-          restored.push({ role: 'user', content: turn.request })
+          restored.push({ role: 'user', content: turn.request, seq })
         }
         if (turn.response) {
-          restored.push({ role: 'assistant', content: turn.response })
+          restored.push({ role: 'assistant', content: turn.response, seq, pinned: turn.pinned })
         }
       }
       if (restored.length > 0) {
@@ -198,7 +200,20 @@ export function Chat() {
         )}
 
         {messages.map((msg, i) => (
-          <ChatMessage key={i} message={msg} />
+          <ChatMessage
+            key={i}
+            message={msg}
+            seq={msg.seq}
+            onPin={paperId ? (seq) => {
+              const isPinned = msg.pinned
+              setMessages((prev) => prev.map((m, idx) => idx === i ? { ...m, pinned: !isPinned } : m))
+              postEngagement({
+                paper_id: paperId,
+                action: isPinned ? 'unpin' : 'pin',
+                seq,
+              }).catch(() => {})
+            } : undefined}
+          />
         ))}
 
         {loading && messages[messages.length - 1]?.content === '' && <ChatLoading />}

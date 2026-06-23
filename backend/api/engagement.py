@@ -16,7 +16,7 @@ logger.setLevel(logging.INFO)
 
 TABLE_NAME = os.environ.get("TABLE_NAME", "sarathi")
 
-VALID_ACTIONS = {"view", "expand", "read", "dismiss", "restore", "bookmark", "ask", "rate", "impression", "source_click"}
+VALID_ACTIONS = {"view", "expand", "read", "dismiss", "restore", "bookmark", "ask", "rate", "impression", "source_click", "tag", "pin", "unpin"}
 
 
 def _get_user_id(event: dict) -> str:
@@ -115,8 +115,22 @@ def handler(event: dict, context) -> dict:
         db.update_feed_card_meta(table, user_id, card_id, {"bookmarked": is_bookmarked})
     elif action == "rate" and card_id and body.get("rating") is not None:
         rating_val = int(body["rating"])
-        # rating=0 means cleared, store as 0 (feed API treats 0 as null)
         db.update_feed_card_meta(table, user_id, card_id, {"rating": rating_val})
+    elif action == "tag" and card_id:
+        relevance = body.get("relevance", "core")
+        tags = body.get("tags", [])
+        db.tag_paper(table, user_id, card_id, relevance, tags)
+    elif action == "pin" and paper_id:
+        conv_id = paper_id
+        seq = int(body.get("seq", 0))
+        pin_note = body.get("pin_note", "")
+        if seq > 0:
+            db.pin_turn(table, user_id, conv_id, seq, pin_note)
+    elif action == "unpin" and paper_id:
+        conv_id = paper_id
+        seq = int(body.get("seq", 0))
+        if seq > 0:
+            db.unpin_turn(table, user_id, conv_id, seq)
 
     logger.info("Engagement logged: user=%s action=%s paper=%s", user_id, action, paper_id)
 

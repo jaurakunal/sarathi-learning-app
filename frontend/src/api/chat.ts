@@ -12,6 +12,7 @@ export interface ChatHistoryTurn {
   response: string | null
   request_ts: string
   response_ts: string | null
+  pinned?: boolean
 }
 
 export interface ChatHistory {

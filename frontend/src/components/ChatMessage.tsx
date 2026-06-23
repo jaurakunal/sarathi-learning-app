@@ -1,26 +1,31 @@
+import { useState } from 'react'
 import { motion } from 'framer-motion'
 import Markdown from 'react-markdown'
+import { Pin } from 'lucide-react'
 import type { ChatMessage as ChatMessageType } from '../types/chat'
 
 interface ChatMessageProps {
   message: ChatMessageType
+  seq?: number
+  onPin?: (seq: number) => void
 }
 
-export function ChatMessage({ message }: ChatMessageProps) {
+export function ChatMessage({ message, seq, onPin }: ChatMessageProps) {
   const isUser = message.role === 'user'
+  const [pinned, setPinned] = useState(message.pinned ?? false)
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.2 }}
-      className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
+      className={`flex ${isUser ? 'justify-end' : 'justify-start'} group`}
     >
       <div
-        className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+        className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed relative ${
           isUser
             ? 'bg-accent/20 border border-accent-dim text-white'
-            : 'glass-card text-zinc-200'
+            : `glass-card text-zinc-200 ${pinned ? 'border-accent/30' : ''}`
         }`}
       >
         {isUser ? (
@@ -32,6 +37,22 @@ export function ChatMessage({ message }: ChatMessageProps) {
         )}
         {message.streaming && (
           <span className="inline-block w-1.5 h-4 bg-accent animate-pulse ml-0.5 align-text-bottom rounded-sm" />
+        )}
+        {!isUser && !message.streaming && seq && onPin && (
+          <button
+            onClick={() => {
+              setPinned(!pinned)
+              onPin(seq)
+            }}
+            className={`absolute -bottom-1 -right-1 p-1.5 rounded-full transition-all ${
+              pinned
+                ? 'text-accent bg-accent/20'
+                : 'text-zinc-600 hover:text-accent opacity-0 group-hover:opacity-100'
+            }`}
+            title={pinned ? 'Pinned as key insight' : 'Pin as key insight'}
+          >
+            <Pin size={12} fill={pinned ? 'currentColor' : 'none'} />
+          </button>
         )}
       </div>
     </motion.div>

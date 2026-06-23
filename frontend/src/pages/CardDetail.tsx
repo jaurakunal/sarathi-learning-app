@@ -1,7 +1,7 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useCallback, useRef, useState } from 'react'
-import { ArrowLeft, Clock, MessageCircle, ExternalLink, Bookmark, ThumbsUp, ThumbsDown } from 'lucide-react'
+import { ArrowLeft, Clock, MessageCircle, ExternalLink, Bookmark, ThumbsUp, ThumbsDown, Target, X, Plus } from 'lucide-react'
 import { postEngagement } from '../api/engagement'
 import { getCard } from '../api/feed'
 import { CollapsibleSection } from '../components/CollapsibleSection'
@@ -23,11 +23,17 @@ export function CardDetail() {
 
   const [isBookmarked, setIsBookmarked] = useState(false)
   const [userRating, setUserRating] = useState<number | null>(null)
+  const [isCore, setIsCore] = useState(false)
+  const [tags, setTags] = useState<string[]>([])
+  const [tagInput, setTagInput] = useState('')
+  const [showTagging, setShowTagging] = useState(false)
 
   useEffect(() => {
     if (card) {
       setIsBookmarked(card.bookmarked ?? false)
       setUserRating(card.rating ?? null)
+      setIsCore((card as any).relevance === 'core')
+      setTags((card as any).tags ?? [])
     }
   }, [card?.card_id]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -344,6 +350,88 @@ export function CardDetail() {
             </a>
           )}
         </div>
+
+        {/* Research tagging */}
+        <div className="pt-4 mt-4 border-t border-white/5">
+          <button
+            onClick={() => {
+              const newCore = !isCore
+              setIsCore(newCore)
+              if (!newCore) {
+                setShowTagging(false)
+              } else {
+                setShowTagging(true)
+              }
+              postEngagement({
+                card_id: card.card_id,
+                action: 'tag',
+                relevance: newCore ? 'core' : 'none',
+                tags,
+              }).catch(() => {})
+            }}
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+              isCore
+                ? 'text-accent bg-accent/15 border border-accent/30'
+                : 'text-zinc-500 hover:text-accent hover:bg-accent/10 border border-transparent'
+            }`}
+          >
+            <Target size={14} />
+            {isCore ? 'Core to Research' : 'Mark as core to research'}
+          </button>
+
+          {(showTagging || tags.length > 0) && (
+            <div className="mt-3 space-y-2">
+              <div className="flex flex-wrap gap-1.5">
+                {tags.map((tag) => (
+                  <span key={tag} className="flex items-center gap-1 text-xs bg-accent/10 text-accent/80 px-2 py-1 rounded-md">
+                    {tag}
+                    <button
+                      onClick={() => {
+                        const newTags = tags.filter((t) => t !== tag)
+                        setTags(newTags)
+                        postEngagement({ card_id: card.card_id, action: 'tag', relevance: 'core', tags: newTags }).catch(() => {})
+                      }}
+                      className="text-accent/50 hover:text-accent"
+                    >
+                      <X size={10} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={tagInput}
+                  onChange={(e) => setTagInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && tagInput.trim()) {
+                      const newTags = [...tags, tagInput.trim()]
+                      setTags(newTags)
+                      setTagInput('')
+                      postEngagement({ card_id: card.card_id, action: 'tag', relevance: 'core', tags: newTags }).catch(() => {})
+                    }
+                  }}
+                  placeholder="Add tag (e.g., entity resolution)..."
+                  className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-accent/40"
+                />
+                <button
+                  onClick={() => {
+                    if (tagInput.trim()) {
+                      const newTags = [...tags, tagInput.trim()]
+                      setTags(newTags)
+                      setTagInput('')
+                      postEngagement({ card_id: card.card_id, action: 'tag', relevance: 'core', tags: newTags }).catch(() => {})
+                    }
+                  }}
+                  className="text-zinc-500 hover:text-accent p-1"
+                >
+                  <Plus size={14} />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
         <div className="pb-12" />
       </div>
     </div>
