@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { LogOut, TrendingUp, BookOpen, Search, X, Target } from 'lucide-react'
+import { LogOut, TrendingUp, BookOpen, Search, X, Target, Menu } from 'lucide-react'
 import { getFeed } from '../api/feed'
 import { postEngagement } from '../api/engagement'
 import { FeedCard } from '../components/FeedCard'
@@ -20,6 +20,7 @@ export function Feed() {
   const [restored, setRestored] = useState<Set<string>>(new Set())
   const [searchQuery, setSearchQuery] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
 
   const {
     data,
@@ -87,34 +88,41 @@ export function Feed() {
               <Search size={16} />
             </button>
             <button
-              onClick={() => navigate('/research')}
+              onClick={() => setMenuOpen(true)}
               className="text-zinc-500 hover:text-accent transition-colors p-2"
-              title="Research"
+              title="Menu"
             >
-              <Target size={16} />
-            </button>
-            <button
-              onClick={() => navigate('/library')}
-              className="text-zinc-500 hover:text-accent transition-colors p-2"
-              title="Library"
-            >
-              <BookOpen size={16} />
-            </button>
-            <button
-              onClick={() => navigate('/profile')}
-              className="text-zinc-500 hover:text-accent transition-colors p-2"
-              title="Progress"
-            >
-              <TrendingUp size={16} />
-            </button>
-            <button
-              onClick={() => { logout(); window.location.reload() }}
-              className="text-zinc-500 hover:text-zinc-300 transition-colors p-2"
-            >
-              <LogOut size={16} />
+              <Menu size={16} />
             </button>
           </div>
         </div>
+
+        {/* Slide-out menu */}
+        {menuOpen && (
+          <>
+            <div className="fixed inset-0 bg-black/60 z-40" onClick={() => setMenuOpen(false)} />
+            <div className="fixed top-0 right-0 h-full w-64 bg-[#0e0e18] border-l border-white/[0.06] z-50 p-6 pt-safe-top">
+              <button onClick={() => setMenuOpen(false)} className="absolute top-4 right-4 text-zinc-500 hover:text-white p-2">
+                <X size={18} />
+              </button>
+              <nav className="mt-12 space-y-1">
+                <button onClick={() => { navigate('/research'); setMenuOpen(false) }} className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm text-zinc-300 hover:text-white hover:bg-white/[0.04] transition-colors">
+                  <Target size={16} className="text-accent" /> Research
+                </button>
+                <button onClick={() => { navigate('/library'); setMenuOpen(false) }} className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm text-zinc-300 hover:text-white hover:bg-white/[0.04] transition-colors">
+                  <BookOpen size={16} className="text-zinc-400" /> Library
+                </button>
+                <button onClick={() => { navigate('/profile'); setMenuOpen(false) }} className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm text-zinc-300 hover:text-white hover:bg-white/[0.04] transition-colors">
+                  <TrendingUp size={16} className="text-zinc-400" /> Progress
+                </button>
+                <div className="border-t border-white/[0.06] my-3" />
+                <button onClick={() => { logout(); window.location.reload() }} className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm text-zinc-500 hover:text-red-400 hover:bg-red-400/5 transition-colors">
+                  <LogOut size={16} /> Log out
+                </button>
+              </nav>
+            </div>
+          </>
+        )}
 
         {/* Search bar */}
         {searchOpen && (
