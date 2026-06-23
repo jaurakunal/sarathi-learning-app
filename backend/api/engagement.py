@@ -61,8 +61,10 @@ def handler(event: dict, context) -> dict:
     card_id = body.get("card_id")
     action = body.get("action")
 
-    if not paper_id or not action:
-        return _response(400, {"error": "paper_id and action are required"})
+    if not action:
+        return _response(400, {"error": "action is required"})
+    if not paper_id and not card_id:
+        return _response(400, {"error": "paper_id or card_id is required"})
 
     if action not in VALID_ACTIONS:
         return _response(400, {"error": f"Invalid action. Must be one of: {sorted(VALID_ACTIONS)}"})

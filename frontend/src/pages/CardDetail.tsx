@@ -32,8 +32,8 @@ export function CardDetail() {
     if (card) {
       setIsBookmarked(card.bookmarked ?? false)
       setUserRating(card.rating ?? null)
-      setIsCore((card as any).relevance === 'core')
-      setTags((card as any).tags ?? [])
+      setIsCore(card.relevance === 'core')
+      setTags(card.tags ?? [])
     }
   }, [card?.card_id]) // eslint-disable-line react-hooks/exhaustive-deps
 

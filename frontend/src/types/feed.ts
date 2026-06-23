@@ -33,6 +33,8 @@ export interface CardDetail {
   suggested_questions: string[]
   bookmarked?: boolean
   rating?: number | null
+  relevance?: string
+  tags?: string[]
 }
 
 export interface FeedResponse {
