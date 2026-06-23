@@ -147,10 +147,16 @@ export class SarathiStack extends cdk.Stack {
       description: 'Semantic Scholar API key (free tier, apply at semanticscholar.org/product/api)',
     });
 
+    // SSM Parameter for VAPID keys (Web Push) — created manually, referenced here
+    const vapidKeysParam = ssm.StringParameter.fromStringParameterName(
+      this, 'VapidKeysParam', '/sarathi/vapid-keys',
+    );
+
     const lambdaEnv = {
       TABLE_NAME: table.tableName,
       BUCKET_NAME: bucket.bucketName,
       S2_API_KEY_PARAM: s2ApiKeyParam.parameterName,
+      VAPID_KEYS_PARAM: vapidKeysParam.parameterName,
       VECTOR_BUCKET_NAME: `sarathi-vectors-${this.account}-${this.region}`,
       VECTOR_INDEX_NAME: 'paper-sections',
     };
@@ -265,6 +271,17 @@ export class SarathiStack extends cdk.Stack {
       environment: lambdaEnv,
       role: lambdaRole,
       timeout: cdk.Duration.seconds(30),
+      memorySize: 256,
+    });
+
+    const pushFn = new lambda.Function(this, 'PushFn', {
+      functionName: 'sarathi-api-push',
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'backend.api.push.handler',
+      code: lambdaCode,
+      environment: lambdaEnv,
+      role: lambdaRole,
+      timeout: cdk.Duration.seconds(10),
       memorySize: 256,
     });
 
@@ -466,6 +483,17 @@ export class SarathiStack extends cdk.Stack {
 
     const libraryResource = api.root.addResource('library');
     libraryResource.addMethod('GET', new apigw.LambdaIntegration(libraryFn), {
+      authorizer,
+      authorizationType: apigw.AuthorizationType.COGNITO,
+    });
+
+    const pushResource = api.root.addResource('push');
+    const pushSubscribeResource = pushResource.addResource('subscribe');
+    pushSubscribeResource.addMethod('POST', new apigw.LambdaIntegration(pushFn), {
+      authorizer,
+      authorizationType: apigw.AuthorizationType.COGNITO,
+    });
+    pushSubscribeResource.addMethod('DELETE', new apigw.LambdaIntegration(pushFn), {
       authorizer,
       authorizationType: apigw.AuthorizationType.COGNITO,
     });

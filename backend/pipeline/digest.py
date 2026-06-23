@@ -414,6 +414,21 @@ def run(event: dict) -> dict:
 
     result = {"cards_generated": cards_generated, "papers_failed": papers_failed}
     logger.info("Digest step complete: %s", result)
+
+    # Send push notification if new cards were generated
+    if cards_generated > 0:
+        try:
+            from backend.shared.push import send_push_notification
+            noun = "paper" if cards_generated == 1 else "papers"
+            send_push_notification(
+                table, user_id,
+                title="Sārathi",
+                body=f"{cards_generated} new {noun} in your feed",
+                url="/",
+            )
+        except Exception:
+            logger.warning("Push notification failed — continuing")
+
     return result
 
 

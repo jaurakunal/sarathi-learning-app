@@ -6,6 +6,7 @@ import { LogOut, TrendingUp, BookOpen } from 'lucide-react'
 import { getFeed } from '../api/feed'
 import { FeedCard } from '../components/FeedCard'
 import { LoadingSpinner } from '../components/LoadingSpinner'
+import { PushBanner } from '../components/PushBanner'
 import { logout } from '../auth/cognito'
 import type { FeedResponse } from '../types/feed'
 
@@ -102,6 +103,8 @@ export function Feed() {
             )}
           </button>
         </div>
+
+        <PushBanner />
 
         {/* Content */}
         {isLoading && <LoadingSpinner />}

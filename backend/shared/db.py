@@ -12,6 +12,7 @@ PK/SK patterns:
   Profile History: PK=USER#<sub>#PROFILE_HISTORY,   SK=TS#<iso_ts>
   Conversation:    PK=USER#<sub>#CONV#<conv_id>,    SK=META|TURN#<seq>
   Conv Archive:    PK=USER#<sub>#CONV_ARCHIVE#<conv_id>#<batch_id>, SK=TURN#<seq>
+  Push Sub:        PK=USER#<sub>#PUSH,              SK=SUB#<endpoint_hash>
 
 GSIs (sparse, using gsiNpk/gsiNsk attributes):
   GSI1: list conversations   PK=USER#<sub>,                          SK=CONV#<conv_id>
@@ -22,6 +23,7 @@ GSIs (sparse, using gsiNpk/gsiNsk attributes):
 
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Optional
@@ -609,3 +611,41 @@ def list_user_paper_ids(table, user_id: str) -> set[str]:
             if pid:
                 paper_ids.add(pid)
     return paper_ids
+
+
+# ---------------------------------------------------------------------------
+# Push Subscriptions
+# ---------------------------------------------------------------------------
+
+
+def put_push_subscription(table, user_id: str, subscription: dict) -> None:
+    """Store a Web Push subscription for a user/device."""
+    endpoint = subscription["endpoint"]
+    endpoint_hash = hashlib.sha256(endpoint.encode()).hexdigest()[:16]
+    table.put_item(Item={
+        "PK": f"USER#{user_id}#PUSH",
+        "SK": f"SUB#{endpoint_hash}",
+        "endpoint": endpoint,
+        "keys": subscription["keys"],
+        "created_at": _now_iso(),
+    })
+
+
+def delete_push_subscription(table, user_id: str, endpoint: str) -> None:
+    """Remove a push subscription (e.g., when endpoint returns 410 Gone)."""
+    endpoint_hash = hashlib.sha256(endpoint.encode()).hexdigest()[:16]
+    table.delete_item(Key={
+        "PK": f"USER#{user_id}#PUSH",
+        "SK": f"SUB#{endpoint_hash}",
+    })
+
+
+def list_push_subscriptions(table, user_id: str) -> list[dict]:
+    """Get all push subscriptions for a user."""
+    resp = table.query(
+        KeyConditionExpression=(
+            Key("PK").eq(f"USER#{user_id}#PUSH")
+            & Key("SK").begins_with("SUB#")
+        ),
+    )
+    return resp.get("Items", [])
