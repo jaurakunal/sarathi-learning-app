@@ -175,7 +175,7 @@ export class SarathiStack extends cdk.Stack {
       code: lambdaCode,
       environment: lambdaEnv,
       role: lambdaRole,
-      timeout: cdk.Duration.minutes(5),
+      timeout: cdk.Duration.minutes(10),
       memorySize: 512,
     });
 
