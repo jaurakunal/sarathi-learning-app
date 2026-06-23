@@ -344,13 +344,16 @@ def _handle_get_history(event: dict, user_id: str) -> dict:
     turns = db.get_conversation_turns(table, user_id, paper_id)
     formatted = []
     for turn in turns:
-        formatted.append({
+        entry = {
             "seq": int(turn.get("seq", 0)),
             "request": turn.get("request", ""),
             "response": turn.get("response"),
             "request_ts": turn.get("request_ts", ""),
             "response_ts": turn.get("response_ts"),
-        })
+        }
+        if turn.get("pinned"):
+            entry["pinned"] = True
+        formatted.append(entry)
 
     return {
         "statusCode": 200,
