@@ -236,8 +236,9 @@ def handler(event: dict, context) -> dict:
                 usage = chunk.get("message", {}).get("usage", {})
                 tokens_in = usage.get("input_tokens", 0)
 
-        # Publish done signal
-        _publish_chunk(conv_id, seq, "", True, tokens_in, tokens_out)
+        # Publish done signal with full response for client confirmation
+        full_response = "".join(response_chunks)
+        _publish_chunk(conv_id, seq, full_response, True, tokens_in, tokens_out)
 
     except Exception:
         logger.exception("Bedrock streaming failed")

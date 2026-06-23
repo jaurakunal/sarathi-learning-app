@@ -112,25 +112,32 @@ export function Chat({ embedded, paperId: propPaperId, cardId: propCardId }: Cha
             if (!chunk) return
 
             if (chunk.done) {
-              // Unsubscribe immediately so no stale events leak into next message
               if (activeSubRef.current) {
                 activeSubRef.current.unsubscribe()
                 activeSubRef.current = null
               }
-              // Fetch the complete response from DDB to fill any missed early chunks
-              getChatHistory(paperId).then((history) => {
-                const lastTurn = history.turns[history.turns.length - 1]
-                if (lastTurn?.response) {
-                  setMessages((prev) => {
-                    const updated = [...prev]
-                    const last = updated[updated.length - 1]
-                    if (last?.role === 'assistant') {
-                      updated[updated.length - 1] = { role: 'assistant', content: lastTurn.response!, seq: lastTurn.seq }
-                    }
-                    return updated
-                  })
-                }
-              })
+              // done chunk carries the full response — use it as authoritative content
+              const fullResponse = chunk.chunk || ''
+              if (fullResponse) {
+                setMessages((prev) => {
+                  const updated = [...prev]
+                  const last = updated[updated.length - 1]
+                  if (last?.role === 'assistant') {
+                    updated[updated.length - 1] = { ...last, content: fullResponse, streaming: false, seq: chunk.turnSeq || last.seq }
+                  }
+                  return updated
+                })
+              } else {
+                // Fallback: just clear streaming flag
+                setMessages((prev) => {
+                  const updated = [...prev]
+                  const last = updated[updated.length - 1]
+                  if (last?.role === 'assistant') {
+                    updated[updated.length - 1] = { ...last, streaming: false }
+                  }
+                  return updated
+                })
+              }
               setLoading(false)
             } else {
               setMessages((prev) => {
