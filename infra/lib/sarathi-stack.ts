@@ -274,6 +274,17 @@ export class SarathiStack extends cdk.Stack {
       memorySize: 256,
     });
 
+    const suggestFn = new lambda.Function(this, 'SuggestFn', {
+      functionName: 'sarathi-api-suggest',
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'backend.api.suggest.handler',
+      code: lambdaCode,
+      environment: lambdaEnv,
+      role: lambdaRole,
+      timeout: cdk.Duration.seconds(15),
+      memorySize: 256,
+    });
+
     const researchFn = new lambda.Function(this, 'ResearchFn', {
       functionName: 'sarathi-api-research',
       runtime: lambda.Runtime.PYTHON_3_12,
@@ -498,6 +509,12 @@ export class SarathiStack extends cdk.Stack {
 
     const libraryResource = api.root.addResource('library');
     libraryResource.addMethod('GET', new apigw.LambdaIntegration(libraryFn), {
+      authorizer,
+      authorizationType: apigw.AuthorizationType.COGNITO,
+    });
+
+    const suggestResource = api.root.addResource('suggest');
+    suggestResource.addMethod('POST', new apigw.LambdaIntegration(suggestFn), {
       authorizer,
       authorizationType: apigw.AuthorizationType.COGNITO,
     });

@@ -9,7 +9,9 @@ import { client, SEND_MESSAGE, ON_CHUNK } from '../api/appsync'
 import { ChatMessage } from '../components/ChatMessage'
 import { ChatInput } from '../components/ChatInput'
 import { ChatLoading } from '../components/ChatLoading'
+import { SuggestionChips } from '../components/SuggestionChips'
 import { LoadingSpinner } from '../components/LoadingSpinner'
+import { apiFetch } from '../api/client'
 import type { ChatMessage as ChatMessageType } from '../types/chat'
 
 interface ChatProps {
@@ -43,8 +45,11 @@ export function Chat({ embedded, paperId: propPaperId, cardId: propCardId }: Cha
   const [messages, setMessages] = useState<ChatMessageType[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [suggestions, setSuggestions] = useState<string[]>([])
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const historyLoadedRef = useRef(false)
+  const turnCountRef = useRef(0)
 
   useEffect(() => {
     if (history && !historyLoadedRef.current) {
@@ -64,6 +69,31 @@ export function Chat({ embedded, paperId: propPaperId, cardId: propCardId }: Cha
       }
     }
   }, [history])
+
+  // Load initial suggestions from card data
+  useEffect(() => {
+    if (cardData?.suggested_questions && suggestions.length === 0 && messages.length === 0) {
+      setSuggestions(cardData.suggested_questions.slice(0, 3))
+    }
+  }, [cardData]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const fetchSuggestions = useCallback(async () => {
+    if (!paperId) return
+    setSuggestionsLoading(true)
+    try {
+      const res = await apiFetch<{ suggestions: string[] }>('/suggest', {
+        method: 'POST',
+        body: JSON.stringify({ paper_id: paperId }),
+      })
+      if (res.suggestions?.length) {
+        setSuggestions(res.suggestions)
+      }
+    } catch {
+      // Non-critical
+    } finally {
+      setSuggestionsLoading(false)
+    }
+  }, [paperId])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -139,6 +169,9 @@ export function Chat({ embedded, paperId: propPaperId, cardId: propCardId }: Cha
                 })
               }
               setLoading(false)
+              // Fetch new suggestions after every response
+              turnCountRef.current += 1
+              fetchSuggestions()
             } else {
               setMessages((prev) => {
                 const updated = [...prev]
@@ -248,10 +281,19 @@ export function Chat({ embedded, paperId: propPaperId, cardId: propCardId }: Cha
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
+      {/* Suggestions + Input */}
       <div className="relative z-10 border-t border-white/5">
-        <div className={`${embedded ? 'px-4' : 'max-w-lg mx-auto w-full px-4'} py-4 ${embedded ? '' : 'pb-safe-bottom'}`}>
-          <ChatInput onSend={handleSend} disabled={loading || !paperId} />
+        <div className={`${embedded ? 'px-4' : 'max-w-lg mx-auto w-full px-4'} pt-3 ${embedded ? '' : 'pb-safe-bottom'}`}>
+          {!loading && (
+            <SuggestionChips
+              suggestions={suggestions}
+              onSelect={(q) => { setSuggestions([]); handleSend(q) }}
+              loading={suggestionsLoading}
+            />
+          )}
+          <div className="pt-2 pb-2">
+            <ChatInput onSend={handleSend} disabled={loading || !paperId} />
+          </div>
         </div>
       </div>
     </div>
