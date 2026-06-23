@@ -16,7 +16,7 @@ logger.setLevel(logging.INFO)
 
 TABLE_NAME = os.environ.get("TABLE_NAME", "sarathi")
 
-VALID_ACTIONS = {"view", "expand", "read", "dismiss", "bookmark", "ask", "rate", "impression", "source_click"}
+VALID_ACTIONS = {"view", "expand", "read", "dismiss", "restore", "bookmark", "ask", "rate", "impression", "source_click"}
 
 
 def _get_user_id(event: dict) -> str:
@@ -106,8 +106,9 @@ def handler(event: dict, context) -> dict:
         except Exception:
             pass  # Non-critical — don't fail the engagement write
     elif action == "dismiss" and card_id:
-        # Mark card as dismissed — filtered from default feed view
         db.update_feed_card_meta(table, user_id, card_id, {"dismissed": True})
+    elif action == "restore" and card_id:
+        db.update_feed_card_meta(table, user_id, card_id, {"dismissed": False})
     elif action == "bookmark" and card_id:
         # section="add" means bookmark, section="remove" means un-bookmark
         is_bookmarked = body.get("section") != "remove"

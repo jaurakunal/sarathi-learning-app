@@ -123,6 +123,7 @@ def _list_feed(table, user_id: str, event: dict) -> dict:
             "bookmarked": bool(card.get("bookmarked", False)),
             "rating": int(card["rating"]) if card.get("rating") and int(card.get("rating", 0)) != 0 else None,
             "view_count": int(card.get("view_count", 0)),
+            "dismissed": bool(card.get("dismissed", False)),
         })
 
     body = {"cards": response_cards, "lastKey": next_key}

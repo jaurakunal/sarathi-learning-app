@@ -9,6 +9,7 @@ export interface FeedCardSummary {
   read: boolean
   bookmarked: boolean
   rating: number | null
+  dismissed?: boolean
 }
 
 export interface CardDetail {

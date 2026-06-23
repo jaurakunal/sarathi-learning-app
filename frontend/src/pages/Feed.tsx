@@ -4,18 +4,20 @@ import { useInfiniteQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { LogOut, TrendingUp, BookOpen, Search, X } from 'lucide-react'
 import { getFeed } from '../api/feed'
+import { postEngagement } from '../api/engagement'
 import { FeedCard } from '../components/FeedCard'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import { PushBanner } from '../components/PushBanner'
 import { logout } from '../auth/cognito'
 import type { FeedResponse } from '../types/feed'
 
-type TabFilter = 'all' | 'unread'
+type TabFilter = 'all' | 'unread' | 'dismissed'
 
 export function Feed() {
   const navigate = useNavigate()
   const [tab, setTab] = useState<TabFilter>('all')
   const [dismissed, setDismissed] = useState<Set<string>>(new Set())
+  const [restored, setRestored] = useState<Set<string>>(new Set())
   const [searchQuery, setSearchQuery] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
 
@@ -35,18 +37,35 @@ export function Feed() {
     initialPageParam: null,
   })
 
+  const { data: dismissedData } = useInfiniteQuery<FeedResponse>({
+    queryKey: ['feed-dismissed'],
+    queryFn: ({ pageParam }) => getFeed(pageParam as Record<string, unknown> | null, 20, true),
+    getNextPageParam: (lastPage) => lastPage.lastKey ?? undefined,
+    initialPageParam: null,
+    enabled: tab === 'dismissed',
+  })
+
   const allCards = data?.pages.flatMap((page) => page.cards).filter((c) => !dismissed.has(c.card_id)) ?? []
-  const filteredByTab = tab === 'unread' ? allCards.filter((c) => !c.read) : allCards
-  const cards = searchQuery
-    ? filteredByTab.filter((c) => {
-        const q = searchQuery.toLowerCase()
-        return c.hook?.toLowerCase().includes(q) || c.why_you_now?.toLowerCase().includes(q)
-      })
-    : filteredByTab
+  const dismissedCards = dismissedData?.pages.flatMap((page) => page.cards)
+    .filter((c) => (c as any).dismissed && !restored.has(c.card_id)) ?? []
+
+  const visibleCards = (() => {
+    if (tab === 'dismissed') return dismissedCards
+    const base = tab === 'unread' ? allCards.filter((c) => !c.read) : allCards
+    if (!searchQuery) return base
+    const q = searchQuery.toLowerCase()
+    return base.filter((c) => c.hook?.toLowerCase().includes(q) || c.why_you_now?.toLowerCase().includes(q))
+  })()
+
   const unreadCount = allCards.filter((c) => !c.read).length
 
   const handleDismiss = (cardId: string) => {
     setDismissed((prev) => new Set([...prev, cardId]))
+  }
+
+  const handleRestore = (cardId: string) => {
+    setRestored((prev) => new Set([...prev, cardId]))
+    postEngagement({ card_id: cardId, action: 'restore' }).catch(() => {})
   }
 
   return (
@@ -139,6 +158,16 @@ export function Feed() {
               </span>
             )}
           </button>
+          <button
+            onClick={() => setTab('dismissed')}
+            className={`text-sm font-medium px-3 py-1.5 rounded-lg transition-all ${
+              tab === 'dismissed'
+                ? 'text-white bg-accent/20 border border-accent-dim'
+                : 'text-zinc-500 hover:text-zinc-300'
+            }`}
+          >
+            Dismissed
+          </button>
         </div>
 
         <PushBanner />
@@ -160,14 +189,16 @@ export function Feed() {
           </div>
         )}
 
-        {!isLoading && !isError && cards.length === 0 && (
+        {!isLoading && !isError && visibleCards.length === 0 && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             className="text-center py-20"
           >
             <p className="text-zinc-500 text-sm">
-              {tab === 'unread'
+              {tab === 'dismissed'
+                ? 'No dismissed cards.'
+                : tab === 'unread'
                 ? 'All caught up. Nice.'
                 : 'No cards yet. The pipeline runs nightly at 2am UTC.'}
             </p>
@@ -176,8 +207,15 @@ export function Feed() {
 
         {/* Feed cards */}
         <div className="space-y-4 pb-8">
-          {cards.map((card, i) => (
-            <FeedCard key={card.card_id} card={card} index={i} onDismiss={handleDismiss} />
+          {visibleCards.map((card, i) => (
+            <FeedCard
+              key={card.card_id}
+              card={card}
+              index={i}
+              showRestore={tab === 'dismissed'}
+              onDismiss={handleDismiss}
+              onRestore={handleRestore}
+            />
           ))}
         </div>
 
