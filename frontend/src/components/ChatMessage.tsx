@@ -22,7 +22,7 @@ export function ChatMessage({ message, seq, onPin }: ChatMessageProps) {
       className={`flex ${isUser ? 'justify-end' : 'justify-start'} group`}
     >
       <div
-        className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed relative ${
+        className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
           isUser
             ? 'bg-accent/20 border border-accent-dim text-white'
             : `glass-card text-zinc-200 ${pinned ? 'border-accent/30' : ''}`
@@ -39,20 +39,24 @@ export function ChatMessage({ message, seq, onPin }: ChatMessageProps) {
           <span className="inline-block w-1.5 h-4 bg-accent animate-pulse ml-0.5 align-text-bottom rounded-sm" />
         )}
         {!isUser && !message.streaming && seq && onPin && (
-          <button
-            onClick={() => {
-              setPinned(!pinned)
-              onPin(seq)
-            }}
-            className={`absolute -bottom-1 -right-1 p-1.5 rounded-full transition-all ${
-              pinned
-                ? 'text-accent bg-accent/20'
-                : 'text-zinc-600 hover:text-accent opacity-0 group-hover:opacity-100'
-            }`}
-            title={pinned ? 'Pinned as key insight' : 'Pin as key insight'}
-          >
-            <Pin size={12} fill={pinned ? 'currentColor' : 'none'} />
-          </button>
+          <div className="flex justify-end mt-2 pt-1.5 border-t border-white/[0.04]">
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                e.preventDefault()
+                setPinned(!pinned)
+                onPin(seq)
+              }}
+              className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-medium transition-all ${
+                pinned
+                  ? 'text-accent bg-accent/15'
+                  : 'text-zinc-500 hover:text-accent hover:bg-accent/10'
+              }`}
+            >
+              <Pin size={12} fill={pinned ? 'currentColor' : 'none'} />
+              {pinned ? 'Pinned' : 'Pin insight'}
+            </button>
+          </div>
         )}
       </div>
     </motion.div>
