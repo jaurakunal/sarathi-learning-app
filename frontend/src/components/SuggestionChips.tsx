@@ -41,7 +41,7 @@ export function SuggestionChips({ suggestions, onSelect, loading }: SuggestionCh
             transition={{ delay: i * 0.05 }}
             onClick={() => onSelect(q)}
             title={q}
-            className="shrink-0 text-xs text-zinc-300 bg-white/[0.04] border border-white/[0.08] hover:border-accent/30 hover:text-white px-3 py-2 rounded-full transition-all"
+            className="shrink-0 text-xs text-accent/80 bg-accent/[0.06] border border-accent/20 hover:border-accent/40 hover:text-accent hover:bg-accent/10 px-3 py-2 rounded-full transition-all"
           >
             {truncate(q)}
           </motion.button>
