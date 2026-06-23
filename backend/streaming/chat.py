@@ -418,11 +418,62 @@ def _format_retrieved_chunks(chunks: list[dict], chunk_texts: dict[str, str] = N
     return "\n\n---\n\n".join(parts)
 
 
-def _build_system_prompt_with_retrieval(retrieved_context: str, profile: dict) -> str:
+def _format_card_context(card: dict) -> str:
+    """Format the feed card details (glossary, digest, math_notes, etc.) as context."""
+    parts = []
+
+    hook = card.get("hook", "")
+    if hook:
+        parts.append(f"HOOK: {hook}")
+
+    why = card.get("why_you_now", "")
+    if why:
+        parts.append(f"WHY NOW: {why}")
+
+    digest = card.get("digest", {})
+    if digest:
+        gist = digest.get("gist", "")
+        if gist:
+            parts.append(f"GIST: {gist}")
+        key_ideas = digest.get("key_ideas", [])
+        if key_ideas:
+            parts.append("KEY IDEAS:\n" + "\n".join(f"- {idea}" for idea in key_ideas))
+        deep = digest.get("deep", "")
+        if deep:
+            parts.append(f"DEEP DIVE:\n{deep}")
+
+    glossary = card.get("glossary", [])
+    if glossary:
+        terms = "\n".join(f"- {g['term']}: {g['plain']}" for g in glossary if g.get("term"))
+        parts.append(f"GLOSSARY:\n{terms}")
+
+    math_notes = card.get("math_notes", [])
+    if math_notes:
+        notes = "\n".join(f"- {m.get('plain', '')} [Equation: {m.get('equation_optional', '')}]" for m in math_notes)
+        parts.append(f"MATH NOTES:\n{notes}")
+
+    hyp = card.get("hypothesis_relevance", "")
+    if hyp:
+        parts.append(f"HYPOTHESIS RELEVANCE: {hyp}")
+
+    honesty = card.get("honesty_note", "")
+    if honesty:
+        parts.append(f"HONESTY NOTE: {honesty}")
+
+    questions = card.get("suggested_questions", [])
+    if questions:
+        parts.append("SUGGESTED QUESTIONS:\n" + "\n".join(f"- {q}" for q in questions))
+
+    return "\n\n".join(parts)
+
+
+def _build_system_prompt_with_retrieval(retrieved_context: str, profile: dict, card_context: str = "") -> str:
     """Build system prompt using retrieved chunks instead of full paper text."""
     summaries_text = _format_summaries(profile.get("summaries", []))
 
     prompt = SYSTEM_PROMPT
+    if card_context:
+        prompt += f"\n\n<card_details>\nThe user is currently viewing a paper. Here is the card summary generated for it:\n{card_context}\n</card_details>"
     prompt += f"\n\n<retrieved_context>\n{retrieved_context}\n</retrieved_context>"
     prompt += (
         "\n\nCitation rules:"
@@ -430,6 +481,7 @@ def _build_system_prompt_with_retrieval(retrieved_context: str, profile: dict) -
         "\n- If your answer combines insights from multiple papers, cite each one where used."
         "\n- If the retrieved context doesn't answer the question, say so honestly rather than guessing."
         "\n- Keep citations concise — they help the reader find the original paper in their library."
+        "\n- You have access to the card details (glossary, digest, math notes, etc.) for the current paper — use them when the user asks about those elements."
     )
     if summaries_text:
         prompt += f"\n\n<user_context>\n{summaries_text}\n</user_context>"

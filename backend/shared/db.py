@@ -344,6 +344,22 @@ def get_feed_card(table, user_id: str, card_id: str) -> Optional[dict]:
     return resp.get("Item")
 
 
+def get_feed_card_by_paper(table, user_id: str, paper_id: str) -> Optional[dict]:
+    """Get the most recent feed card for a given paper_id."""
+    resp = table.query(
+        KeyConditionExpression=(
+            Key("PK").eq(_feed_pk(user_id))
+            & Key("SK").begins_with("CARD#")
+        ),
+        FilterExpression="paper_id = :pid",
+        ExpressionAttributeValues={":pid": paper_id},
+        ScanIndexForward=False,
+        Limit=5,
+    )
+    items = resp.get("Items", [])
+    return items[0] if items else None
+
+
 # ---------------------------------------------------------------------------
 # Engagement
 # ---------------------------------------------------------------------------

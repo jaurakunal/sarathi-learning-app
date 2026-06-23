@@ -28,6 +28,7 @@ from backend.streaming.chat import (
     _build_messages,
     _read_s3_text,
     _format_retrieved_chunks,
+    _format_card_context,
     _format_summaries,
     SYSTEM_PROMPT,
 )
@@ -176,11 +177,17 @@ def handler(event: dict, context) -> dict:
     turns = [t for t in turns if int(t.get("seq", 0)) < seq]
     profile = db.get_full_profile(table, user_id)
 
+    # 3b. Load card details for the current paper (glossary, digest, etc.)
+    card = db.get_feed_card_by_paper(table, user_id, paper_id)
+    card_context = _format_card_context(card) if card else ""
+
     # 4. Build LLM context
     if retrieved_context:
-        system_prompt = _build_system_prompt_with_retrieval(retrieved_context, profile)
+        system_prompt = _build_system_prompt_with_retrieval(retrieved_context, profile, card_context)
     else:
         system_prompt = _build_system_prompt(paper_text, profile)
+        if card_context:
+            system_prompt += f"\n\n<card_details>\n{card_context}\n</card_details>"
     llm_messages = _build_messages(turns, message)
 
     # 7. Call Bedrock streaming and publish chunks
