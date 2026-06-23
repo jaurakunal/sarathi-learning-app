@@ -163,16 +163,6 @@ export class SarathiStack extends cdk.Stack {
           'bash', '-c',
           'pip install --no-cache-dir -r requirements.txt -t /asset-output && cp -r backend /asset-output/',
         ],
-        local: {
-          tryBundle(outputDir: string) {
-            const { execSync } = require('child_process');
-            execSync(
-              `/opt/homebrew/bin/pip3 install --no-cache-dir -r ${REPO_ROOT}/requirements.txt -t ${outputDir} && cp -r ${REPO_ROOT}/backend ${outputDir}/`,
-              { stdio: 'inherit' },
-            );
-            return true;
-          },
-        },
       },
       assetHashType: cdk.AssetHashType.SOURCE,
     });
