@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { LogOut, TrendingUp, BookOpen } from 'lucide-react'
+import { LogOut, TrendingUp, BookOpen, Search, X } from 'lucide-react'
 import { getFeed } from '../api/feed'
 import { FeedCard } from '../components/FeedCard'
 import { LoadingSpinner } from '../components/LoadingSpinner'
@@ -16,6 +16,8 @@ export function Feed() {
   const navigate = useNavigate()
   const [tab, setTab] = useState<TabFilter>('all')
   const [dismissed, setDismissed] = useState<Set<string>>(new Set())
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchOpen, setSearchOpen] = useState(false)
 
   const {
     data,
@@ -34,7 +36,13 @@ export function Feed() {
   })
 
   const allCards = data?.pages.flatMap((page) => page.cards).filter((c) => !dismissed.has(c.card_id)) ?? []
-  const cards = tab === 'unread' ? allCards.filter((c) => !c.read) : allCards
+  const filteredByTab = tab === 'unread' ? allCards.filter((c) => !c.read) : allCards
+  const cards = searchQuery
+    ? filteredByTab.filter((c) => {
+        const q = searchQuery.toLowerCase()
+        return c.hook?.toLowerCase().includes(q) || c.why_you_now?.toLowerCase().includes(q)
+      })
+    : filteredByTab
   const unreadCount = allCards.filter((c) => !c.read).length
 
   const handleDismiss = (cardId: string) => {
@@ -52,6 +60,13 @@ export function Feed() {
         <div className="glass-header sticky top-0 z-20 -mx-4 px-4 py-4 flex items-center justify-between">
           <h1 className="text-xl font-bold text-gradient">Sārathi</h1>
           <div className="flex items-center gap-1">
+            <button
+              onClick={() => { setSearchOpen(!searchOpen); if (searchOpen) setSearchQuery('') }}
+              className={`p-2 transition-colors ${searchOpen ? 'text-accent' : 'text-zinc-500 hover:text-accent'}`}
+              title="Search"
+            >
+              <Search size={16} />
+            </button>
             <button
               onClick={() => navigate('/library')}
               className="text-zinc-500 hover:text-accent transition-colors p-2"
@@ -74,6 +89,28 @@ export function Feed() {
             </button>
           </div>
         </div>
+
+        {/* Search bar */}
+        {searchOpen && (
+          <div className="relative mt-3">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search papers..."
+              autoFocus
+              className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-accent/40 transition-colors"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="flex gap-1 py-4">
