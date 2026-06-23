@@ -134,11 +134,11 @@ def query_vectors(
         "indexName": VECTOR_INDEX_NAME,
         "queryVector": {"float32": query_embedding},
         "topK": top_k,
+        "returnMetadata": True,
     }
 
-    # Apply metadata filter for tenant isolation
     if paper_ids:
-        kwargs["filter"] = {"paper_id": {"$in": list(paper_ids)}}
+        kwargs["filter"] = {"$or": [{"paper_id": pid} for pid in paper_ids]}
 
     try:
         response = client.query_vectors(**kwargs)
