@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { LogOut, TrendingUp, BookOpen, Search, X } from 'lucide-react'
+import { LogOut, TrendingUp, BookOpen, Search, X, Target } from 'lucide-react'
 import { getFeed } from '../api/feed'
 import { postEngagement } from '../api/engagement'
 import { FeedCard } from '../components/FeedCard'
@@ -85,6 +85,13 @@ export function Feed() {
               title="Search"
             >
               <Search size={16} />
+            </button>
+            <button
+              onClick={() => navigate('/research')}
+              className="text-zinc-500 hover:text-accent transition-colors p-2"
+              title="Research"
+            >
+              <Target size={16} />
             </button>
             <button
               onClick={() => navigate('/library')}

@@ -6,6 +6,7 @@ import { CardDetail } from './pages/CardDetail'
 import { Chat } from './pages/Chat'
 import { Profile } from './pages/Profile'
 import { Library } from './pages/Library'
+import { Research } from './pages/Research'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -27,6 +28,7 @@ export default function App() {
             <Route path="/card/:id/chat" element={<Chat />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/library" element={<Library />} />
+            <Route path="/research" element={<Research />} />
           </Routes>
         </BrowserRouter>
       </AuthGate>
