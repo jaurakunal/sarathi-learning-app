@@ -188,25 +188,12 @@ class SemanticScholarSource:
     def fetch_full_text(self, paper_id: str) -> Optional[str]:
         """Fetch the full text of a paper via its open access PDF.
 
+        Single S2 API call fetches both openAccessPdf and externalIds.
         Falls back to arXiv if S2 doesn't have the PDF but has an arXiv ID.
-
-        Args:
-            paper_id: The Semantic Scholar paper ID (40-char hex hash).
-
-        Returns:
-            Extracted text from the PDF, or None if unavailable.
         """
         from backend.shared.pdf import extract_text_from_pdf
 
-        pdf_url = self._get_open_access_pdf_url(paper_id)
-
-        if not pdf_url:
-            # Fallback: try arXiv if S2 has the arXiv ID
-            arxiv_id = self._get_arxiv_id(paper_id)
-            if arxiv_id:
-                pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
-                logger.info("Falling back to arXiv PDF for %s: %s", paper_id, pdf_url)
-
+        pdf_url = self._resolve_pdf_url(paper_id)
         if not pdf_url:
             return None
 
@@ -216,28 +203,12 @@ class SemanticScholarSource:
 
         return extract_text_from_pdf(pdf_bytes)
 
-    def _get_arxiv_id(self, paper_id: str) -> Optional[str]:
-        """Get the arXiv ID for a paper from S2's externalIds field."""
-        time.sleep(self._delay)
-        url = f"{_S2_PAPER_URL}/{paper_id}"
-        params = {"fields": "externalIds"}
-        try:
-            resp = self._session.get(url, params=params, timeout=30)
-            if resp.status_code == 429:
-                time.sleep(5)
-                resp = self._session.get(url, params=params, timeout=30)
-            resp.raise_for_status()
-            external_ids = resp.json().get("externalIds", {})
-            return external_ids.get("ArXiv")
-        except Exception:
-            return None
-
-    def _get_open_access_pdf_url(self, paper_id: str) -> Optional[str]:
-        """Query S2 for the open access PDF URL of a paper."""
+    def _resolve_pdf_url(self, paper_id: str) -> Optional[str]:
+        """Get PDF URL via S2 (one call), with arXiv fallback."""
         time.sleep(self._delay)
 
         url = f"{_S2_PAPER_URL}/{paper_id}"
-        params = {"fields": "openAccessPdf"}
+        params = {"fields": "openAccessPdf,externalIds"}
 
         max_retries = 3
         for attempt in range(max_retries):
@@ -245,37 +216,43 @@ class SemanticScholarSource:
                 resp = self._session.get(url, params=params, timeout=30)
 
                 if resp.status_code == 429:
-                    retry_after = int(resp.headers.get("Retry-After", 5))
-                    wait = min(retry_after, 10) * (attempt + 1)
+                    wait = min(int(resp.headers.get("Retry-After", 5)), 10) * (attempt + 1)
                     logger.warning(
-                        "S2 rate limited on PDF lookup (attempt %d/%d), waiting %d seconds",
+                        "S2 rate limited on paper lookup (attempt %d/%d), waiting %d seconds",
                         attempt + 1, max_retries, wait,
                     )
                     time.sleep(wait)
                     continue
 
                 resp.raise_for_status()
-
                 data = resp.json()
-                open_access = data.get("openAccessPdf")
 
+                # Try S2's open access PDF first
+                open_access = data.get("openAccessPdf")
                 if open_access and open_access.get("url"):
                     return open_access["url"]
 
-                logger.info(
-                    "No open access PDF available for paper %s", paper_id
-                )
+                # Fallback: use arXiv if the paper has an arXiv ID
+                external_ids = data.get("externalIds", {})
+                arxiv_id = external_ids.get("ArXiv")
+                if arxiv_id:
+                    arxiv_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
+                    logger.info("Using arXiv PDF for %s: %s", paper_id, arxiv_url)
+                    return arxiv_url
+
+                logger.info("No PDF source available for paper %s", paper_id)
                 return None
 
             except requests.RequestException:
                 logger.exception(
-                    "Failed to fetch open access PDF info for paper %s (attempt %d/%d)",
+                    "S2 paper lookup failed for %s (attempt %d/%d)",
                     paper_id, attempt + 1, max_retries,
                 )
                 if attempt < max_retries - 1:
                     time.sleep(5 * (attempt + 1))
 
-        logger.warning("Exhausted retries for PDF lookup on paper %s", paper_id)
+        # All retries exhausted — last resort: try arXiv directly with paper_id as potential arXiv ID
+        logger.warning("Exhausted S2 retries for %s — cannot resolve PDF", paper_id)
         return None
 
     def _download_pdf(self, url: str) -> Optional[bytes]:
