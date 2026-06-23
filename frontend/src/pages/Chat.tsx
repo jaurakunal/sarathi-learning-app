@@ -70,12 +70,18 @@ export function Chat({ embedded, paperId: propPaperId, cardId: propCardId }: Cha
     }
   }, [history])
 
-  // Load initial suggestions from card data
+  // Load initial suggestions from card data, filtering out already-asked ones
   useEffect(() => {
-    if (cardData?.suggested_questions && suggestions.length === 0 && messages.length === 0) {
-      setSuggestions(cardData.suggested_questions.slice(0, 3))
+    if (cardData?.suggested_questions && suggestions.length === 0) {
+      const asked = new Set(messages.filter((m) => m.role === 'user').map((m) => m.content.toLowerCase()))
+      const fresh = cardData.suggested_questions.filter(
+        (q) => !asked.has(q.toLowerCase())
+      )
+      if (fresh.length > 0) {
+        setSuggestions(fresh.slice(0, 3))
+      }
     }
-  }, [cardData]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cardData, messages.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchSuggestions = useCallback(async () => {
     if (!paperId) return
@@ -86,14 +92,16 @@ export function Chat({ embedded, paperId: propPaperId, cardId: propCardId }: Cha
         body: JSON.stringify({ paper_id: paperId }),
       })
       if (res.suggestions?.length) {
-        setSuggestions(res.suggestions)
+        const asked = new Set(messages.filter((m) => m.role === 'user').map((m) => m.content.toLowerCase()))
+        const fresh = res.suggestions.filter((q) => !asked.has(q.toLowerCase()))
+        setSuggestions(fresh.slice(0, 3))
       }
     } catch {
       // Non-critical
     } finally {
       setSuggestionsLoading(false)
     }
-  }, [paperId])
+  }, [paperId, messages])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })

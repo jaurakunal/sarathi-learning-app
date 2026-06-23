@@ -1,5 +1,12 @@
 import { motion, AnimatePresence } from 'framer-motion'
 
+const MAX_DISPLAY_LEN = 50
+
+function truncate(text: string): string {
+  if (text.length <= MAX_DISPLAY_LEN) return text
+  return text.slice(0, MAX_DISPLAY_LEN - 1) + '…'
+}
+
 interface SuggestionChipsProps {
   suggestions: string[]
   onSelect: (question: string) => void
@@ -33,9 +40,10 @@ export function SuggestionChips({ suggestions, onSelect, loading }: SuggestionCh
             exit={{ opacity: 0, scale: 0.9 }}
             transition={{ delay: i * 0.05 }}
             onClick={() => onSelect(q)}
-            className="shrink-0 text-xs text-zinc-300 bg-white/[0.04] border border-white/[0.08] hover:border-accent/30 hover:text-white px-3 py-2 rounded-full transition-all whitespace-nowrap"
+            title={q}
+            className="shrink-0 text-xs text-zinc-300 bg-white/[0.04] border border-white/[0.08] hover:border-accent/30 hover:text-white px-3 py-2 rounded-full transition-all"
           >
-            {q}
+            {truncate(q)}
           </motion.button>
         ))}
       </AnimatePresence>
