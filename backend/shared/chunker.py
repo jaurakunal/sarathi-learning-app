@@ -37,6 +37,7 @@ def chunk_paper_into_sections(
     paper_title: str,
     paper_id: str,
     model_id: Optional[str] = None,
+    use_llm: bool = True,
 ) -> list[dict]:
     """Segment a paper into sections and prepend context for embedding.
 
@@ -45,17 +46,24 @@ def chunk_paper_into_sections(
         paper_title: Title of the paper.
         paper_id: Unique paper identifier.
         model_id: Optional LLM model override.
+        use_llm: If False, skip LLM and use regex/fallback only (faster for backfill).
 
     Returns:
         List of dicts: [{chunk_text, section_name, paper_id, paper_title}]
         chunk_text includes the prepended context.
     """
-    # Try LLM-based section segmentation
-    sections = _segment_with_llm(full_text, model_id)
+    sections = None
+
+    # Try regex-based section detection first (fast, no LLM cost)
+    sections = _segment_with_regex(full_text)
+
+    # If regex didn't find clear sections and LLM is enabled, try LLM
+    if not sections and use_llm:
+        sections = _segment_with_llm(full_text, model_id)
 
     if not sections:
-        # Fallback: chunk by character boundaries with overlap
-        logger.warning("LLM segmentation failed for %s — using fallback chunking", paper_id)
+        # Final fallback: chunk by paragraph boundaries
+        logger.warning("Section detection failed for %s — using fallback chunking", paper_id)
         sections = _fallback_chunk(full_text)
 
     # Prepend context to each section (Anthropic's Contextual Retrieval approach)
@@ -82,6 +90,65 @@ def chunk_paper_into_sections(
 
     logger.info("Chunked paper %s into %d sections", paper_id, len(chunks))
     return chunks
+
+
+import re
+
+# Common section headings in research papers
+_SECTION_PATTERNS = [
+    r"^#{1,3}\s+(.+)$",           # Markdown headings
+    r"^(\d+\.?\s+[A-Z].+)$",      # "1. Introduction", "2 Method"
+    r"^([A-Z][A-Za-z\s]{3,30})$",  # ALL CAPS or Title Case standalone lines (e.g., "Abstract", "Introduction")
+]
+
+
+def _segment_with_regex(full_text: str) -> list[dict]:
+    """Try to detect section boundaries using common heading patterns."""
+    lines = full_text.split("\n")
+    sections = []
+    current_name = "abstract"
+    current_lines: list[str] = []
+
+    heading_pattern = re.compile(
+        r"^(?:#{1,3}\s+(.+)|(\d+\.?\s*[A-Z][A-Za-z\s:]+)|([A-Z][A-Z\s]{3,30}))$"
+    )
+
+    for line in lines:
+        match = heading_pattern.match(line.strip())
+        if match and len(line.strip()) < 60:
+            # Save previous section
+            if current_lines:
+                text = "\n".join(current_lines).strip()
+                if len(text) > 100:
+                    sections.append({"name": current_name.lower().strip(), "text": text})
+            # Start new section
+            heading = match.group(1) or match.group(2) or match.group(3)
+            current_name = heading.strip().lower().rstrip(".")
+            # Normalize common variations
+            for pattern, normalized in [
+                ("intro", "introduction"), ("method", "method"), ("result", "results"),
+                ("discuss", "discussion"), ("conclu", "conclusion"), ("related", "related_work"),
+                ("abstract", "abstract"), ("experiment", "experiments"),
+            ]:
+                if pattern in current_name:
+                    current_name = normalized
+                    break
+            current_lines = []
+        else:
+            current_lines.append(line)
+
+    # Don't forget the last section
+    if current_lines:
+        text = "\n".join(current_lines).strip()
+        if len(text) > 100:
+            sections.append({"name": current_name.lower().strip(), "text": text})
+
+    # Only use regex result if we found at least 3 sections (indicates real structure)
+    if len(sections) >= 3:
+        logger.info("Regex segmentation found %d sections", len(sections))
+        return sections
+
+    return []
 
 
 def _segment_with_llm(full_text: str, model_id: Optional[str] = None) -> list[dict]:

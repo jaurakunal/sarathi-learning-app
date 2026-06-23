@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from typing import Optional
@@ -10,8 +11,11 @@ import boto3
 
 logger = logging.getLogger(__name__)
 
-VECTOR_BUCKET_NAME = os.environ.get("VECTOR_BUCKET_NAME", "")
-VECTOR_INDEX_NAME = os.environ.get("VECTOR_INDEX_NAME", "paper-sections")
+def _get_vector_bucket_name():
+    return os.environ.get("VECTOR_BUCKET_NAME", "")
+
+def _get_vector_index_name():
+    return os.environ.get("VECTOR_INDEX_NAME", "paper-sections")
 
 
 def _get_client():
@@ -29,6 +33,8 @@ def put_vectors(chunks: list[dict], embeddings: list[list[float]]) -> int:
     Returns:
         Number of vectors successfully stored.
     """
+    VECTOR_BUCKET_NAME = _get_vector_bucket_name()
+    VECTOR_INDEX_NAME = _get_vector_index_name()
     if not VECTOR_BUCKET_NAME:
         logger.warning("VECTOR_BUCKET_NAME not set — skipping vector storage")
         return 0
@@ -36,8 +42,9 @@ def put_vectors(chunks: list[dict], embeddings: list[list[float]]) -> int:
     client = _get_client()
     vectors = []
 
-    for chunk, embedding in zip(chunks, embeddings):
-        key = f"{chunk['paper_id']}:{chunk['section_name']}"
+    chunk_texts = {}
+    for idx, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+        key = f"{chunk['paper_id']}:{chunk['section_name']}:{idx}"
         vectors.append({
             "key": key,
             "data": {"float32": embedding},
@@ -47,6 +54,7 @@ def put_vectors(chunks: list[dict], embeddings: list[list[float]]) -> int:
                 "section_name": chunk["section_name"],
             },
         })
+        chunk_texts[key] = chunk["chunk_text"]
 
     if not vectors:
         return 0
@@ -57,11 +65,45 @@ def put_vectors(chunks: list[dict], embeddings: list[list[float]]) -> int:
             indexName=VECTOR_INDEX_NAME,
             vectors=vectors,
         )
+        _store_chunk_texts(chunks[0]["paper_id"], chunk_texts)
         logger.info("Stored %d vectors for paper %s", len(vectors), chunks[0]["paper_id"])
         return len(vectors)
     except Exception:
         logger.exception("Failed to store vectors in S3 Vectors")
         return 0
+
+
+def _store_chunk_texts(paper_id: str, chunk_texts: dict[str, str]) -> None:
+    """Store chunk texts in S3 for retrieval at query time."""
+    bucket = os.environ.get("BUCKET_NAME", "")
+    if not bucket:
+        return
+    s3 = boto3.client("s3")
+    key = f"vectors/{paper_id}/chunks.json"
+    s3.put_object(
+        Bucket=bucket,
+        Key=key,
+        Body=json.dumps(chunk_texts),
+        ContentType="application/json",
+    )
+
+
+def get_chunk_texts(paper_ids: set[str]) -> dict[str, str]:
+    """Load chunk texts from S3 for the given papers. Returns {vector_key: text}."""
+    bucket = os.environ.get("BUCKET_NAME", "")
+    if not bucket:
+        return {}
+    s3 = boto3.client("s3")
+    all_texts = {}
+    for paper_id in paper_ids:
+        key = f"vectors/{paper_id}/chunks.json"
+        try:
+            resp = s3.get_object(Bucket=bucket, Key=key)
+            texts = json.loads(resp["Body"].read().decode("utf-8"))
+            all_texts.update(texts)
+        except Exception:
+            pass
+    return all_texts
 
 
 def query_vectors(
@@ -79,6 +121,8 @@ def query_vectors(
     Returns:
         List of {key, metadata, score} dicts, sorted by similarity.
     """
+    VECTOR_BUCKET_NAME = _get_vector_bucket_name()
+    VECTOR_INDEX_NAME = _get_vector_index_name()
     if not VECTOR_BUCKET_NAME:
         logger.warning("VECTOR_BUCKET_NAME not set — cannot query vectors")
         return []
@@ -108,6 +152,8 @@ def query_vectors(
 
 def delete_vectors(paper_id: str, section_names: list[str]) -> None:
     """Delete vectors for a paper (used if re-embedding is needed)."""
+    VECTOR_BUCKET_NAME = _get_vector_bucket_name()
+    VECTOR_INDEX_NAME = _get_vector_index_name()
     if not VECTOR_BUCKET_NAME:
         return
 

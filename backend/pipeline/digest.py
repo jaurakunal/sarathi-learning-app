@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import sys
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -37,14 +38,30 @@ logging.basicConfig(
 # Source registry — maps paper.source field to a source instance
 # ---------------------------------------------------------------------------
 
-_SOURCES = {
-    "arxiv": ArxivSource(),
-    "arxiv_rss": ArxivRssSource(),
-    "semantic_scholar": SemanticScholarSource(),
-    "openreview": OpenReviewSource(),
-    "hf_daily_papers": HFDailyPapersSource(),
-    "papers_with_code": PapersWithCodeSource(),
-}
+
+def _get_s2_api_key() -> Optional[str]:
+    """Read S2 API key from SSM (cached after first call)."""
+    param_name = os.environ.get("S2_API_KEY_PARAM", "/sarathi/semantic-scholar-api-key")
+    try:
+        ssm = boto3.client("ssm")
+        resp = ssm.get_parameter(Name=param_name, WithDecryption=True)
+        return resp["Parameter"]["Value"]
+    except Exception:
+        logger.warning("Could not read S2 API key from SSM — using unauthenticated")
+        return None
+
+
+def _build_sources() -> dict:
+    """Build source instances (deferred so API key can be loaded at runtime)."""
+    api_key = _get_s2_api_key()
+    return {
+        "arxiv": ArxivSource(),
+        "arxiv_rss": ArxivRssSource(),
+        "semantic_scholar": SemanticScholarSource(api_key=api_key),
+        "openreview": OpenReviewSource(),
+        "hf_daily_papers": HFDailyPapersSource(),
+        "papers_with_code": PapersWithCodeSource(),
+    }
 
 DEFAULT_MODEL = "us.anthropic.claude-sonnet-4-6"
 
@@ -296,6 +313,7 @@ def run(event: dict) -> dict:
     if not surfaced_papers:
         return {"cards_generated": 0, "papers_failed": 0}
 
+    sources = _build_sources()
     cards_generated = 0
     papers_failed = 0
 
@@ -309,7 +327,7 @@ def run(event: dict) -> dict:
 
         try:
             # 3a. Fetch full text using the appropriate source
-            source = _SOURCES.get(source_name)
+            source = sources.get(source_name)
             if source is None:
                 logger.warning(
                     "Unknown source '%s' for paper %s — skipping",

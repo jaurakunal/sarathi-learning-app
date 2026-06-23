@@ -80,14 +80,16 @@ def handler(event: dict, context) -> dict:
         # RAG path: retrieve relevant chunks across user's library
         try:
             from backend.shared.embeddings import embed_text
-            from backend.shared.vectors import query_vectors
+            from backend.shared.vectors import query_vectors, get_chunk_texts
 
             user_paper_ids = db.list_user_paper_ids(table, user_id)
             query_embedding = embed_text(message)
             chunks = query_vectors(query_embedding, paper_ids=user_paper_ids, top_k=10)
 
             if chunks:
-                retrieved_context = _format_retrieved_chunks(chunks)
+                hit_paper_ids = set(c.get("metadata", {}).get("paper_id", "") for c in chunks)
+                chunk_texts = get_chunk_texts(hit_paper_ids)
+                retrieved_context = _format_retrieved_chunks(chunks, chunk_texts)
         except Exception:
             logger.warning("RAG retrieval failed — falling back to full text")
 
@@ -394,21 +396,26 @@ def _call_llm_messages(messages: list[dict], model_id: str, system_prompt: str =
         return None
 
 
-def _format_retrieved_chunks(chunks: list[dict]) -> str:
+def _format_retrieved_chunks(chunks: list[dict], chunk_texts: dict[str, str] = None) -> str:
     """Format retrieved vector chunks into context for the system prompt."""
+    chunk_texts = chunk_texts or {}
     parts = []
-    for chunk in chunks:
+    for i, chunk in enumerate(chunks, 1):
         metadata = chunk.get("metadata", {})
         paper_title = metadata.get("paper_title", "Unknown")
         section_name = metadata.get("section_name", "section")
         paper_id = metadata.get("paper_id", "")
+        vector_key = chunk.get("key", "")
 
-        # Retrieve the chunk text from the key (paper_id:section_name)
-        # The actual text isn't stored in S3 Vectors metadata — we need to reconstruct
-        # For now, use the metadata to label and the chunk text from the vector store
-        parts.append(f'[From "{paper_title}" — {section_name} section (paper_id: {paper_id})]')
+        text = chunk_texts.get(vector_key, "")
+        if not text:
+            continue
 
-    return "\n\n".join(parts)
+        parts.append(
+            f"[Source {i}: \"{paper_title}\" — {section_name} (paper_id: {paper_id})]\n{text}"
+        )
+
+    return "\n\n---\n\n".join(parts)
 
 
 def _build_system_prompt_with_retrieval(retrieved_context: str, profile: dict) -> str:
@@ -417,7 +424,13 @@ def _build_system_prompt_with_retrieval(retrieved_context: str, profile: dict) -
 
     prompt = SYSTEM_PROMPT
     prompt += f"\n\n<retrieved_context>\n{retrieved_context}\n</retrieved_context>"
-    prompt += "\n\nWhen answering, cite the paper title and section for each claim. If the retrieved context doesn't answer the question, say so honestly."
+    prompt += (
+        "\n\nCitation rules:"
+        "\n- When drawing on a source, cite it inline as [Paper Title — section]."
+        "\n- If your answer combines insights from multiple papers, cite each one where used."
+        "\n- If the retrieved context doesn't answer the question, say so honestly rather than guessing."
+        "\n- Keep citations concise — they help the reader find the original paper in their library."
+    )
     if summaries_text:
         prompt += f"\n\n<user_context>\n{summaries_text}\n</user_context>"
     return prompt

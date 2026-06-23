@@ -31,6 +31,13 @@ from backend.shared.vectors import put_vectors
 USER_ID = os.environ.get("USER_ID", "00000000-0000-0000-0000-000000000000")
 TABLE_NAME = os.environ.get("TABLE_NAME", "sarathi")
 S3_BUCKET = os.environ.get("BUCKET_NAME", "sarathi-123456789012-us-east-1")
+VECTOR_BUCKET = os.environ.get("VECTOR_BUCKET_NAME", "sarathi-vectors-123456789012-us-east-1")
+VECTOR_INDEX = os.environ.get("VECTOR_INDEX_NAME", "paper-sections")
+
+# Set env vars for shared modules that read from os.environ
+os.environ.setdefault("BUCKET_NAME", S3_BUCKET)
+os.environ.setdefault("VECTOR_BUCKET_NAME", VECTOR_BUCKET)
+os.environ.setdefault("VECTOR_INDEX_NAME", VECTOR_INDEX)
 
 
 def main():
@@ -101,9 +108,9 @@ def main():
             failed += 1
             continue
 
-        # Chunk into sections
+        # Chunk into sections (no LLM — use regex/fallback for speed)
         logger.info("  [CHUNK] %s — %s", paper_id, paper["title"][:60])
-        chunks = chunk_paper_into_sections(full_text, paper["title"], paper_id)
+        chunks = chunk_paper_into_sections(full_text, paper["title"], paper_id, use_llm=False)
 
         if not chunks:
             logger.warning("  [FAIL] %s — chunking produced 0 sections", paper_id)
