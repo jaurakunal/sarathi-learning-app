@@ -135,8 +135,8 @@ export class SarathiStack extends cdk.Stack {
     lambdaRole.addToPolicy(new iam.PolicyStatement({
       actions: ['s3vectors:*'],
       resources: [
-        `arn:aws:s3vectors:${this.region}:${this.account}:vector-bucket/sarathi-vectors-${this.account}-${this.region}`,
-        `arn:aws:s3vectors:${this.region}:${this.account}:vector-bucket/sarathi-vectors-${this.account}-${this.region}/*`,
+        `arn:aws:s3vectors:${this.region}:${this.account}:bucket/sarathi-vectors-${this.account}-${this.region}`,
+        `arn:aws:s3vectors:${this.region}:${this.account}:bucket/sarathi-vectors-${this.account}-${this.region}/*`,
       ],
     }));
 
@@ -332,8 +332,8 @@ export class SarathiStack extends cdk.Stack {
     digestTaskDef.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
       actions: ['s3vectors:*'],
       resources: [
-        `arn:aws:s3vectors:${this.region}:${this.account}:vector-bucket/sarathi-vectors-${this.account}-${this.region}`,
-        `arn:aws:s3vectors:${this.region}:${this.account}:vector-bucket/sarathi-vectors-${this.account}-${this.region}/*`,
+        `arn:aws:s3vectors:${this.region}:${this.account}:bucket/sarathi-vectors-${this.account}-${this.region}`,
+        `arn:aws:s3vectors:${this.region}:${this.account}:bucket/sarathi-vectors-${this.account}-${this.region}/*`,
       ],
     }));
 
