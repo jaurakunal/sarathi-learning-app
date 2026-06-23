@@ -16,8 +16,6 @@ export function FeedCard({ card, index, onDismiss }: FeedCardProps) {
   const impressionFired = useRef(false)
   const cardRef = useRef<HTMLDivElement>(null)
 
-  // IntersectionObserver for impression tracking
-  // Card must be 50% visible for 1.5s to count as a real impression (not fast scrolling)
   useEffect(() => {
     const el = cardRef.current
     if (!el || impressionFired.current) return
@@ -70,52 +68,44 @@ export function FeedCard({ card, index, onDismiss }: FeedCardProps) {
       transition={{ duration: 0.3, delay: index * 0.05 }}
       onClick={() => navigate(`/card/${card.card_id}`)}
       role="button"
-      className={`w-full text-left glass-card rounded-2xl p-5 space-y-3 transition-all duration-200 active:scale-[0.98] relative group cursor-pointer ${
-        card.read ? 'opacity-50' : ''
+      className={`feed-card w-full text-left rounded-2xl p-6 relative group cursor-pointer transition-all duration-300 active:scale-[0.98] ${
+        card.read ? 'feed-card--read' : 'feed-card--unread'
       }`}
     >
-      {/* Dismiss button */}
       {!card.read && (
         <button
           onClick={handleDismiss}
-          className="absolute top-3 right-3 text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded"
+          className="absolute top-4 right-4 text-white/20 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all p-1"
           title="Not interested"
         >
           <X size={14} />
         </button>
       )}
 
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <Clock size={12} className="text-violet-neon" />
-          <span className="text-xs text-violet-neon font-medium">
-            {card.time_estimate}
-          </span>
-          {card.read && (
-            <span className="flex items-center gap-1 text-xs text-zinc-500">
-              <Check size={10} />
-              read
-            </span>
-          )}
-        </div>
-        {card.card_type !== 'new_paper' && (
-          <span className="text-xs text-accent-light font-medium px-2 py-0.5 rounded-full bg-accent-dim">
-            {card.card_type.replace('_', ' ')}
-          </span>
-        )}
-      </div>
-
-      <p className={`text-[17px] leading-snug font-semibold ${
-        card.read ? 'text-zinc-400' : 'text-white'
+      <p className={`text-[19px] leading-[1.35] font-semibold tracking-tight ${
+        card.read ? 'text-zinc-500' : 'text-white/95'
       }`}>
         {card.hook}
       </p>
 
-      {card.why_you_now && (
-        <p className="text-sm text-zinc-400 leading-relaxed">
+      {card.why_you_now && !card.read && (
+        <p className="text-[13px] text-white/40 leading-relaxed mt-3 line-clamp-2">
           {card.why_you_now}
         </p>
       )}
+
+      <div className="flex items-center gap-3 mt-4 pt-3 border-t border-white/[0.04]">
+        <span className="flex items-center gap-1.5 text-[11px] text-white/35 font-medium tracking-wide uppercase">
+          <Clock size={10} />
+          {card.time_estimate}
+        </span>
+        {card.read && (
+          <span className="flex items-center gap-1 text-[11px] text-white/25">
+            <Check size={10} />
+            read
+          </span>
+        )}
+      </div>
     </motion.div>
   )
 }

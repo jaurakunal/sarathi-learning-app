@@ -24,8 +24,10 @@ import urllib.request
 from backend.shared import db
 from backend.streaming.chat import (
     _build_system_prompt,
+    _build_system_prompt_with_retrieval,
     _build_messages,
     _read_s3_text,
+    _format_retrieved_chunks,
     _format_summaries,
     SYSTEM_PROMPT,
 )
@@ -141,20 +143,44 @@ def handler(event: dict, context) -> dict:
 
     full_text_s3_key = conv.get("full_text_s3_key", "")
 
-    # 2. Read paper full text
-    paper_text = _read_s3_text(s3_client, BUCKET_NAME, full_text_s3_key)
-    if not paper_text:
-        _publish_chunk(conv_id, seq, "[Error: paper not found in S3]", True)
-        return {"status": "error"}
+    # 2. Try RAG retrieval first, fall back to full-text stuffing
+    retrieved_context = None
+
+    if db.is_paper_embedded(table, paper_id):
+        try:
+            from backend.shared.embeddings import embed_text
+            from backend.shared.vectors import query_vectors, get_chunk_texts
+
+            user_paper_ids = db.list_user_paper_ids(table, user_id)
+            query_embedding = embed_text(message)
+            chunks = query_vectors(query_embedding, paper_ids=user_paper_ids, top_k=10)
+
+            if chunks:
+                hit_paper_ids = set(c.get("metadata", {}).get("paper_id", "") for c in chunks)
+                chunk_texts = get_chunk_texts(hit_paper_ids)
+                retrieved_context = _format_retrieved_chunks(chunks, chunk_texts)
+                logger.info("RAG retrieval: %d chunks from %d papers", len(chunks), len(hit_paper_ids))
+        except Exception:
+            logger.warning("RAG retrieval failed — falling back to full text")
+
+    # Fallback: full-text stuffing
+    paper_text = None
+    if not retrieved_context:
+        paper_text = _read_s3_text(s3_client, BUCKET_NAME, full_text_s3_key)
+        if not paper_text:
+            _publish_chunk(conv_id, seq, "[Error: paper not found in S3]", True)
+            return {"status": "error"}
 
     # 3. Read existing turns (excluding the current one just created) + profile
     turns = db.get_conversation_turns(table, user_id, conv_id)
-    # Remove the current turn (last one) since it's the request we're answering
     turns = [t for t in turns if int(t.get("seq", 0)) < seq]
     profile = db.get_full_profile(table, user_id)
 
     # 4. Build LLM context
-    system_prompt = _build_system_prompt(paper_text, profile)
+    if retrieved_context:
+        system_prompt = _build_system_prompt_with_retrieval(retrieved_context, profile)
+    else:
+        system_prompt = _build_system_prompt(paper_text, profile)
     llm_messages = _build_messages(turns, message)
 
     # 7. Call Bedrock streaming and publish chunks
