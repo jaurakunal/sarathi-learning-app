@@ -122,7 +122,7 @@ export function CardDetail() {
     return () => window.removeEventListener('scroll', handleScrollForRead)
   }, [handleScrollForRead])
 
-  // Fire "dismiss" on unmount ONLY if read never fired
+  // Fire "bounce" on unmount if read never fired (user opened but didn't engage deeply)
   useEffect(() => {
     return () => {
       if (navigatingToChatRef.current) return
@@ -133,7 +133,7 @@ export function CardDetail() {
       postEngagement({
         paper_id: pid,
         card_id: cardIdRef.current,
-        action: 'dismiss',
+        action: 'view',
         active_ms: eng.getActiveMs(),
         scroll_depth_pct: eng.scrollDepthRef.current,
       }).catch(() => {})
