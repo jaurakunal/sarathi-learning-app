@@ -87,11 +87,14 @@ export function Chat({ embedded, paperId: propPaperId, cardId: propCardId }: Cha
       activeSubRef.current = null
     }
 
+    // Calculate the seq for this new turn
+    const newSeq = Math.floor(messages.filter((m) => m.role === 'user').length) + 1
+
     // Add user message + empty streaming assistant message
     setMessages((prev) => [
       ...prev,
-      { role: 'user', content: text },
-      { role: 'assistant', content: '', streaming: true },
+      { role: 'user', content: text, seq: newSeq },
+      { role: 'assistant', content: '', streaming: true, seq: newSeq },
     ])
 
     try {
@@ -122,7 +125,7 @@ export function Chat({ embedded, paperId: propPaperId, cardId: propCardId }: Cha
                     const updated = [...prev]
                     const last = updated[updated.length - 1]
                     if (last?.role === 'assistant') {
-                      updated[updated.length - 1] = { role: 'assistant', content: lastTurn.response! }
+                      updated[updated.length - 1] = { role: 'assistant', content: lastTurn.response!, seq: lastTurn.seq }
                     }
                     return updated
                   })
@@ -137,6 +140,7 @@ export function Chat({ embedded, paperId: propPaperId, cardId: propCardId }: Cha
                   updated[updated.length - 1] = {
                     ...last,
                     content: last.content + chunk.chunk,
+                    streaming: true,
                   }
                 }
                 return updated
