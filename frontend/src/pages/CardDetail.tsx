@@ -9,6 +9,7 @@ import { Glossary } from '../components/Glossary'
 import { MathNote } from '../components/MathNote'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import { useEngagement } from '../hooks/useEngagement'
+import { Chat } from './Chat'
 
 export function CardDetail() {
   const { id } = useParams<{ id: string }>()
@@ -27,6 +28,8 @@ export function CardDetail() {
   const [tags, setTags] = useState<string[]>([])
   const [tagInput, setTagInput] = useState('')
   const [showTagging, setShowTagging] = useState(false)
+  const [chatOpen, setChatOpen] = useState(false)
+  const isDesktop = typeof window !== 'undefined' && window.innerWidth >= 1024
 
   useEffect(() => {
     if (card) {
@@ -138,9 +141,13 @@ export function CardDetail() {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleAskQuestion = () => {
-    navigatingToChatRef.current = true
     engagement.fireAsk()
-    navigate(`/card/${id}/chat`, { state: { paper_id: card?.paper_id } })
+    if (isDesktop) {
+      setChatOpen(true)
+    } else {
+      navigatingToChatRef.current = true
+      navigate(`/card/${id}/chat`, { state: { paper_id: card?.paper_id } })
+    }
   }
 
   if (isLoading) {
@@ -168,9 +175,10 @@ export function CardDetail() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] relative" ref={contentRef}>
+    <div className={`min-h-screen bg-[#0a0a0f] relative ${chatOpen ? 'lg:flex' : ''}`} ref={contentRef}>
+      <div className={`${chatOpen ? 'lg:w-1/2 lg:overflow-y-auto lg:h-screen' : ''} relative`}>
       <div className="ambient-orb w-72 h-72 bg-accent top-[-5rem] right-[-5rem]" />
-      <div className="max-w-lg mx-auto px-4 pt-safe-top pb-safe-bottom relative z-10">
+      <div className={`${chatOpen ? 'max-w-none lg:px-8' : 'max-w-lg mx-auto'} px-4 pt-safe-top pb-safe-bottom relative z-10`}>
         {/* Header */}
         <div className="glass-header sticky top-0 z-20 -mx-4 px-4 py-4 flex items-center justify-between">
           <button
@@ -434,6 +442,14 @@ export function CardDetail() {
 
         <div className="pb-12" />
       </div>
+      </div>
+
+      {/* Desktop chat panel */}
+      {chatOpen && (
+        <div className="hidden lg:block lg:w-1/2 lg:h-screen lg:border-l lg:border-white/[0.06] lg:relative">
+          <Chat embedded paperId={card.paper_id} cardId={card.card_id} />
+        </div>
+      )}
     </div>
   )
 }
