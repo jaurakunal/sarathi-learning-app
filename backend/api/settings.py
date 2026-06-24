@@ -61,6 +61,7 @@ def handler(event: dict, context) -> dict:
         item = resp.get("Item", {})
         return _response(200, {
             "pipeline_status": item.get("status", "active"),
+            "paused_reason": item.get("paused_reason", ""),
         })
 
     return _response(405, {"error": "Method not allowed"})

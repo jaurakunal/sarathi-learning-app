@@ -46,6 +46,7 @@ export function Feed() {
     staleTime: 60 * 1000,
   })
   const isPaused = settingsData?.pipeline_status === 'paused'
+  const pausedReason = (settingsData as any)?.paused_reason || ''
 
   const { data: dismissedData } = useInfiniteQuery<FeedResponse>({
     queryKey: ['feed-dismissed'],
@@ -205,7 +206,11 @@ export function Feed() {
         {isPaused && (
           <div className="mx-0 mt-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center gap-3">
             <Pause size={14} className="text-amber-400 shrink-0" />
-            <p className="text-xs text-amber-300 flex-1">Paper discovery is paused.</p>
+            <p className="text-xs text-amber-300 flex-1">
+              {pausedReason === 'inactive_7_days'
+                ? 'Paper discovery was paused due to inactivity.'
+                : 'Paper discovery is paused.'}
+            </p>
             <button
               onClick={() => navigate('/settings')}
               className="text-xs text-amber-400 hover:text-amber-300 font-medium shrink-0"

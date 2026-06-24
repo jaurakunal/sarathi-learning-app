@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from datetime import datetime, timezone
 from decimal import Decimal
 
 import boto3
@@ -32,6 +33,19 @@ def _get_user_id(event: dict) -> str:
         .get("claims", {})
     )
     return claims.get("sub", "")
+
+
+def _touch_last_active(table, user_id: str) -> None:
+    """Update last_active_at on the user's SYSTEM#USERS record (fire-and-forget)."""
+    try:
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        table.update_item(
+            Key={"PK": "SYSTEM#USERS", "SK": f"USER#{user_id}"},
+            UpdateExpression="SET last_active_at = :ts",
+            ExpressionAttributeValues={":ts": now},
+        )
+    except Exception:
+        pass
 
 
 def _response(status: int, body: dict) -> dict:
@@ -66,6 +80,9 @@ def handler(event: dict, context) -> dict:
 
     dynamodb = boto3.resource("dynamodb")
     table = dynamodb.Table(TABLE_NAME)
+
+    # Track last activity (fire-and-forget, non-blocking)
+    _touch_last_active(table, user_id)
 
     path_params = event.get("pathParameters") or {}
     card_id = path_params.get("card_id")
