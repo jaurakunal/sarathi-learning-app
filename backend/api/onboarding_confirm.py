@@ -63,21 +63,41 @@ def handler(event: dict, context) -> dict:
         "status": "active",
     })
 
-    # Trigger initial pipeline run for this user
+    # Trigger initial pipeline run for this user (only if not already running)
     try:
         sfn = boto3.client("stepfunctions")
         state_machine_arn = os.environ.get("STATE_MACHINE_ARN", "")
         if state_machine_arn:
-            sfn.start_execution(
-                stateMachineArn=state_machine_arn,
-                input=json.dumps({
-                    "user_id": user_id,
-                    "table_name": TABLE_NAME,
-                    "s3_bucket": os.environ.get("BUCKET_NAME", ""),
-                    "since_days": 30,
-                }),
-            )
-            logger.info("Triggered initial pipeline for user %s", user_id)
+            # Check for existing running execution for this user
+            already_running = False
+            try:
+                running_resp = sfn.list_executions(
+                    stateMachineArn=state_machine_arn,
+                    statusFilter="RUNNING",
+                    maxResults=20,
+                )
+                for exe in running_resp.get("executions", []):
+                    desc = sfn.describe_execution(executionArn=exe["executionArn"])
+                    inp = json.loads(desc.get("input", "{}"))
+                    if inp.get("user_id") == user_id:
+                        already_running = True
+                        break
+            except Exception:
+                pass
+
+            if not already_running:
+                sfn.start_execution(
+                    stateMachineArn=state_machine_arn,
+                    input=json.dumps({
+                        "user_id": user_id,
+                        "table_name": TABLE_NAME,
+                        "s3_bucket": os.environ.get("BUCKET_NAME", ""),
+                        "since_days": 30,
+                    }),
+                )
+                logger.info("Triggered initial pipeline for user %s", user_id)
+            else:
+                logger.info("Pipeline already running for user %s — skipping", user_id)
     except Exception:
         logger.exception("Failed to trigger initial pipeline — user can wait for nightly run")
 

@@ -47,7 +47,28 @@ def handler(event: dict, context) -> dict:
     sfn = boto3.client("stepfunctions")
     triggered = 0
     paused = 0
+    skipped = 0
     cutoff = (datetime.now(timezone.utc) - timedelta(days=INACTIVE_DAYS)).isoformat()
+
+    # Get currently running executions to avoid duplicates
+    running_users = set()
+    try:
+        running_resp = sfn.list_executions(
+            stateMachineArn=state_machine_arn,
+            statusFilter="RUNNING",
+            maxResults=100,
+        )
+        for exe in running_resp.get("executions", []):
+            try:
+                desc = sfn.describe_execution(executionArn=exe["executionArn"])
+                inp = json.loads(desc.get("input", "{}"))
+                uid = inp.get("user_id", "")
+                if uid:
+                    running_users.add(uid)
+            except Exception:
+                pass
+    except Exception:
+        logger.warning("Could not check running executions — proceeding without dedup")
 
     for user in users:
         user_id = user.get("user_id", "")
@@ -70,6 +91,12 @@ def handler(event: dict, context) -> dict:
             logger.info("Auto-paused inactive user %s (last active: %s)", user_id, last_active)
             continue
 
+        # Skip if user already has a running execution
+        if user_id in running_users:
+            skipped += 1
+            logger.info("Skipped user %s — pipeline already running", user_id)
+            continue
+
         try:
             sfn.start_execution(
                 stateMachineArn=state_machine_arn,
@@ -85,5 +112,5 @@ def handler(event: dict, context) -> dict:
         except Exception:
             logger.exception("Failed to trigger pipeline for user %s", user_id)
 
-    logger.info("Fan-out complete: %d triggered, %d auto-paused", triggered, paused)
-    return {"users_triggered": triggered, "users_paused": paused}
+    logger.info("Fan-out complete: %d triggered, %d auto-paused, %d skipped (already running)", triggered, paused, skipped)
+    return {"users_triggered": triggered, "users_paused": paused, "users_skipped": skipped}
