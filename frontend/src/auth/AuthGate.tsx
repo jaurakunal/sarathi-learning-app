@@ -55,9 +55,16 @@ export function AuthGate({ children }: AuthGateProps) {
     setLoading(true)
     try {
       await signUp(email, password)
-      setView('verify')
+      // Auto-confirmed by pre-signup trigger — sign in immediately
+      await login(email, password)
+      setAuthed(true)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Sign up failed')
+      const msg = err instanceof Error ? err.message : 'Sign up failed'
+      if (msg.includes('not confirmed') || msg.includes('verification')) {
+        setView('verify')
+      } else {
+        setError(msg)
+      }
     } finally {
       setLoading(false)
     }

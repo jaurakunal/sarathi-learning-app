@@ -92,11 +92,26 @@ export class SarathiStack extends cdk.Stack {
     vectorIndex.addDependency(vectorBucket);
 
     // ─── Cognito ─────────────────────────────────────────────────────
+    const preSignUpFn = new lambda.Function(this, 'PreSignUpFn', {
+      functionName: 'sarathi-pre-signup',
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'backend.auth.pre_signup.handler',
+      code: lambda.Code.fromInline(`
+def handler(event, context):
+    event['response']['autoConfirmUser'] = True
+    event['response']['autoVerifyEmail'] = True
+    return event
+`),
+      timeout: cdk.Duration.seconds(5),
+      memorySize: 128,
+    });
+
     const userPool = new cognito.UserPool(this, 'SarathiUserPool', {
       userPoolName: 'sarathi-users',
       selfSignUpEnabled: true,
       signInAliases: { email: true },
       autoVerify: { email: true },
+      lambdaTriggers: { preSignUp: preSignUpFn },
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
