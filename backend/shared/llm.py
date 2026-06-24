@@ -74,6 +74,46 @@ def call_llm(
         return None
 
 
+def call_llm_multi(
+    system: str,
+    messages: list[dict],
+    model_id: str = DEFAULT_MODEL_ID,
+    max_tokens: int = 4096,
+    temperature: float = 0.7,
+    region: Optional[str] = None,
+) -> Optional[str]:
+    """Call LLM with a full multi-turn message history. Returns text or None."""
+    client = boto3.client(
+        "bedrock-runtime",
+        region_name=region or DEFAULT_REGION,
+        config=Config(read_timeout=300, retries={"max_attempts": 2}),
+    )
+
+    body = {
+        "anthropic_version": "bedrock-2023-05-31",
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "system": system,
+        "messages": messages,
+    }
+
+    try:
+        response = client.invoke_model(
+            modelId=model_id,
+            contentType="application/json",
+            accept="application/json",
+            body=json.dumps(body),
+        )
+        response_body = json.loads(response["body"].read())
+        content = response_body.get("content", [])
+        if content and content[0].get("type") == "text":
+            return content[0]["text"]
+        return None
+    except Exception:
+        logger.exception("Bedrock multi-turn LLM call failed (model=%s)", model_id)
+        return None
+
+
 def stream_llm(
     system: str,
     messages: list[dict],

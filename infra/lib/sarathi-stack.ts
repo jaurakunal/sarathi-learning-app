@@ -139,6 +139,10 @@ export class SarathiStack extends cdk.Stack {
         `arn:aws:s3vectors:${this.region}:${this.account}:bucket/sarathi-vectors-${this.account}-${this.region}/*`,
       ],
     }));
+    lambdaRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['states:StartExecution'],
+      resources: [`arn:aws:states:${this.region}:${this.account}:stateMachine:sarathi-nightly-pipeline`],
+    }));
 
     // SSM Parameter for Semantic Scholar API key
     const s2ApiKeyParam = new ssm.StringParameter(this, 'S2ApiKeyParam', {
@@ -285,6 +289,29 @@ export class SarathiStack extends cdk.Stack {
       memorySize: 256,
     });
 
+    const onboardingFn = new lambda.Function(this, 'OnboardingFn', {
+      functionName: 'sarathi-api-onboarding',
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'backend.api.onboarding.handler',
+      code: lambdaCode,
+      environment: lambdaEnv,
+      role: lambdaRole,
+      timeout: cdk.Duration.seconds(60),
+      memorySize: 512,
+    });
+
+    // onboardingConfirmFn needs STATE_MACHINE_ARN — added after stateMachine is created
+    const onboardingConfirmFn = new lambda.Function(this, 'OnboardingConfirmFn', {
+      functionName: 'sarathi-api-onboarding-confirm',
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'backend.api.onboarding_confirm.handler',
+      code: lambdaCode,
+      environment: lambdaEnv,
+      role: lambdaRole,
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 256,
+    });
+
     const suggestFn = new lambda.Function(this, 'SuggestFn', {
       functionName: 'sarathi-api-suggest',
       runtime: lambda.Runtime.PYTHON_3_12,
@@ -383,33 +410,33 @@ export class SarathiStack extends cdk.Stack {
     });
 
     // ─── Step Functions: pipeline orchestration ───────────────────────
-    const pipelineInput = {
-      user_id: '00000000-0000-0000-0000-000000000000',
-      table_name: table.tableName,
-      s3_bucket: bucket.bucketName,
-      since_days: 30,
-    };
-
+    // Pipeline input comes from the fan-out Lambda (or manual trigger) with user_id
     const injectDefaults = new sfn.Pass(this, 'InjectDefaults', {
-      result: sfn.Result.fromObject(pipelineInput),
       resultPath: '$',
     });
 
+    const pipelinePayload = {
+      'user_id.$': '$.user_id',
+      'table_name.$': '$.table_name',
+      's3_bucket.$': '$.s3_bucket',
+      'since_days.$': '$.since_days',
+    };
+
     const discoverTask = new sfnTasks.LambdaInvoke(this, 'DiscoverStep', {
       lambdaFunction: discoverFn,
-      payload: sfn.TaskInput.fromObject(pipelineInput),
+      payload: sfn.TaskInput.fromObject(pipelinePayload),
       resultPath: '$.discoverResult',
     });
 
     const triageTask = new sfnTasks.LambdaInvoke(this, 'TriageStep', {
       lambdaFunction: triageFn,
-      payload: sfn.TaskInput.fromObject(pipelineInput),
+      payload: sfn.TaskInput.fromObject(pipelinePayload),
       resultPath: '$.triageResult',
     });
 
     const selectTask = new sfnTasks.LambdaInvoke(this, 'SelectStep', {
       lambdaFunction: selectFn,
-      payload: sfn.TaskInput.fromObject(pipelineInput),
+      payload: sfn.TaskInput.fromObject(pipelinePayload),
       resultPath: '$.selectResult',
     });
 
@@ -425,9 +452,9 @@ export class SarathiStack extends cdk.Stack {
       containerOverrides: [{
         containerDefinition: digestTaskDef.defaultContainer!,
         environment: [
-          { name: 'USER_ID', value: pipelineInput.user_id },
-          { name: 'TABLE_NAME', value: pipelineInput.table_name },
-          { name: 'S3_BUCKET', value: pipelineInput.s3_bucket },
+          { name: 'USER_ID', value: sfn.JsonPath.stringAt('$.user_id') },
+          { name: 'TABLE_NAME', value: sfn.JsonPath.stringAt('$.table_name') },
+          { name: 'S3_BUCKET', value: sfn.JsonPath.stringAt('$.s3_bucket') },
         ],
       }],
       resultPath: '$.digestResult',
@@ -435,13 +462,13 @@ export class SarathiStack extends cdk.Stack {
 
     const lensTask = new sfnTasks.LambdaInvoke(this, 'LensStep', {
       lambdaFunction: lensFn,
-      payload: sfn.TaskInput.fromObject(pipelineInput),
+      payload: sfn.TaskInput.fromObject(pipelinePayload),
       resultPath: '$.lensResult',
     });
 
     const learnTask = new sfnTasks.LambdaInvoke(this, 'LearnStep', {
       lambdaFunction: learnFn,
-      payload: sfn.TaskInput.fromObject(pipelineInput),
+      payload: sfn.TaskInput.fromObject(pipelinePayload),
       resultPath: '$.learnResult',
     });
 
@@ -459,10 +486,29 @@ export class SarathiStack extends cdk.Stack {
       timeout: cdk.Duration.hours(2),
     });
 
-    // ─── EventBridge: nightly trigger (2am UTC) ──────────────────────
+    // Grant confirm Lambda access to start the pipeline for new users
+    onboardingConfirmFn.addEnvironment('STATE_MACHINE_ARN', stateMachine.stateMachineArn);
+
+    // ─── Fan-out Lambda + EventBridge: nightly per-user trigger ──────
+    const fanoutFn = new lambda.Function(this, 'FanoutFn', {
+      functionName: 'sarathi-pipeline-fanout',
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'backend.pipeline.fanout.handler',
+      code: lambdaCode,
+      environment: {
+        TABLE_NAME: table.tableName,
+        BUCKET_NAME: bucket.bucketName,
+        STATE_MACHINE_ARN: stateMachine.stateMachineArn,
+      },
+      timeout: cdk.Duration.seconds(60),
+      memorySize: 256,
+    });
+    table.grantReadData(fanoutFn);
+    stateMachine.grantStartExecution(fanoutFn);
+
     new events.Rule(this, 'NightlyTrigger', {
       schedule: events.Schedule.cron({ hour: '2', minute: '0' }),
-      targets: [new targets.SfnStateMachine(stateMachine)],
+      targets: [new targets.LambdaFunction(fanoutFn)],
     });
 
     // ─── API Gateway ─────────────────────────────────────────────────
@@ -538,6 +584,21 @@ export class SarathiStack extends cdk.Stack {
       authorizationType: apigw.AuthorizationType.COGNITO,
     });
     convResource.addMethod('DELETE', new apigw.LambdaIntegration(convFn), {
+      authorizer,
+      authorizationType: apigw.AuthorizationType.COGNITO,
+    });
+
+    const onboardingResource = api.root.addResource('onboarding');
+    onboardingResource.addMethod('GET', new apigw.LambdaIntegration(onboardingFn), {
+      authorizer,
+      authorizationType: apigw.AuthorizationType.COGNITO,
+    });
+    onboardingResource.addMethod('POST', new apigw.LambdaIntegration(onboardingFn), {
+      authorizer,
+      authorizationType: apigw.AuthorizationType.COGNITO,
+    });
+    const onboardingConfirmResource = onboardingResource.addResource('confirm');
+    onboardingConfirmResource.addMethod('POST', new apigw.LambdaIntegration(onboardingConfirmFn), {
       authorizer,
       authorizationType: apigw.AuthorizationType.COGNITO,
     });

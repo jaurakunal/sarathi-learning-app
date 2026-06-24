@@ -49,6 +49,25 @@ export function login(email: string, password: string): Promise<CognitoUserSessi
   })
 }
 
+export function signUp(email: string, password: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    userPool.signUp(email, password, [], [], (err) => {
+      if (err) reject(err)
+      else resolve()
+    })
+  })
+}
+
+export function confirmSignUp(email: string, code: string): Promise<void> {
+  const user = new CognitoUser({ Username: email, Pool: userPool })
+  return new Promise((resolve, reject) => {
+    user.confirmRegistration(code, true, (err) => {
+      if (err) reject(err)
+      else resolve()
+    })
+  })
+}
+
 export function logout() {
   const user = getCurrentUser()
   if (user) user.signOut()
