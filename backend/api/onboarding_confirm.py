@@ -63,30 +63,30 @@ def handler(event: dict, context) -> dict:
         "status": "active",
     })
 
-    # Trigger initial pipeline run for this user (only if not already running)
+    # Trigger initial pipeline run for this user (DDB-based dedup)
     try:
         sfn = boto3.client("stepfunctions")
         state_machine_arn = os.environ.get("STATE_MACHINE_ARN", "")
         if state_machine_arn:
-            # Check for existing running execution for this user
-            already_running = False
-            try:
-                running_resp = sfn.list_executions(
-                    stateMachineArn=state_machine_arn,
-                    statusFilter="RUNNING",
-                    maxResults=20,
-                )
-                for exe in running_resp.get("executions", []):
-                    desc = sfn.describe_execution(executionArn=exe["executionArn"])
-                    inp = json.loads(desc.get("input", "{}"))
-                    if inp.get("user_id") == user_id:
-                        already_running = True
-                        break
-            except Exception:
-                pass
+            # DDB-based dedup check
+            can_trigger = True
+            run = db.get_pipeline_run(table, user_id)
+            if run and run.get("status") == "running":
+                # Verify with Step Functions
+                try:
+                    desc = sfn.describe_execution(executionArn=run["execution_arn"])
+                    if desc["status"] == "RUNNING":
+                        can_trigger = False
+                    else:
+                        mapped = {"SUCCEEDED": "succeeded", "FAILED": "failed"}.get(
+                            desc["status"], "failed"
+                        )
+                        db.update_pipeline_status(table, user_id, mapped)
+                except Exception:
+                    pass  # Can't verify — assume stale, allow trigger
 
-            if not already_running:
-                sfn.start_execution(
+            if can_trigger:
+                resp_sfn = sfn.start_execution(
                     stateMachineArn=state_machine_arn,
                     input=json.dumps({
                         "user_id": user_id,
@@ -95,6 +95,8 @@ def handler(event: dict, context) -> dict:
                         "since_days": 30,
                     }),
                 )
+                execution_arn = resp_sfn.get("executionArn", "")
+                db.put_pipeline_run(table, user_id, execution_arn, "running")
                 logger.info("Triggered initial pipeline for user %s", user_id)
             else:
                 logger.info("Pipeline already running for user %s — skipping", user_id)

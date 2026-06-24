@@ -2,6 +2,9 @@
 
 Called by EventBridge nightly. Reads active users from DDB, starts a
 Step Function execution for each. Auto-pauses users inactive >7 days.
+
+Deduplication uses a per-user DDB record (PK=USER#{user_id}#PIPELINE, SK=LATEST)
+instead of listing all running Step Function executions.
 """
 
 from __future__ import annotations
@@ -14,9 +17,35 @@ from datetime import datetime, timezone, timedelta
 import boto3
 from boto3.dynamodb.conditions import Key
 
+from backend.shared import db
+
 logger = logging.getLogger(__name__)
 
 INACTIVE_DAYS = 7
+
+
+def _can_trigger(table, sfn, user_id: str) -> bool:
+    """Check if we can trigger a new pipeline for this user.
+
+    Uses the DDB pipeline run record for O(1) dedup instead of listing executions.
+    Falls back to SF describe_execution to verify stale 'running' records.
+    """
+    run = db.get_pipeline_run(table, user_id)
+    if not run or run.get("status") != "running":
+        return True
+    # Status is "running" — verify with Step Functions
+    try:
+        desc = sfn.describe_execution(executionArn=run["execution_arn"])
+        actual_status = desc["status"]  # RUNNING, SUCCEEDED, FAILED, TIMED_OUT, ABORTED
+        if actual_status == "RUNNING":
+            return False  # genuinely running
+        # Stale record — update it
+        mapped = {"SUCCEEDED": "succeeded", "FAILED": "failed"}.get(actual_status, "failed")
+        db.update_pipeline_status(table, user_id, mapped)
+        return True
+    except Exception:
+        # Can't verify — assume stale, allow trigger
+        return True
 
 
 def handler(event: dict, context) -> dict:
@@ -50,26 +79,6 @@ def handler(event: dict, context) -> dict:
     skipped = 0
     cutoff = (datetime.now(timezone.utc) - timedelta(days=INACTIVE_DAYS)).isoformat()
 
-    # Get currently running executions to avoid duplicates
-    running_users = set()
-    try:
-        running_resp = sfn.list_executions(
-            stateMachineArn=state_machine_arn,
-            statusFilter="RUNNING",
-            maxResults=100,
-        )
-        for exe in running_resp.get("executions", []):
-            try:
-                desc = sfn.describe_execution(executionArn=exe["executionArn"])
-                inp = json.loads(desc.get("input", "{}"))
-                uid = inp.get("user_id", "")
-                if uid:
-                    running_users.add(uid)
-            except Exception:
-                pass
-    except Exception:
-        logger.warning("Could not check running executions — proceeding without dedup")
-
     for user in users:
         user_id = user.get("user_id", "")
         if not user_id:
@@ -91,14 +100,14 @@ def handler(event: dict, context) -> dict:
             logger.info("Auto-paused inactive user %s (last active: %s)", user_id, last_active)
             continue
 
-        # Skip if user already has a running execution
-        if user_id in running_users:
+        # DDB-based dedup: check if user already has a running pipeline
+        if not _can_trigger(table, sfn, user_id):
             skipped += 1
             logger.info("Skipped user %s — pipeline already running", user_id)
             continue
 
         try:
-            sfn.start_execution(
+            resp_sfn = sfn.start_execution(
                 stateMachineArn=state_machine_arn,
                 input=json.dumps({
                     "user_id": user_id,
@@ -107,6 +116,9 @@ def handler(event: dict, context) -> dict:
                     "since_days": 30,
                 }),
             )
+            # Record the pipeline run in DDB for future dedup
+            execution_arn = resp_sfn.get("executionArn", "")
+            db.put_pipeline_run(table, user_id, execution_arn, "running")
             triggered += 1
             logger.info("Triggered pipeline for user %s", user_id)
         except Exception:

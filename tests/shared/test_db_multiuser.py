@@ -408,3 +408,104 @@ class TestDeletePushSubscription:
         delete_sk = mock_table.delete_item.call_args[1]["Key"]["SK"]
 
         assert put_sk == delete_sk
+
+
+# ---------------------------------------------------------------------------
+# Pipeline Run (deduplication)
+# ---------------------------------------------------------------------------
+
+
+class TestGetPipelineRun:
+    def test_returns_item_when_exists(self, mock_table, user_id):
+        mock_table.get_item.return_value = {
+            "Item": {
+                "PK": f"USER#{user_id}#PIPELINE",
+                "SK": "LATEST",
+                "execution_arn": "arn:exec:123",
+                "status": "running",
+            }
+        }
+
+        result = db.get_pipeline_run(mock_table, user_id)
+
+        assert result is not None
+        assert result["status"] == "running"
+        assert result["execution_arn"] == "arn:exec:123"
+        mock_table.get_item.assert_called_once_with(
+            Key={"PK": f"USER#{user_id}#PIPELINE", "SK": "LATEST"}
+        )
+
+    def test_returns_none_when_no_record(self, mock_table, user_id):
+        mock_table.get_item.return_value = {}
+
+        result = db.get_pipeline_run(mock_table, user_id)
+
+        assert result is None
+
+    def test_uses_correct_pk_format(self, mock_table, user_id):
+        mock_table.get_item.return_value = {}
+
+        db.get_pipeline_run(mock_table, user_id)
+
+        key = mock_table.get_item.call_args[1]["Key"]
+        assert key["PK"] == f"USER#{user_id}#PIPELINE"
+        assert key["SK"] == "LATEST"
+
+
+class TestPutPipelineRun:
+    def test_writes_all_required_fields(self, mock_table, user_id):
+        db.put_pipeline_run(mock_table, user_id, "arn:exec:new-123", "running")
+
+        mock_table.put_item.assert_called_once()
+        item = mock_table.put_item.call_args[1]["Item"]
+        assert item["PK"] == f"USER#{user_id}#PIPELINE"
+        assert item["SK"] == "LATEST"
+        assert item["user_id"] == user_id
+        assert item["execution_arn"] == "arn:exec:new-123"
+        assert item["status"] == "running"
+        assert "started_at" in item
+        assert "updated_at" in item
+        assert item["started_at"].endswith("Z")
+        assert item["updated_at"].endswith("Z")
+
+    def test_overwrites_existing_record(self, mock_table, user_id):
+        """put_item overwrites — no conditional write."""
+        db.put_pipeline_run(mock_table, user_id, "arn:exec:first", "running")
+        mock_table.reset_mock()
+        db.put_pipeline_run(mock_table, user_id, "arn:exec:second", "running")
+
+        item = mock_table.put_item.call_args[1]["Item"]
+        assert item["execution_arn"] == "arn:exec:second"
+
+    def test_stores_different_statuses(self, mock_table, user_id):
+        db.put_pipeline_run(mock_table, user_id, "arn:exec:x", "succeeded")
+
+        item = mock_table.put_item.call_args[1]["Item"]
+        assert item["status"] == "succeeded"
+
+
+class TestUpdatePipelineStatus:
+    def test_updates_status_and_timestamp(self, mock_table, user_id):
+        db.update_pipeline_status(mock_table, user_id, "succeeded")
+
+        mock_table.update_item.assert_called_once()
+        call_kwargs = mock_table.update_item.call_args[1]
+        assert call_kwargs["Key"] == {
+            "PK": f"USER#{user_id}#PIPELINE",
+            "SK": "LATEST",
+        }
+        assert call_kwargs["ExpressionAttributeNames"] == {"#s": "status"}
+        assert call_kwargs["ExpressionAttributeValues"][":s"] == "succeeded"
+        assert call_kwargs["ExpressionAttributeValues"][":ts"].endswith("Z")
+
+    def test_update_to_failed(self, mock_table, user_id):
+        db.update_pipeline_status(mock_table, user_id, "failed")
+
+        call_kwargs = mock_table.update_item.call_args[1]
+        assert call_kwargs["ExpressionAttributeValues"][":s"] == "failed"
+
+    def test_update_expression_format(self, mock_table, user_id):
+        db.update_pipeline_status(mock_table, user_id, "running")
+
+        call_kwargs = mock_table.update_item.call_args[1]
+        assert "SET #s = :s, updated_at = :ts" == call_kwargs["UpdateExpression"]

@@ -6,10 +6,17 @@ Tests cover:
 - Skips inactive users
 - Handles SFN errors gracefully (continues with remaining users)
 - Missing STATE_MACHINE_ARN returns early
+- DDB-based dedup via _can_trigger:
+  - Returns True when no record
+  - Returns True when status is "succeeded"
+  - Returns False when status is "running" and SF confirms RUNNING
+  - Returns True when status is "running" but SF says FAILED (stale)
+  - Returns True when SF describe throws (assume stale)
+  - put_pipeline_run called after successful start_execution
 """
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, call
 
 import pytest
 
@@ -47,14 +54,15 @@ def mixed_users():
 
 
 # ---------------------------------------------------------------------------
-# Tests
+# Tests — Handler
 # ---------------------------------------------------------------------------
 
 
 class TestFanoutHandler:
     @patch.dict("os.environ", {"TABLE_NAME": "sarathi-test", "STATE_MACHINE_ARN": "arn:aws:states:us-east-1:123:stateMachine:pipeline", "BUCKET_NAME": "sarathi-bucket"})
+    @patch("backend.pipeline.fanout.db")
     @patch("backend.pipeline.fanout.boto3")
-    def test_zero_active_users_triggers_zero(self, mock_boto3):
+    def test_zero_active_users_triggers_zero(self, mock_boto3, mock_db):
         mock_table = MagicMock()
         mock_table.query.return_value = {"Items": []}
         mock_boto3.resource.return_value.Table.return_value = mock_table
@@ -69,13 +77,17 @@ class TestFanoutHandler:
         mock_sfn.start_execution.assert_not_called()
 
     @patch.dict("os.environ", {"TABLE_NAME": "sarathi-test", "STATE_MACHINE_ARN": "arn:aws:states:us-east-1:123:stateMachine:pipeline", "BUCKET_NAME": "sarathi-bucket"})
+    @patch("backend.pipeline.fanout.db")
     @patch("backend.pipeline.fanout.boto3")
-    def test_two_active_users_starts_two_executions(self, mock_boto3, active_users):
+    def test_two_active_users_starts_two_executions(self, mock_boto3, mock_db, active_users):
         mock_table = MagicMock()
         mock_table.query.return_value = {"Items": active_users}
         mock_boto3.resource.return_value.Table.return_value = mock_table
         mock_sfn = MagicMock()
+        mock_sfn.start_execution.return_value = {"executionArn": "arn:aws:states:us-east-1:123:execution:abc"}
         mock_boto3.client.return_value = mock_sfn
+        # No existing pipeline runs
+        mock_db.get_pipeline_run.return_value = None
 
         from backend.pipeline.fanout import handler
 
@@ -91,13 +103,16 @@ class TestFanoutHandler:
         assert user_ids_triggered == {"user-1", "user-2"}
 
     @patch.dict("os.environ", {"TABLE_NAME": "sarathi-test", "STATE_MACHINE_ARN": "arn:aws:states:us-east-1:123:stateMachine:pipeline", "BUCKET_NAME": "sarathi-bucket"})
+    @patch("backend.pipeline.fanout.db")
     @patch("backend.pipeline.fanout.boto3")
-    def test_skips_inactive_users(self, mock_boto3, mixed_users):
+    def test_skips_inactive_users(self, mock_boto3, mock_db, mixed_users):
         mock_table = MagicMock()
         mock_table.query.return_value = {"Items": mixed_users}
         mock_boto3.resource.return_value.Table.return_value = mock_table
         mock_sfn = MagicMock()
+        mock_sfn.start_execution.return_value = {"executionArn": "arn:aws:states:us-east-1:123:execution:abc"}
         mock_boto3.client.return_value = mock_sfn
+        mock_db.get_pipeline_run.return_value = None
 
         from backend.pipeline.fanout import handler
 
@@ -114,8 +129,9 @@ class TestFanoutHandler:
         assert user_ids_triggered == {"user-1", "user-3"}
 
     @patch.dict("os.environ", {"TABLE_NAME": "sarathi-test", "STATE_MACHINE_ARN": "arn:aws:states:us-east-1:123:stateMachine:pipeline", "BUCKET_NAME": "sarathi-bucket"})
+    @patch("backend.pipeline.fanout.db")
     @patch("backend.pipeline.fanout.boto3")
-    def test_handles_sfn_errors_gracefully(self, mock_boto3, active_users):
+    def test_handles_sfn_errors_gracefully(self, mock_boto3, mock_db, active_users):
         """When SFN fails for one user, it continues with others."""
         mock_table = MagicMock()
         mock_table.query.return_value = {"Items": active_users}
@@ -127,6 +143,7 @@ class TestFanoutHandler:
             {"executionArn": "arn:aws:states:us-east-1:123:execution:abc"},
         ]
         mock_boto3.client.return_value = mock_sfn
+        mock_db.get_pipeline_run.return_value = None
 
         from backend.pipeline.fanout import handler
 
@@ -149,13 +166,16 @@ class TestFanoutHandler:
         mock_boto3.resource.return_value.Table.return_value.query.assert_not_called()
 
     @patch.dict("os.environ", {"TABLE_NAME": "sarathi-test", "STATE_MACHINE_ARN": "arn:aws:states:us-east-1:123:stateMachine:pipeline", "BUCKET_NAME": "sarathi-bucket"})
+    @patch("backend.pipeline.fanout.db")
     @patch("backend.pipeline.fanout.boto3")
-    def test_passes_correct_input_to_sfn(self, mock_boto3, active_users):
+    def test_passes_correct_input_to_sfn(self, mock_boto3, mock_db, active_users):
         mock_table = MagicMock()
         mock_table.query.return_value = {"Items": [active_users[0]]}
         mock_boto3.resource.return_value.Table.return_value = mock_table
         mock_sfn = MagicMock()
+        mock_sfn.start_execution.return_value = {"executionArn": "arn:exec:123"}
         mock_boto3.client.return_value = mock_sfn
+        mock_db.get_pipeline_run.return_value = None
 
         from backend.pipeline.fanout import handler
 
@@ -170,8 +190,9 @@ class TestFanoutHandler:
         assert sfn_input["since_days"] == 30
 
     @patch.dict("os.environ", {"TABLE_NAME": "sarathi-test", "STATE_MACHINE_ARN": "arn:aws:states:us-east-1:123:stateMachine:pipeline", "BUCKET_NAME": "sarathi-bucket"})
+    @patch("backend.pipeline.fanout.db")
     @patch("backend.pipeline.fanout.boto3")
-    def test_skips_users_with_empty_user_id(self, mock_boto3):
+    def test_skips_users_with_empty_user_id(self, mock_boto3, mock_db):
         """Users with missing user_id field are skipped."""
         mock_table = MagicMock()
         mock_table.query.return_value = {"Items": [
@@ -180,7 +201,9 @@ class TestFanoutHandler:
         ]}
         mock_boto3.resource.return_value.Table.return_value = mock_table
         mock_sfn = MagicMock()
+        mock_sfn.start_execution.return_value = {"executionArn": "arn:exec:123"}
         mock_boto3.client.return_value = mock_sfn
+        mock_db.get_pipeline_run.return_value = None
 
         from backend.pipeline.fanout import handler
 
@@ -188,3 +211,176 @@ class TestFanoutHandler:
 
         assert result["users_triggered"] == 1
         assert mock_sfn.start_execution.call_count == 1
+
+    @patch.dict("os.environ", {"TABLE_NAME": "sarathi-test", "STATE_MACHINE_ARN": "arn:aws:states:us-east-1:123:stateMachine:pipeline", "BUCKET_NAME": "sarathi-bucket"})
+    @patch("backend.pipeline.fanout.db")
+    @patch("backend.pipeline.fanout.boto3")
+    def test_puts_pipeline_run_after_start_execution(self, mock_boto3, mock_db, active_users):
+        """After successful start_execution, put_pipeline_run is called."""
+        mock_table = MagicMock()
+        mock_table.query.return_value = {"Items": [active_users[0]]}
+        mock_boto3.resource.return_value.Table.return_value = mock_table
+        mock_sfn = MagicMock()
+        mock_sfn.start_execution.return_value = {"executionArn": "arn:aws:states:us-east-1:123:execution:new-exec"}
+        mock_boto3.client.return_value = mock_sfn
+        mock_db.get_pipeline_run.return_value = None
+
+        from backend.pipeline.fanout import handler
+
+        handler({}, None)
+
+        mock_db.put_pipeline_run.assert_called_once_with(
+            mock_table,
+            "user-1",
+            "arn:aws:states:us-east-1:123:execution:new-exec",
+            "running",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Tests — _can_trigger
+# ---------------------------------------------------------------------------
+
+
+class TestCanTrigger:
+    @patch("backend.pipeline.fanout.db")
+    def test_returns_true_when_no_record(self, mock_db):
+        """No pipeline run record means we can trigger."""
+        mock_db.get_pipeline_run.return_value = None
+        mock_sfn = MagicMock()
+        mock_table = MagicMock()
+
+        from backend.pipeline.fanout import _can_trigger
+
+        result = _can_trigger(mock_table, mock_sfn, "user-1")
+
+        assert result is True
+        mock_sfn.describe_execution.assert_not_called()
+
+    @patch("backend.pipeline.fanout.db")
+    def test_returns_true_when_status_succeeded(self, mock_db):
+        """Record with status=succeeded means we can trigger."""
+        mock_db.get_pipeline_run.return_value = {
+            "status": "succeeded",
+            "execution_arn": "arn:old",
+        }
+        mock_sfn = MagicMock()
+        mock_table = MagicMock()
+
+        from backend.pipeline.fanout import _can_trigger
+
+        result = _can_trigger(mock_table, mock_sfn, "user-1")
+
+        assert result is True
+        mock_sfn.describe_execution.assert_not_called()
+
+    @patch("backend.pipeline.fanout.db")
+    def test_returns_true_when_status_failed(self, mock_db):
+        """Record with status=failed means we can trigger."""
+        mock_db.get_pipeline_run.return_value = {
+            "status": "failed",
+            "execution_arn": "arn:old",
+        }
+        mock_sfn = MagicMock()
+        mock_table = MagicMock()
+
+        from backend.pipeline.fanout import _can_trigger
+
+        result = _can_trigger(mock_table, mock_sfn, "user-1")
+
+        assert result is True
+        mock_sfn.describe_execution.assert_not_called()
+
+    @patch("backend.pipeline.fanout.db")
+    def test_returns_false_when_genuinely_running(self, mock_db):
+        """Record with status=running and SF confirms RUNNING means skip."""
+        mock_db.get_pipeline_run.return_value = {
+            "status": "running",
+            "execution_arn": "arn:aws:states:us-east-1:123:execution:active",
+        }
+        mock_sfn = MagicMock()
+        mock_sfn.describe_execution.return_value = {"status": "RUNNING"}
+        mock_table = MagicMock()
+
+        from backend.pipeline.fanout import _can_trigger
+
+        result = _can_trigger(mock_table, mock_sfn, "user-1")
+
+        assert result is False
+        mock_sfn.describe_execution.assert_called_once_with(
+            executionArn="arn:aws:states:us-east-1:123:execution:active"
+        )
+
+    @patch("backend.pipeline.fanout.db")
+    def test_returns_true_when_stale_running_sf_says_failed(self, mock_db):
+        """Record says running but SF says FAILED — stale, allow trigger."""
+        mock_db.get_pipeline_run.return_value = {
+            "status": "running",
+            "execution_arn": "arn:aws:states:us-east-1:123:execution:stale",
+        }
+        mock_sfn = MagicMock()
+        mock_sfn.describe_execution.return_value = {"status": "FAILED"}
+        mock_table = MagicMock()
+
+        from backend.pipeline.fanout import _can_trigger
+
+        result = _can_trigger(mock_table, mock_sfn, "user-1")
+
+        assert result is True
+        # Should have updated the stale record
+        mock_db.update_pipeline_status.assert_called_once_with(mock_table, "user-1", "failed")
+
+    @patch("backend.pipeline.fanout.db")
+    def test_returns_true_when_stale_running_sf_says_succeeded(self, mock_db):
+        """Record says running but SF says SUCCEEDED — stale, allow trigger."""
+        mock_db.get_pipeline_run.return_value = {
+            "status": "running",
+            "execution_arn": "arn:aws:states:us-east-1:123:execution:stale",
+        }
+        mock_sfn = MagicMock()
+        mock_sfn.describe_execution.return_value = {"status": "SUCCEEDED"}
+        mock_table = MagicMock()
+
+        from backend.pipeline.fanout import _can_trigger
+
+        result = _can_trigger(mock_table, mock_sfn, "user-1")
+
+        assert result is True
+        mock_db.update_pipeline_status.assert_called_once_with(mock_table, "user-1", "succeeded")
+
+    @patch("backend.pipeline.fanout.db")
+    def test_returns_true_when_stale_running_sf_says_timed_out(self, mock_db):
+        """Record says running but SF says TIMED_OUT — maps to failed."""
+        mock_db.get_pipeline_run.return_value = {
+            "status": "running",
+            "execution_arn": "arn:exec:timeout",
+        }
+        mock_sfn = MagicMock()
+        mock_sfn.describe_execution.return_value = {"status": "TIMED_OUT"}
+        mock_table = MagicMock()
+
+        from backend.pipeline.fanout import _can_trigger
+
+        result = _can_trigger(mock_table, mock_sfn, "user-1")
+
+        assert result is True
+        mock_db.update_pipeline_status.assert_called_once_with(mock_table, "user-1", "failed")
+
+    @patch("backend.pipeline.fanout.db")
+    def test_returns_true_when_sf_describe_throws(self, mock_db):
+        """If describe_execution fails, assume stale and allow trigger."""
+        mock_db.get_pipeline_run.return_value = {
+            "status": "running",
+            "execution_arn": "arn:exec:broken",
+        }
+        mock_sfn = MagicMock()
+        mock_sfn.describe_execution.side_effect = Exception("AccessDenied")
+        mock_table = MagicMock()
+
+        from backend.pipeline.fanout import _can_trigger
+
+        result = _can_trigger(mock_table, mock_sfn, "user-1")
+
+        assert result is True
+        # Should not have tried to update — just allow trigger
+        mock_db.update_pipeline_status.assert_not_called()

@@ -735,6 +735,45 @@ def list_user_paper_ids(table, user_id: str) -> set[str]:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Pipeline Run (deduplication)
+# ---------------------------------------------------------------------------
+
+
+def get_pipeline_run(table, user_id: str) -> Optional[dict]:
+    """Get the latest pipeline run record for dedup checks."""
+    resp = table.get_item(Key={"PK": f"USER#{user_id}#PIPELINE", "SK": "LATEST"})
+    return resp.get("Item")
+
+
+def put_pipeline_run(table, user_id: str, execution_arn: str, status: str) -> None:
+    """Write/update the pipeline run record after starting a new execution."""
+    table.put_item(Item={
+        "PK": f"USER#{user_id}#PIPELINE",
+        "SK": "LATEST",
+        "user_id": user_id,
+        "execution_arn": execution_arn,
+        "status": status,
+        "started_at": _now_iso(),
+        "updated_at": _now_iso(),
+    })
+
+
+def update_pipeline_status(table, user_id: str, status: str) -> None:
+    """Update just the status + updated_at on an existing pipeline run record."""
+    table.update_item(
+        Key={"PK": f"USER#{user_id}#PIPELINE", "SK": "LATEST"},
+        UpdateExpression="SET #s = :s, updated_at = :ts",
+        ExpressionAttributeNames={"#s": "status"},
+        ExpressionAttributeValues={":s": status, ":ts": _now_iso()},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Push Subscriptions
+# ---------------------------------------------------------------------------
+
+
 def put_push_subscription(table, user_id: str, subscription: dict) -> None:
     """Store a Web Push subscription for a user/device."""
     endpoint = subscription["endpoint"]

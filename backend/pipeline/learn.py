@@ -295,6 +295,8 @@ def handler(event: dict, context) -> dict:
         logger.info("No engagement or conversations since last run — skipping")
         # Still update last_learn_ts so we don't re-scan
         db.put_profile_meta(table, user_id, {**profile["meta"], "last_learn_ts": now_ts})
+        # Mark pipeline as succeeded (learn is the last step)
+        db.update_pipeline_status(table, user_id, "succeeded")
         return {"status": "skipped", "reason": "no_activity"}
 
     # 7. Build prompt and call LLM
@@ -413,6 +415,9 @@ def handler(event: dict, context) -> dict:
     if hyp_evidence and any(hyp_evidence.get(k) for k in ("supporting", "refuting", "refining")):
         history_event["hypothesis_evidence_added"] = hyp_evidence
     db.put_profile_history_event(table, user_id, history_event)
+
+    # Mark pipeline as succeeded (learn is the last step in the pipeline)
+    db.update_pipeline_status(table, user_id, "succeeded")
 
     logger.info("Learn step complete: %s", changes_made)
     return {
