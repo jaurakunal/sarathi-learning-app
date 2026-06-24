@@ -537,6 +537,10 @@ export class SarathiStack extends cdk.Stack {
       authorizer,
       authorizationType: apigw.AuthorizationType.COGNITO,
     });
+    convResource.addMethod('DELETE', new apigw.LambdaIntegration(convFn), {
+      authorizer,
+      authorizationType: apigw.AuthorizationType.COGNITO,
+    });
 
     const suggestResource = api.root.addResource('suggest');
     suggestResource.addMethod('POST', new apigw.LambdaIntegration(suggestFn), {

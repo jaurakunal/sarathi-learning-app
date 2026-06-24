@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { ArrowLeft, Plus, MessageCircle, FileText, Pencil, Check } from 'lucide-react'
+import { ArrowLeft, Plus, MessageCircle, FileText, Pencil, Check, Trash2 } from 'lucide-react'
 import { apiFetch } from '../api/client'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 
@@ -33,6 +33,13 @@ function updateTitle(convId: string, title: string): Promise<void> {
   })
 }
 
+function deleteConversation(convId: string): Promise<void> {
+  return apiFetch('/conversations', {
+    method: 'DELETE',
+    body: JSON.stringify({ conv_id: convId }),
+  })
+}
+
 interface ConversationItemProps {
   conv: Conversation
   index: number
@@ -43,12 +50,14 @@ interface ConversationItemProps {
   onEditChange: (val: string) => void
   onSaveEdit: () => void
   onCancelEdit: () => void
+  onDelete: () => void
   accent?: boolean
 }
 
-function ConversationItem({ conv, index, editing, editTitle, onNavigate, onStartEdit, onEditChange, onSaveEdit, onCancelEdit, accent }: ConversationItemProps) {
+function ConversationItem({ conv, index, editing, editTitle, onNavigate, onStartEdit, onEditChange, onSaveEdit, onCancelEdit, onDelete, accent }: ConversationItemProps) {
   const [swipeX, setSwipeX] = useState(0)
   const [touchStartX, setTouchStartX] = useState(0)
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   const handleTouchStart = (e: React.TouchEvent) => { setTouchStartX(e.touches[0].clientX) }
   const handleTouchMove = (e: React.TouchEvent) => {
@@ -67,10 +76,15 @@ function ConversationItem({ conv, index, editing, editTitle, onNavigate, onStart
       transition={{ delay: index * 0.03 }}
       className="relative overflow-hidden rounded-xl"
     >
-      {/* Edit action revealed by swipe */}
-      <div className="absolute inset-y-0 right-0 flex items-center px-4 bg-accent/20 rounded-r-xl"
-        style={{ width: '60px', opacity: swipeX > 10 ? 1 : 0 }}>
-        <Pencil size={16} className="text-accent mx-auto" />
+      {/* Actions revealed by swipe */}
+      <div className="absolute inset-y-0 right-0 flex items-center gap-2 px-3"
+        style={{ width: '90px', opacity: swipeX > 10 ? 1 : 0 }}>
+        <button onClick={onStartEdit} className="p-2 bg-accent/20 rounded-lg">
+          <Pencil size={14} className="text-accent" />
+        </button>
+        <button onClick={() => setConfirmDelete(true)} className="p-2 bg-red-500/20 rounded-lg">
+          <Trash2 size={14} className="text-red-400" />
+        </button>
       </div>
 
       <div
@@ -108,14 +122,29 @@ function ConversationItem({ conv, index, editing, editTitle, onNavigate, onStart
               {conv.turn_count} messages · {new Date(conv.last_active).toLocaleDateString()}
             </p>
           </div>
-          {/* Desktop: hover to reveal edit */}
-          {!editing && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onStartEdit() }}
-              className="hidden group-hover:block text-zinc-600 hover:text-accent p-1 shrink-0 transition-colors"
-            >
-              <Pencil size={12} />
-            </button>
+          {/* Desktop: hover to reveal edit + delete */}
+          {!editing && !confirmDelete && (
+            <div className="hidden group-hover:flex items-center gap-1 shrink-0">
+              <button
+                onClick={(e) => { e.stopPropagation(); onStartEdit() }}
+                className="text-zinc-600 hover:text-accent p-1 transition-colors"
+              >
+                <Pencil size={12} />
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); setConfirmDelete(true) }}
+                className="text-zinc-600 hover:text-red-400 p-1 transition-colors"
+              >
+                <Trash2 size={12} />
+              </button>
+            </div>
+          )}
+          {confirmDelete && (
+            <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+              <span className="text-[11px] text-zinc-400">Delete?</span>
+              <button onClick={() => { onDelete(); setConfirmDelete(false) }} className="text-[11px] text-red-400 font-medium">Yes</button>
+              <button onClick={() => setConfirmDelete(false)} className="text-[11px] text-zinc-500 font-medium">No</button>
+            </div>
           )}
         </div>
       </div>
@@ -192,6 +221,7 @@ export function Conversations() {
                     })
                   }}
                   onCancelEdit={() => setEditingId(null)}
+                  onDelete={() => { deleteConversation(conv.conv_id).then(() => queryClient.invalidateQueries({ queryKey: ['conversations'] })) }}
                   accent
                 />
               ))}
@@ -221,6 +251,7 @@ export function Conversations() {
                     })
                   }}
                   onCancelEdit={() => setEditingId(null)}
+                  onDelete={() => { deleteConversation(conv.conv_id).then(() => queryClient.invalidateQueries({ queryKey: ['conversations'] })) }}
                 />
               ))}
             </div>

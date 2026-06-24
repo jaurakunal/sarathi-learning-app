@@ -86,6 +86,14 @@ def handler(event: dict, context) -> dict:
             "scope": "research",
         })
 
+    elif method == "DELETE":
+        body = json.loads(event.get("body") or "{}")
+        conv_id = body.get("conv_id", "")
+        if not conv_id:
+            return _response(400, {"error": "conv_id required"})
+        db.delete_conversation(table, user_id, conv_id)
+        return _response(200, {"status": "deleted"})
+
     return _response(405, {"error": "Method not allowed"})
 
 

@@ -511,6 +511,18 @@ def update_conversation_title(table, user_id: str, conv_id: str, title: str) -> 
     )
 
 
+def delete_conversation(table, user_id: str, conv_id: str) -> None:
+    """Delete a conversation and all its turns."""
+    pk = _conv_pk(user_id, conv_id)
+    resp = table.query(
+        KeyConditionExpression=Key("PK").eq(pk),
+        ProjectionExpression="PK, SK",
+    )
+    with table.batch_writer() as batch:
+        for item in resp.get("Items", []):
+            batch.delete_item(Key={"PK": item["PK"], "SK": item["SK"]})
+
+
 def get_conversation_turns(table, user_id: str, conv_id: str) -> list[dict]:
     """Get all turns for a conversation, ordered by sequence."""
     resp = table.query(
