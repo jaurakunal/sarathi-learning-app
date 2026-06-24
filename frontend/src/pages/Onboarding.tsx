@@ -51,16 +51,11 @@ export function Onboarding() {
       const history = await apiFetch<{ turns: { seq: number; request: string; response: string | null }[] }>(`/chat/onboarding`)
       if (history.turns && history.turns.length > 0) {
         const restored: OnboardingMessage[] = []
-        let hasJsonProfile = false
         for (const turn of history.turns) {
-          if (turn.request && turn.request !== 'Hi, I just signed up.') {
+          if (turn.request && turn.request !== 'Hi, I just signed up.' && turn.request !== 'Please confirm my profile.') {
             restored.push({ role: 'user', content: turn.request })
           }
           if (turn.response) {
-            // Check if this response contains a profile JSON
-            if (turn.response.includes('"user_profile"') || turn.response.includes('"profile_complete"') || turn.response.includes('"areas"')) {
-              hasJsonProfile = true
-            }
             const cleaned = stripJson(turn.response)
             if (cleaned) {
               restored.push({ role: 'assistant', content: cleaned })
@@ -69,24 +64,15 @@ export function Onboarding() {
         }
         if (restored.length > 0) {
           setMessages(restored)
-          // If profile was already generated but never confirmed, trigger re-detection
-          if (hasJsonProfile) {
-            try {
-              const res = await apiFetch<{ profile_complete?: boolean; profile?: any; profile_summary?: string; response: string }>('/onboarding', {
-                method: 'POST',
-                body: JSON.stringify({ message: 'Please confirm my profile.' }),
-              })
-              if (res.profile_complete && res.profile) {
-                setProfileComplete(true)
-                setProfile(res.profile)
-                setProfileSummary(res.profile_summary || '')
-              }
-            } catch {
-              // Non-critical
-            }
-          }
-          return
         }
+        // Check onboarding status — if profile exists, show confirm/done state
+        try {
+          const status = await apiFetch<{ has_profile: boolean }>('/onboarding')
+          if (status.has_profile) {
+            setConfirmed(true)
+          }
+        } catch {}
+        return
       }
     } catch {
       // No history — start fresh
