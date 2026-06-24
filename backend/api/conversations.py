@@ -1,13 +1,78 @@
-"""API handler: Conversation listing and history."""
+"""API handler for conversation management."""
 
 from __future__ import annotations
 
+import json
+import logging
+import os
+import uuid
+
+import boto3
+
+from backend.shared import db
+
+logger = logging.getLogger(__name__)
+
+TABLE_NAME = os.environ.get("TABLE_NAME", "sarathi")
+
+
+def _get_user_id(event: dict) -> str:
+    claims = event.get("requestContext", {}).get("authorizer", {}).get("claims", {})
+    return claims.get("sub", "")
+
 
 def handler(event: dict, context) -> dict:
-    """Lambda handler for conversation API.
-
-    GET /conversations — list all conversations for user
-    GET /conversations/{conv_id} — conversation history (META + turns)
-    GET /conversations/{conv_id}/archive/{batch_id} — archived turns
     """
-    raise NotImplementedError("Conversations API — M1 build step")
+    GET /conversations — list all conversations
+    POST /conversations — create a new research conversation
+    """
+    user_id = _get_user_id(event)
+    if not user_id:
+        return _response(401, {"error": "Unauthorized"})
+
+    method = event.get("httpMethod", "")
+    dynamodb = boto3.resource("dynamodb")
+    table = dynamodb.Table(TABLE_NAME)
+
+    if method == "OPTIONS":
+        return _response(200, {})
+
+    if method == "GET":
+        convs = db.list_all_conversations(table, user_id)
+        result = []
+        for conv in convs:
+            result.append({
+                "conv_id": conv.get("conv_id", ""),
+                "scope": conv.get("scope", "paper"),
+                "title": conv.get("title", ""),
+                "paper_id": conv.get("paper_id", ""),
+                "last_active": conv.get("last_active", ""),
+                "turn_count": int(conv.get("turn_count", 0)),
+            })
+        return _response(200, {"conversations": result})
+
+    elif method == "POST":
+        body = json.loads(event.get("body") or "{}")
+        title = body.get("title", "")
+        conv_id = str(uuid.uuid4())[:12]
+        conv = db.create_research_conversation(table, user_id, conv_id, title)
+        return _response(201, {
+            "conv_id": conv["conv_id"],
+            "title": conv["title"],
+            "scope": "research",
+        })
+
+    return _response(405, {"error": "Method not allowed"})
+
+
+def _response(status: int, body: dict) -> dict:
+    return {
+        "statusCode": status,
+        "headers": {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "Authorization,Content-Type",
+            "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+        },
+        "body": json.dumps(body, default=str),
+    }

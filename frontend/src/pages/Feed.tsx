@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { LogOut, TrendingUp, BookOpen, Search, X, Target, Menu } from 'lucide-react'
+import { LogOut, TrendingUp, BookOpen, Search, X, Target, Menu, MessageCircle } from 'lucide-react'
 import { getFeed } from '../api/feed'
 import { postEngagement } from '../api/engagement'
 import { FeedCard } from '../components/FeedCard'
@@ -106,8 +106,11 @@ export function Feed() {
                 <X size={18} />
               </button>
               <nav className="mt-12 space-y-1">
+                <button onClick={() => { navigate('/conversations'); setMenuOpen(false) }} className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm text-zinc-300 hover:text-white hover:bg-white/[0.04] transition-colors">
+                  <MessageCircle size={16} className="text-accent" /> Conversations
+                </button>
                 <button onClick={() => { navigate('/research'); setMenuOpen(false) }} className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm text-zinc-300 hover:text-white hover:bg-white/[0.04] transition-colors">
-                  <Target size={16} className="text-accent" /> Research
+                  <Target size={16} className="text-zinc-400" /> Research
                 </button>
                 <button onClick={() => { navigate('/library'); setMenuOpen(false) }} className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm text-zinc-300 hover:text-white hover:bg-white/[0.04] transition-colors">
                   <BookOpen size={16} className="text-zinc-400" /> Library

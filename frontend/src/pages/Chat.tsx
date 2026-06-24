@@ -18,23 +18,25 @@ interface ChatProps {
   embedded?: boolean
   paperId?: string
   cardId?: string
+  researchConvId?: string
 }
 
-export function Chat({ embedded, paperId: propPaperId, cardId: propCardId }: ChatProps = {}) {
+export function Chat({ embedded, paperId: propPaperId, cardId: propCardId, researchConvId }: ChatProps = {}) {
   const { id: routeCardId } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const location = useLocation()
   const statePaperId = (location.state as { paper_id?: string })?.paper_id
 
   const cardId = propCardId || routeCardId
+  const isResearch = !!researchConvId
 
   const { data: cardData } = useQuery({
     queryKey: ['card', cardId],
     queryFn: () => getCard(cardId!),
-    enabled: !!cardId && !statePaperId && !propPaperId,
+    enabled: !!cardId && !statePaperId && !propPaperId && !isResearch,
   })
 
-  const paperId = propPaperId || statePaperId || cardData?.paper_id || ''
+  const paperId = isResearch ? researchConvId! : (propPaperId || statePaperId || cardData?.paper_id || '')
 
   const { data: history, isLoading: historyLoading } = useQuery({
     queryKey: ['chat-history', paperId],
@@ -239,11 +241,11 @@ export function Chat({ embedded, paperId: propPaperId, cardId: propCardId }: Cha
         <div className="glass-header sticky top-0 z-20">
           <div className="max-w-lg mx-auto w-full px-4 py-4">
             <button
-              onClick={() => navigate(`/card/${cardId}`)}
+              onClick={() => navigate(isResearch ? '/conversations' : `/card/${cardId}`)}
               className="text-sm text-zinc-400 hover:text-white transition-colors flex items-center gap-1"
             >
               <ArrowLeft size={14} />
-              Back to paper
+              {isResearch ? 'Conversations' : 'Back to paper'}
             </button>
           </div>
         </div>

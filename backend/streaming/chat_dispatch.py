@@ -52,13 +52,26 @@ def handler(event: dict, context) -> dict:
     dynamodb = boto3.resource("dynamodb")
     table = dynamodb.Table(TABLE_NAME)
 
-    # Get or create conversation
+    # Determine scope: check if this is a research conversation or paper chat
+    # Research conversations have a short uuid-style conv_id, papers have longer IDs
     conv = db.get_conversation_by_paper(table, user_id, paper_id)
-    if conv is None:
-        full_text_s3_key = f"users/{user_id}/papers/{paper_id}/full_text.txt"
-        conv = db.create_conversation(table, user_id, paper_id, full_text_s3_key)
+    scope = "paper"
 
-    conv_id = paper_id
+    if conv is None:
+        # Check if it's a research conversation (conv_id passed as paperId)
+        from boto3.dynamodb.conditions import Key
+        check = table.get_item(
+            Key={"PK": f"USER#{user_id}#CONV#{paper_id}", "SK": "META"},
+        )
+        if check.get("Item") and check["Item"].get("scope") == "research":
+            conv = check["Item"]
+            scope = "research"
+        else:
+            # Create new paper conversation
+            full_text_s3_key = f"users/{user_id}/papers/{paper_id}/full_text.txt"
+            conv = db.create_conversation(table, user_id, paper_id, full_text_s3_key)
+
+    conv_id = conv.get("conv_id", paper_id)
 
     # Get existing turns to determine seq
     turns = db.get_conversation_turns(table, user_id, conv_id)
@@ -73,15 +86,16 @@ def handler(event: dict, context) -> dict:
     lambda_client = boto3.client("lambda")
     lambda_client.invoke(
         FunctionName=STREAM_FUNCTION_NAME,
-        InvocationType="Event",  # async — returns immediately
+        InvocationType="Event",
         Payload=json.dumps({
             "user_id": user_id,
-            "paper_id": paper_id,
+            "paper_id": paper_id if scope == "paper" else "",
             "conv_id": conv_id,
             "message": message,
             "turn_seq": seq,
+            "scope": scope,
         }),
     )
 
-    logger.info("Dispatched stream for conv=%s turn=%d", conv_id, seq)
+    logger.info("Dispatched stream for conv=%s scope=%s turn=%d", conv_id, scope, seq)
     return {"conversationId": conv_id, "turnSeq": seq, "status": "ok"}

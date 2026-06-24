@@ -470,6 +470,47 @@ def create_conversation(
     return item
 
 
+def create_research_conversation(table, user_id: str, conv_id: str, title: str = "") -> dict:
+    """Create a free-form research conversation (not anchored to a paper)."""
+    item = {
+        "PK": _conv_pk(user_id, conv_id),
+        "SK": "META",
+        "user_id": user_id,
+        "conv_id": conv_id,
+        "scope": "research",
+        "title": title or "New conversation",
+        "created_at": _now_iso(),
+        "last_active": _now_iso(),
+        "turn_count": 0,
+        "gsi1pk": f"USER#{user_id}",
+        "gsi1sk": f"CONV#{conv_id}",
+    }
+    table.put_item(Item=_sanitize_item(item))
+    return item
+
+
+def list_all_conversations(table, user_id: str) -> list[dict]:
+    """List all conversations (paper + research), newest first."""
+    resp = table.query(
+        IndexName="GSI1",
+        KeyConditionExpression=(
+            Key("gsi1pk").eq(f"USER#{user_id}")
+            & Key("gsi1sk").begins_with("CONV#")
+        ),
+        ScanIndexForward=False,
+    )
+    return resp.get("Items", [])
+
+
+def update_conversation_title(table, user_id: str, conv_id: str, title: str) -> None:
+    """Update the title of a conversation."""
+    table.update_item(
+        Key={"PK": _conv_pk(user_id, conv_id), "SK": "META"},
+        UpdateExpression="SET title = :t",
+        ExpressionAttributeValues={":t": title},
+    )
+
+
 def get_conversation_turns(table, user_id: str, conv_id: str) -> list[dict]:
     """Get all turns for a conversation, ordered by sequence."""
     resp = table.query(

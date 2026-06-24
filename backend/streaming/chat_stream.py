@@ -124,31 +124,36 @@ def handler(event: dict, context) -> dict:
     """Async Lambda: streams Bedrock response and publishes chunks to AppSync.
 
     Invoked asynchronously by chat_dispatch. Event contains:
-    {user_id, paper_id, conv_id, message, turn_seq}
+    {user_id, paper_id, conv_id, message, turn_seq, scope?}
     """
     user_id = event["user_id"]
-    paper_id = event["paper_id"]
+    paper_id = event.get("paper_id", "")
     conv_id = event["conv_id"]
     message = event["message"]
     seq = event["turn_seq"]
+    scope = event.get("scope", "paper")
 
     # Set up resources
     dynamodb = boto3.resource("dynamodb")
     table = dynamodb.Table(TABLE_NAME)
     s3_client = boto3.client("s3")
 
-    # 1. Get conversation to find S3 key
-    conv = db.get_conversation_by_paper(table, user_id, paper_id)
-    if conv is None:
-        _publish_chunk(conv_id, seq, "[Error: conversation not found]", True)
-        return {"status": "error"}
+    full_text_s3_key = ""
 
-    full_text_s3_key = conv.get("full_text_s3_key", "")
+    # 1. For paper-scoped chats, get the conversation and S3 key
+    if scope == "paper" and paper_id:
+        conv = db.get_conversation_by_paper(table, user_id, paper_id)
+        if conv is None:
+            _publish_chunk(conv_id, seq, "[Error: conversation not found]", True)
+            return {"status": "error"}
+        full_text_s3_key = conv.get("full_text_s3_key", "")
 
     # 2. Try RAG retrieval first, fall back to full-text stuffing
     retrieved_context = None
 
-    if db.is_paper_embedded(table, paper_id):
+    # RAG retrieval — always try for research scope, or for embedded papers
+    use_rag = scope == "research" or (paper_id and db.is_paper_embedded(table, paper_id))
+    if use_rag:
         try:
             from backend.shared.embeddings import embed_text
             from backend.shared.vectors import query_vectors, get_chunk_texts
@@ -165,11 +170,11 @@ def handler(event: dict, context) -> dict:
         except Exception:
             logger.warning("RAG retrieval failed — falling back to full text")
 
-    # Fallback: full-text stuffing
+    # Fallback: full-text stuffing (only for paper-scoped chats)
     paper_text = None
-    if not retrieved_context:
+    if not retrieved_context and full_text_s3_key:
         paper_text = _read_s3_text(s3_client, BUCKET_NAME, full_text_s3_key)
-        if not paper_text:
+        if not paper_text and scope == "paper":
             _publish_chunk(conv_id, seq, "[Error: paper not found in S3]", True)
             return {"status": "error"}
 
