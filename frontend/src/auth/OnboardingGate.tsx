@@ -12,10 +12,11 @@ function checkOnboarding(): Promise<{ has_profile: boolean }> {
 }
 
 export function OnboardingGate({ children }: OnboardingGateProps) {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['onboarding-status'],
     queryFn: checkOnboarding,
     staleTime: 60 * 1000,
+    retry: 1,
   })
 
   if (isLoading) {
@@ -24,6 +25,11 @@ export function OnboardingGate({ children }: OnboardingGateProps) {
         <div className="w-6 h-6 border-2 border-accent/30 border-t-accent rounded-full animate-spin" />
       </div>
     )
+  }
+
+  // If the check fails, assume profile exists (don't block existing users)
+  if (isError) {
+    return <>{children}</>
   }
 
   if (data && !data.has_profile) {
