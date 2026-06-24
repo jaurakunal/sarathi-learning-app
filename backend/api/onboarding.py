@@ -163,7 +163,7 @@ def handler(event: dict, context) -> dict:
         system=system,
         messages=llm_messages,
         model_id="us.anthropic.claude-sonnet-4-6",
-        max_tokens=2500,
+        max_tokens=24000,
         temperature=0.4,
     )
 
