@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useInfiniteQuery } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { LogOut, TrendingUp, BookOpen, Search, X, Target, Menu, MessageCircle, Inbox, Settings } from 'lucide-react'
+import { LogOut, TrendingUp, BookOpen, Search, X, Target, Menu, MessageCircle, Inbox, Settings, Pause } from 'lucide-react'
 import { getFeed } from '../api/feed'
 import { postEngagement } from '../api/engagement'
+import { apiFetch } from '../api/client'
 import { FeedCard } from '../components/FeedCard'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import { PushBanner } from '../components/PushBanner'
@@ -38,6 +39,13 @@ export function Feed() {
     getNextPageParam: (lastPage) => lastPage.lastKey ?? undefined,
     initialPageParam: null,
   })
+
+  const { data: settingsData } = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => apiFetch<{ pipeline_status: string }>('/settings'),
+    staleTime: 60 * 1000,
+  })
+  const isPaused = settingsData?.pipeline_status === 'paused'
 
   const { data: dismissedData } = useInfiniteQuery<FeedResponse>({
     queryKey: ['feed-dismissed'],
@@ -193,6 +201,19 @@ export function Feed() {
             Dismissed
           </button>
         </div>
+
+        {isPaused && (
+          <div className="mx-0 mt-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center gap-3">
+            <Pause size={14} className="text-amber-400 shrink-0" />
+            <p className="text-xs text-amber-300 flex-1">Paper discovery is paused.</p>
+            <button
+              onClick={() => navigate('/settings')}
+              className="text-xs text-amber-400 hover:text-amber-300 font-medium shrink-0"
+            >
+              Resume
+            </button>
+          </div>
+        )}
 
         <PushBanner />
 

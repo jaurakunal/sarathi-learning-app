@@ -1,16 +1,31 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, Pause, Play, Trash2, MessageCircle } from 'lucide-react'
 import { apiFetch } from '../api/client'
 import { Layout } from '../components/Layout'
 import { logout } from '../auth/cognito'
 
+function getSettings(): Promise<{ pipeline_status: string }> {
+  return apiFetch('/settings')
+}
+
 export function Settings() {
   const navigate = useNavigate()
+  const { data: settings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: getSettings,
+  })
   const [paused, setPaused] = useState(false)
   const [pauseLoading, setPauseLoading] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState(false)
   const [deleteLoading, setDeleteLoading] = useState(false)
+
+  useEffect(() => {
+    if (settings) {
+      setPaused(settings.pipeline_status === 'paused')
+    }
+  }, [settings])
 
   async function togglePause() {
     setPauseLoading(true)
