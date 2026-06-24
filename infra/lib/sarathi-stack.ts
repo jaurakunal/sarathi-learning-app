@@ -143,6 +143,10 @@ export class SarathiStack extends cdk.Stack {
       actions: ['states:StartExecution'],
       resources: [`arn:aws:states:${this.region}:${this.account}:stateMachine:sarathi-nightly-pipeline`],
     }));
+    lambdaRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['cognito-idp:AdminDeleteUser'],
+      resources: [userPool.userPoolArn],
+    }));
 
     // SSM Parameter for Semantic Scholar API key
     const s2ApiKeyParam = new ssm.StringParameter(this, 'S2ApiKeyParam', {
@@ -163,6 +167,7 @@ export class SarathiStack extends cdk.Stack {
       VAPID_KEYS_PARAM: vapidKeysParam.parameterName,
       VECTOR_BUCKET_NAME: `sarathi-vectors-${this.account}-${this.region}`,
       VECTOR_INDEX_NAME: 'paper-sections',
+      USER_POOL_ID: userPool.userPoolId,
     };
 
     const lambdaCode = lambda.Code.fromAsset(REPO_ROOT, {

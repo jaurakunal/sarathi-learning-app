@@ -49,6 +49,7 @@ def handler(event: dict, context) -> dict:
 
     elif method == "DELETE" and "delete-account" in path:
         _delete_all_user_data(table, user_id)
+        _delete_cognito_user(user_id)
         return _response(200, {"status": "deleted"})
 
     elif method == "GET":
@@ -62,6 +63,23 @@ def handler(event: dict, context) -> dict:
         })
 
     return _response(405, {"error": "Method not allowed"})
+
+
+def _delete_cognito_user(user_id: str) -> None:
+    """Delete the Cognito user account."""
+    user_pool_id = os.environ.get("USER_POOL_ID", "")
+    if not user_pool_id:
+        logger.warning("USER_POOL_ID not set — cannot delete Cognito user")
+        return
+    try:
+        cognito = boto3.client("cognito-idp")
+        cognito.admin_delete_user(
+            UserPoolId=user_pool_id,
+            Username=user_id,
+        )
+        logger.info("Deleted Cognito user %s", user_id)
+    except Exception:
+        logger.exception("Failed to delete Cognito user %s", user_id)
 
 
 def _delete_all_user_data(table, user_id: str) -> None:
