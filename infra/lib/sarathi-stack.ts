@@ -114,6 +114,9 @@ def handler(event, context):
       lambdaTriggers: { preSignUp: preSignUpFn },
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
+    // Force self-signup via CFN escape hatch (CDK drift workaround)
+    const cfnUserPool = userPool.node.defaultChild as cdk.CfnResource;
+    cfnUserPool.addPropertyOverride('AdminCreateUserConfig.AllowAdminCreateUserOnly', false);
 
     const userPoolClient = userPool.addClient('SarathiAppClient', {
       authFlows: { userPassword: true, userSrp: true },
