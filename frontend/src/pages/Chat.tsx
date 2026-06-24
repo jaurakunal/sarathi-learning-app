@@ -239,7 +239,7 @@ export function Chat({ embedded, paperId: propPaperId, cardId: propCardId, resea
       {/* Header */}
       {!embedded && (
         <div className="glass-header sticky top-0 z-20">
-          <div className="max-w-lg mx-auto w-full px-4 py-4">
+          <div className="max-w-lg lg:max-w-3xl mx-auto w-full px-4 py-4">
             <button
               onClick={() => navigate(isResearch ? '/conversations' : `/card/${cardId}`)}
               className="text-sm text-zinc-400 hover:text-white transition-colors flex items-center gap-1"
@@ -252,7 +252,7 @@ export function Chat({ embedded, paperId: propPaperId, cardId: propCardId, resea
       )}
 
       {/* Messages */}
-      <div className={`flex-1 ${embedded ? 'px-4' : 'max-w-lg mx-auto w-full px-4'} py-4 space-y-4 overflow-y-auto relative z-10`}>
+      <div className={`flex-1 ${embedded ? 'px-4' : 'max-w-lg lg:max-w-3xl mx-auto w-full px-4'} py-4 space-y-4 overflow-y-auto relative z-10`}>
         {historyLoading && <LoadingSpinner />}
 
         {!historyLoading && messages.length === 0 && (
@@ -293,7 +293,7 @@ export function Chat({ embedded, paperId: propPaperId, cardId: propCardId, resea
 
       {/* Suggestions + Input */}
       <div className="relative z-10 border-t border-white/5">
-        <div className={`${embedded ? 'px-4' : 'max-w-lg mx-auto w-full px-4'} pt-3 ${embedded ? '' : 'pb-safe-bottom'}`}>
+        <div className={`${embedded ? 'px-4' : 'max-w-lg lg:max-w-3xl mx-auto w-full px-4'} pt-3 ${embedded ? '' : 'pb-safe-bottom'}`}>
           {!loading && (
             <SuggestionChips
               suggestions={suggestions}

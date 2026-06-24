@@ -178,7 +178,7 @@ export function CardDetail() {
     <div className={`min-h-screen bg-[#0a0a0f] relative ${chatOpen ? 'lg:flex' : ''}`} ref={contentRef}>
       <div className={`${chatOpen ? 'lg:w-1/2 lg:overflow-y-auto lg:h-screen' : ''} relative`}>
       <div className="ambient-orb w-72 h-72 bg-accent top-[-5rem] right-[-5rem]" />
-      <div className={`${chatOpen ? 'max-w-none lg:px-8' : 'max-w-lg mx-auto'} px-4 pt-safe-top pb-safe-bottom relative z-10`}>
+      <div className={`${chatOpen ? 'max-w-none lg:px-8' : 'max-w-lg lg:max-w-3xl mx-auto'} px-4 pt-safe-top pb-safe-bottom relative z-10`}>
         {/* Header */}
         <div className="glass-header sticky top-0 z-20 -mx-4 px-4 py-4 flex items-center justify-between">
           <button
