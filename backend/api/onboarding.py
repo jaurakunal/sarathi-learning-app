@@ -254,8 +254,16 @@ def _extract_profile(response: str) -> dict | None:
     if data.get("type") == "profile_complete" and data.get("profile"):
         return data
 
-    # Handle free-form format (has keys like who, areas, level, goal)
-    if any(k in data for k in ("areas", "level", "goal", "who", "what")):
+    # Unwrap if LLM used a wrapper key like "user_profile" or "profile"
+    if "user_profile" in data and isinstance(data["user_profile"], dict):
+        data = data["user_profile"]
+    elif "profile" in data and isinstance(data["profile"], dict) and "type" not in data:
+        data = data["profile"]
+
+    # Handle free-form format (various key patterns the LLM might use)
+    profile_indicators = ("areas", "level", "goal", "who", "what", "technical_background",
+                          "content_preferences", "learning_style", "primary_focus", "role")
+    if any(k in data for k in profile_indicators):
         profile = _normalize_freeform_profile(data)
         summary = _build_summary_from_profile(data)
         return {
@@ -276,6 +284,21 @@ def _normalize_freeform_profile(data: dict) -> dict:
     goal = data.get("goal", {})
     style = data.get("style", {})
     what = data.get("what", {})
+
+    # Handle "user_profile" style format
+    content_prefs = data.get("content_preferences", {})
+    tech_bg = data.get("technical_background", {})
+    if not areas_raw and content_prefs:
+        # Build areas from content_preferences.interested_in
+        areas_raw = {"primary": content_prefs.get("interested_in", []),
+                     "secondary": []}
+    if not who and data.get("role"):
+        who = {"role": data.get("role", ""), "domain": data.get("primary_focus", "")}
+    if not goal and data.get("vision"):
+        goal = {"primary": data.get("vision", "")}
+    if not style and data.get("learning_style"):
+        ls = data.get("learning_style", "")
+        style = {"preference": ls if isinstance(ls, str) else ""}
 
     # Build areas list — LLM uses various key names for primary/secondary
     areas = []
@@ -328,20 +351,37 @@ def _normalize_freeform_profile(data: dict) -> dict:
                 "current_level": "beginner",
             })
 
+    # Enrich areas with too_basic and knows from other fields
+    too_basic_list = content_prefs.get("not_needed", []) if content_prefs else []
+    knows_list = tech_bg.get("strong", []) if isinstance(tech_bg, dict) else []
+    for area in areas:
+        if not area.get("too_basic") and too_basic_list:
+            area["too_basic"] = too_basic_list
+        if not area.get("knows") and knows_list:
+            area["knows"] = knows_list
+
     # Build meta
+    learning_style_raw = data.get("learning_style", "")
+    math_comfort = "avoid"
+    if "math" in str(learning_style_raw).lower() and "barrier" in str(learning_style_raw).lower():
+        math_comfort = "avoid"
+    elif "tolerate" in str(style).lower():
+        math_comfort = "tolerate"
+
     meta = {
         "learning_style": {
             "depth": "practitioner",
-            "math_comfort": "avoid" if "avoid" in str(style).lower() or "math" in str(style).lower() else "tolerate",
+            "math_comfort": math_comfort,
             "paper_preference": "applied",
         },
-        "paper_goal": goal.get("primary", "") if isinstance(goal, dict) else str(goal),
-        "background": f"{who.get('role', '')} — {who.get('domain', '')}" if isinstance(who, dict) else "",
+        "paper_goal": goal.get("primary", "") if isinstance(goal, dict) else data.get("engagement_goal", str(goal)),
+        "background": f"{who.get('role', '')} — {who.get('domain', '')}" if isinstance(who, dict) else data.get("primary_focus", ""),
     }
 
     # Hypothesis
+    hypothesis_stmt = goal.get("primary", "") if isinstance(goal, dict) else data.get("vision", "")
     hypothesis = {
-        "statement": goal.get("primary", "") if isinstance(goal, dict) else "",
+        "statement": hypothesis_stmt,
         "status": "forming",
     }
 
