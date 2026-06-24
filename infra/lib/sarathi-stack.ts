@@ -96,6 +96,7 @@ export class SarathiStack extends cdk.Stack {
       userPoolName: 'sarathi-users',
       selfSignUpEnabled: true,
       signInAliases: { email: true },
+      autoVerify: { email: true },
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
