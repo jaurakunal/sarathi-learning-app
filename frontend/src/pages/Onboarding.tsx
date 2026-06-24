@@ -34,6 +34,18 @@ export function Onboarding() {
     loadOrStart()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  function stripJson(text: string): string {
+    // Strip fenced JSON
+    let jsonStart = text.indexOf('```json')
+    if (jsonStart === -1) jsonStart = text.indexOf('```')
+    if (jsonStart > -1) return text.slice(0, jsonStart).trim()
+    // Strip bare JSON block
+    const lines = text.split('\n')
+    const braceIdx = lines.findIndex((l) => l.trim() === '{' || l.trim().startsWith('{"'))
+    if (braceIdx > -1) return lines.slice(0, braceIdx).join('\n').trim()
+    return text
+  }
+
   async function loadOrStart() {
     try {
       const history = await apiFetch<{ turns: { seq: number; request: string; response: string | null }[] }>(`/chat/onboarding`)
@@ -44,7 +56,10 @@ export function Onboarding() {
             restored.push({ role: 'user', content: turn.request })
           }
           if (turn.response) {
-            restored.push({ role: 'assistant', content: turn.response })
+            const cleaned = stripJson(turn.response)
+            if (cleaned) {
+              restored.push({ role: 'assistant', content: cleaned })
+            }
           }
         }
         if (restored.length > 0) {
