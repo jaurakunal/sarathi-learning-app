@@ -90,7 +90,7 @@ class TestHandler:
         assert mock_publish.call_count == 3
         mock_publish.assert_any_call("paper1", 1, "Hello ", False)
         mock_publish.assert_any_call("paper1", 1, "world", False)
-        mock_publish.assert_any_call("paper1", 1, "", True, 100, 5)
+        mock_publish.assert_any_call("paper1", 1, "Hello world", True, 100, 5)
 
     @patch("backend.streaming.chat_stream._publish_chunk")
     @patch("backend.streaming.chat_stream._read_s3_text")

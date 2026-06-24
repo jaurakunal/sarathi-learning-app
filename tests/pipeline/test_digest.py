@@ -13,7 +13,7 @@ import pytest
 # Happy path: paper text fetched, stored in S3, LLM generates card, written to DDB
 # ---------------------------------------------------------------------------
 
-@patch("backend.pipeline.digest._SOURCES")
+@patch("backend.pipeline.digest._build_sources")
 @patch("backend.pipeline.digest.call_llm")
 @patch("backend.pipeline.digest.boto3")
 @patch("backend.pipeline.digest.db")
@@ -32,7 +32,7 @@ def test_happy_path_card_generated(mock_db, mock_boto3, mock_call_llm, mock_sour
     # Mock source fetch
     mock_source = MagicMock()
     mock_source.fetch_full_text.return_value = "Full paper text here..."
-    mock_sources.get.return_value = mock_source
+    mock_sources.return_value = {"semantic_scholar": mock_source, "arxiv": mock_source, "arxiv_rss": mock_source, "openreview": mock_source, "hf_daily_papers": mock_source, "papers_with_code": mock_source}
 
     # call_llm returns a JSON string directly
     card_content = {
@@ -82,7 +82,7 @@ def test_happy_path_card_generated(mock_db, mock_boto3, mock_call_llm, mock_sour
 # Full text fetch fails → paper skipped, others continue
 # ---------------------------------------------------------------------------
 
-@patch("backend.pipeline.digest._SOURCES")
+@patch("backend.pipeline.digest._build_sources")
 @patch("backend.pipeline.digest.call_llm")
 @patch("backend.pipeline.digest.boto3")
 @patch("backend.pipeline.digest.db")
@@ -102,7 +102,7 @@ def test_full_text_fetch_fails_skips_paper(mock_db, mock_boto3, mock_call_llm, m
     # Second paper: fetch succeeds
     mock_source = MagicMock()
     mock_source.fetch_full_text.side_effect = ["", "Paper 2 full text"]
-    mock_sources.get.return_value = mock_source
+    mock_sources.return_value = {"semantic_scholar": mock_source, "arxiv": mock_source, "arxiv_rss": mock_source, "openreview": mock_source, "hf_daily_papers": mock_source, "papers_with_code": mock_source}
 
     # LLM response for the second paper
     mock_call_llm.return_value = json.dumps({
@@ -131,7 +131,7 @@ def test_full_text_fetch_fails_skips_paper(mock_db, mock_boto3, mock_call_llm, m
 # LLM returns malformed JSON → paper skipped
 # ---------------------------------------------------------------------------
 
-@patch("backend.pipeline.digest._SOURCES")
+@patch("backend.pipeline.digest._build_sources")
 @patch("backend.pipeline.digest.call_llm")
 @patch("backend.pipeline.digest.boto3")
 @patch("backend.pipeline.digest.db")
@@ -149,7 +149,7 @@ def test_llm_malformed_json_skips_paper(mock_db, mock_boto3, mock_call_llm, mock
 
     mock_source = MagicMock()
     mock_source.fetch_full_text.return_value = "Full text of paper"
-    mock_sources.get.return_value = mock_source
+    mock_sources.return_value = {"semantic_scholar": mock_source, "arxiv": mock_source, "arxiv_rss": mock_source, "openreview": mock_source, "hf_daily_papers": mock_source, "papers_with_code": mock_source}
 
     # LLM returns broken JSON
     mock_call_llm.return_value = "I'm sorry, I cannot generate a card for this paper..."
@@ -202,7 +202,7 @@ def test_card_id_uniqueness():
 # S3 key construction: verify user-scoped path
 # ---------------------------------------------------------------------------
 
-@patch("backend.pipeline.digest._SOURCES")
+@patch("backend.pipeline.digest._build_sources")
 @patch("backend.pipeline.digest.call_llm")
 @patch("backend.pipeline.digest.boto3")
 @patch("backend.pipeline.digest.db")
@@ -220,7 +220,7 @@ def test_s3_key_user_scoped(mock_db, mock_boto3, mock_call_llm, mock_sources, us
 
     mock_source = MagicMock()
     mock_source.fetch_full_text.return_value = "Full text"
-    mock_sources.get.return_value = mock_source
+    mock_sources.return_value = {"semantic_scholar": mock_source, "arxiv": mock_source, "arxiv_rss": mock_source, "openreview": mock_source, "hf_daily_papers": mock_source, "papers_with_code": mock_source}
 
     mock_call_llm.return_value = json.dumps({
         "hook": "H", "why_you_now": "W", "time_estimate": "5 min",
@@ -303,7 +303,7 @@ def test_no_surfaced_papers_returns_zeros(mock_db, mock_boto3, mock_call_llm, us
 # Unknown source → paper skipped
 # ---------------------------------------------------------------------------
 
-@patch("backend.pipeline.digest._SOURCES")
+@patch("backend.pipeline.digest._build_sources")
 @patch("backend.pipeline.digest.call_llm")
 @patch("backend.pipeline.digest.boto3")
 @patch("backend.pipeline.digest.db")
@@ -340,7 +340,7 @@ def test_unknown_source_skips_paper(mock_db, mock_boto3, mock_call_llm, mock_sou
 # Feed card has correct structure when written to DDB
 # ---------------------------------------------------------------------------
 
-@patch("backend.pipeline.digest._SOURCES")
+@patch("backend.pipeline.digest._build_sources")
 @patch("backend.pipeline.digest.call_llm")
 @patch("backend.pipeline.digest.boto3")
 @patch("backend.pipeline.digest.db")
@@ -358,7 +358,7 @@ def test_feed_card_structure(mock_db, mock_boto3, mock_call_llm, mock_sources, u
 
     mock_source = MagicMock()
     mock_source.fetch_full_text.return_value = "Paper text"
-    mock_sources.get.return_value = mock_source
+    mock_sources.return_value = {"semantic_scholar": mock_source, "arxiv": mock_source, "arxiv_rss": mock_source, "openreview": mock_source, "hf_daily_papers": mock_source, "papers_with_code": mock_source}
 
     mock_call_llm.return_value = json.dumps({
         "hook": "Hook text",

@@ -648,3 +648,263 @@ class TestPutProfileHistoryEvent:
         assert item["SK"] != "TS#None"
         # _sanitize_item strips None values, so 'ts' key is absent
         assert "ts" not in item
+
+
+# ---------------------------------------------------------------------------
+# Push Subscriptions
+# ---------------------------------------------------------------------------
+
+
+class TestPutPushSubscription:
+    def test_writes_correct_item(self, mock_table, user_id):
+        subscription = {
+            "endpoint": "https://push.example.com/sub/abc123",
+            "keys": {"p256dh": "pubkey", "auth": "authkey"},
+        }
+
+        db.put_push_subscription(mock_table, user_id, subscription)
+
+        mock_table.put_item.assert_called_once()
+        item = mock_table.put_item.call_args[1]["Item"]
+        assert item["PK"] == f"USER#{user_id}#PUSH"
+        assert item["SK"].startswith("SUB#")
+        assert item["endpoint"] == "https://push.example.com/sub/abc123"
+        assert item["keys"] == {"p256dh": "pubkey", "auth": "authkey"}
+        assert "created_at" in item
+
+
+class TestDeletePushSubscription:
+    def test_deletes_with_correct_key(self, mock_table, user_id):
+        endpoint = "https://push.example.com/sub/abc123"
+
+        db.delete_push_subscription(mock_table, user_id, endpoint)
+
+        mock_table.delete_item.assert_called_once()
+        key = mock_table.delete_item.call_args[1]["Key"]
+        assert key["PK"] == f"USER#{user_id}#PUSH"
+        assert key["SK"].startswith("SUB#")
+
+    def test_same_endpoint_produces_same_hash(self, mock_table, user_id):
+        endpoint = "https://push.example.com/sub/abc123"
+
+        db.delete_push_subscription(mock_table, user_id, endpoint)
+        key1 = mock_table.delete_item.call_args[1]["Key"]["SK"]
+
+        mock_table.reset_mock()
+        db.delete_push_subscription(mock_table, user_id, endpoint)
+        key2 = mock_table.delete_item.call_args[1]["Key"]["SK"]
+
+        assert key1 == key2
+
+
+class TestListPushSubscriptions:
+    def test_returns_items(self, mock_table, user_id):
+        mock_table.query.return_value = {
+            "Items": [
+                {"endpoint": "https://push.example.com/1", "keys": {"p256dh": "k1", "auth": "a1"}},
+                {"endpoint": "https://push.example.com/2", "keys": {"p256dh": "k2", "auth": "a2"}},
+            ]
+        }
+
+        result = db.list_push_subscriptions(mock_table, user_id)
+
+        assert len(result) == 2
+        assert result[0]["endpoint"] == "https://push.example.com/1"
+
+    def test_returns_empty_when_no_subs(self, mock_table, user_id):
+        mock_table.query.return_value = {"Items": []}
+
+        result = db.list_push_subscriptions(mock_table, user_id)
+
+        assert result == []
+
+
+# ---------------------------------------------------------------------------
+# Pin / Unpin Turns
+# ---------------------------------------------------------------------------
+
+
+class TestPinTurn:
+    def test_sets_pinned_true_with_timestamp(self, mock_table, user_id):
+        db.pin_turn(mock_table, user_id, "conv-1", 3)
+
+        mock_table.update_item.assert_called_once()
+        call_kwargs = mock_table.update_item.call_args[1]
+        assert call_kwargs["Key"] == {
+            "PK": f"USER#{user_id}#CONV#conv-1",
+            "SK": "TURN#00003",
+        }
+        assert ":t" in call_kwargs["ExpressionAttributeValues"]
+        assert call_kwargs["ExpressionAttributeValues"][":t"] is True
+
+    def test_includes_pin_note_when_provided(self, mock_table, user_id):
+        db.pin_turn(mock_table, user_id, "conv-1", 5, pin_note="Key insight")
+
+        call_kwargs = mock_table.update_item.call_args[1]
+        assert ":note" in call_kwargs["ExpressionAttributeValues"]
+        assert call_kwargs["ExpressionAttributeValues"][":note"] == "Key insight"
+        assert "pin_note" in call_kwargs["UpdateExpression"]
+
+
+class TestUnpinTurn:
+    def test_removes_pinned_attributes(self, mock_table, user_id):
+        db.unpin_turn(mock_table, user_id, "conv-1", 3)
+
+        mock_table.update_item.assert_called_once()
+        call_kwargs = mock_table.update_item.call_args[1]
+        assert call_kwargs["Key"] == {
+            "PK": f"USER#{user_id}#CONV#conv-1",
+            "SK": "TURN#00003",
+        }
+        assert "REMOVE" in call_kwargs["UpdateExpression"]
+
+
+class TestGetPinnedTurns:
+    def test_returns_pinned_items(self, mock_table, user_id):
+        mock_table.query.return_value = {
+            "Items": [
+                {"seq": 1, "pinned": True, "request": "Q?", "response": "A"},
+            ]
+        }
+
+        result = db.get_pinned_turns(mock_table, user_id, "conv-1")
+
+        assert len(result) == 1
+        assert result[0]["pinned"] is True
+
+    def test_returns_empty_when_none_pinned(self, mock_table, user_id):
+        mock_table.query.return_value = {"Items": []}
+
+        result = db.get_pinned_turns(mock_table, user_id, "conv-1")
+
+        assert result == []
+
+
+# ---------------------------------------------------------------------------
+# Tag Paper
+# ---------------------------------------------------------------------------
+
+
+class TestTagPaper:
+    def test_sets_relevance_and_tags(self, mock_table, user_id):
+        db.tag_paper(mock_table, user_id, "card-123", "core", ["alignment", "safety"])
+
+        mock_table.update_item.assert_called_once()
+        call_kwargs = mock_table.update_item.call_args[1]
+        assert call_kwargs["Key"] == {
+            "PK": f"USER#{user_id}#FEED",
+            "SK": "CARD#card-123",
+        }
+        values = call_kwargs["ExpressionAttributeValues"]
+        assert values[":r"] == "core"
+        assert values[":t"] == ["alignment", "safety"]
+        assert values[":ts"].endswith("Z")
+
+
+# ---------------------------------------------------------------------------
+# Research Conversations
+# ---------------------------------------------------------------------------
+
+
+class TestCreateResearchConversation:
+    def test_writes_correct_item(self, mock_table, user_id):
+        result = db.create_research_conversation(mock_table, user_id, "conv-abc", "My Research")
+
+        mock_table.put_item.assert_called_once()
+        item = mock_table.put_item.call_args[1]["Item"]
+        assert item["PK"] == f"USER#{user_id}#CONV#conv-abc"
+        assert item["SK"] == "META"
+        assert item["scope"] == "research"
+        assert item["title"] == "My Research"
+        assert item["conv_id"] == "conv-abc"
+        assert item["gsi1pk"] == f"USER#{user_id}"
+        assert item["gsi1sk"] == "CONV#conv-abc"
+        assert result["conv_id"] == "conv-abc"
+
+    def test_default_title(self, mock_table, user_id):
+        result = db.create_research_conversation(mock_table, user_id, "conv-abc", "")
+
+        item = mock_table.put_item.call_args[1]["Item"]
+        assert item["title"] == "New conversation"
+
+
+class TestListAllConversations:
+    def test_returns_items(self, mock_table, user_id):
+        mock_table.query.return_value = {
+            "Items": [
+                {"conv_id": "c1", "scope": "research", "title": "Thread 1"},
+                {"conv_id": "c2", "scope": "paper", "paper_id": "p1"},
+            ]
+        }
+
+        result = db.list_all_conversations(mock_table, user_id)
+
+        assert len(result) == 2
+        mock_table.query.assert_called_once()
+        call_kwargs = mock_table.query.call_args[1]
+        assert call_kwargs["IndexName"] == "GSI1"
+        assert call_kwargs["ScanIndexForward"] is False
+
+    def test_returns_empty_when_none(self, mock_table, user_id):
+        mock_table.query.return_value = {"Items": []}
+
+        result = db.list_all_conversations(mock_table, user_id)
+
+        assert result == []
+
+
+class TestUpdateConversationTitle:
+    def test_updates_with_correct_params(self, mock_table, user_id):
+        db.update_conversation_title(mock_table, user_id, "conv-1", "New Title")
+
+        mock_table.update_item.assert_called_once()
+        call_kwargs = mock_table.update_item.call_args[1]
+        assert call_kwargs["Key"] == {
+            "PK": f"USER#{user_id}#CONV#conv-1",
+            "SK": "META",
+        }
+        assert call_kwargs["ExpressionAttributeValues"][":t"] == "New Title"
+
+
+class TestDeleteConversation:
+    def test_deletes_all_items_under_pk(self, mock_table, user_id):
+        mock_table.query.return_value = {
+            "Items": [
+                {"PK": f"USER#{user_id}#CONV#conv-1", "SK": "META"},
+                {"PK": f"USER#{user_id}#CONV#conv-1", "SK": "TURN#00001"},
+                {"PK": f"USER#{user_id}#CONV#conv-1", "SK": "TURN#00002"},
+            ]
+        }
+        mock_batch_writer = MagicMock()
+        mock_table.batch_writer.return_value.__enter__ = MagicMock(return_value=mock_batch_writer)
+        mock_table.batch_writer.return_value.__exit__ = MagicMock(return_value=False)
+
+        db.delete_conversation(mock_table, user_id, "conv-1")
+
+        assert mock_batch_writer.delete_item.call_count == 3
+
+
+# ---------------------------------------------------------------------------
+# get_feed_card_by_paper
+# ---------------------------------------------------------------------------
+
+
+class TestGetFeedCardByPaper:
+    def test_returns_first_matching_card(self, mock_table, user_id):
+        mock_table.query.return_value = {
+            "Items": [
+                {"card_id": "c1", "paper_id": "p1", "hook": "Great paper"},
+            ]
+        }
+
+        result = db.get_feed_card_by_paper(mock_table, user_id, "p1")
+
+        assert result is not None
+        assert result["card_id"] == "c1"
+
+    def test_returns_none_when_no_match(self, mock_table, user_id):
+        mock_table.query.return_value = {"Items": []}
+
+        result = db.get_feed_card_by_paper(mock_table, user_id, "p-nonexistent")
+
+        assert result is None
