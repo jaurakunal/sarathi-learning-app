@@ -27,12 +27,36 @@ export function Onboarding() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // Start the conversation on mount
+  // Load existing history or start fresh on mount
   useEffect(() => {
     if (startedRef.current) return
     startedRef.current = true
-    sendMessage('')
+    loadOrStart()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function loadOrStart() {
+    try {
+      const history = await apiFetch<{ turns: { seq: number; request: string; response: string | null }[] }>(`/chat/onboarding`)
+      if (history.turns && history.turns.length > 0) {
+        const restored: OnboardingMessage[] = []
+        for (const turn of history.turns) {
+          if (turn.request && turn.request !== 'Hi, I just signed up.') {
+            restored.push({ role: 'user', content: turn.request })
+          }
+          if (turn.response) {
+            restored.push({ role: 'assistant', content: turn.response })
+          }
+        }
+        if (restored.length > 0) {
+          setMessages(restored)
+          return
+        }
+      }
+    } catch {
+      // No history — start fresh
+    }
+    sendMessage('')
+  }
 
   async function sendMessage(text: string) {
     if (text) {

@@ -239,10 +239,17 @@ def _normalize_freeform_profile(data: dict) -> dict:
     style = data.get("style", {})
     what = data.get("what", {})
 
-    # Build areas list
+    # Build areas list — LLM uses various key names for primary/secondary
     areas = []
-    core_areas = areas_raw.get("core", []) if isinstance(areas_raw, dict) else []
-    adjacent_areas = areas_raw.get("adjacent", []) if isinstance(areas_raw, dict) else []
+    if isinstance(areas_raw, dict):
+        core_areas = areas_raw.get("core", []) or areas_raw.get("primary", []) or []
+        adjacent_areas = areas_raw.get("adjacent", []) or areas_raw.get("secondary", []) or []
+    elif isinstance(areas_raw, list):
+        core_areas = areas_raw
+        adjacent_areas = []
+    else:
+        core_areas = []
+        adjacent_areas = []
 
     for label in core_areas:
         areas.append({
