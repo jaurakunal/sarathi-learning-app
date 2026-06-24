@@ -94,7 +94,7 @@ export class SarathiStack extends cdk.Stack {
     // ─── Cognito ─────────────────────────────────────────────────────
     const userPool = new cognito.UserPool(this, 'SarathiUserPool', {
       userPoolName: 'sarathi-users',
-      selfSignUpEnabled: false,
+      selfSignUpEnabled: true,
       signInAliases: { email: true },
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
