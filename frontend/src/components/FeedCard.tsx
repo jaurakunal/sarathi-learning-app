@@ -125,20 +125,20 @@ export function FeedCard({ card, index, showRestore, onDismiss, onRestore }: Fee
         </AnimatePresence>
       )}
 
-      <p className={`text-[19px] leading-[1.35] font-semibold tracking-tight ${
+      <p className={`text-lg lg:text-xl leading-[1.35] font-semibold tracking-tight ${
         card.read ? 'text-zinc-500' : 'text-white/95'
       }`}>
         {card.hook}
       </p>
 
       {card.why_you_now && !card.read && (
-        <p className="text-[13px] text-white/40 leading-relaxed mt-3 line-clamp-2">
+        <p className="text-[13px] text-zinc-400 leading-relaxed mt-3 line-clamp-2">
           {card.why_you_now}
         </p>
       )}
 
       <div className="flex items-center gap-3 mt-4 pt-3 border-t border-white/[0.04]">
-        <span className="flex items-center gap-1.5 text-[11px] text-white/35 font-medium tracking-wide uppercase">
+        <span className="flex items-center gap-1.5 text-[11px] text-zinc-500 font-medium tracking-wide uppercase">
           <Clock size={12} />
           {card.time_estimate}
         </span>

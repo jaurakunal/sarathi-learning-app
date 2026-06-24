@@ -17,7 +17,8 @@ export function SuggestionChips({ suggestions, onSelect, loading }: SuggestionCh
   if (!suggestions.length && !loading) return null
 
   return (
-    <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+    <div className="relative">
+    <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide" style={{ maskImage: 'linear-gradient(to right, black 80%, transparent 100%)', WebkitMaskImage: 'linear-gradient(to right, black 80%, transparent 100%)' }}>
       <AnimatePresence mode="popLayout">
         {loading && !suggestions.length && (
           <motion.div
@@ -41,12 +42,13 @@ export function SuggestionChips({ suggestions, onSelect, loading }: SuggestionCh
             transition={{ delay: i * 0.05 }}
             onClick={() => onSelect(q)}
             title={q}
-            className="shrink-0 text-xs text-accent/80 bg-accent/[0.06] border border-accent/20 hover:border-accent/40 hover:text-accent hover:bg-accent/10 px-3 py-2 rounded-full transition-all"
+            className="shrink-0 text-xs text-accent/80 bg-accent/[0.06] border border-accent/20 hover:border-accent/40 hover:text-accent hover:bg-accent/10 px-3 py-2 rounded-full transition-all active:scale-95"
           >
             {truncate(q)}
           </motion.button>
         ))}
       </AnimatePresence>
+    </div>
     </div>
   )
 }

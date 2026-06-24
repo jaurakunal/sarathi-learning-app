@@ -22,10 +22,10 @@ export function ChatMessage({ message, seq, onPin }: ChatMessageProps) {
       className={`flex ${isUser ? 'justify-end' : 'justify-start'} group`}
     >
       <div
-        className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+        className={`max-w-[85%] lg:max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
           isUser
             ? 'bg-accent/20 border border-accent-dim text-white'
-            : `glass-card text-zinc-200 ${pinned ? 'border-accent/30' : ''}`
+            : `bg-[rgba(26,26,46,0.7)] backdrop-blur-[12px] border border-[rgba(236,72,153,0.15)] text-zinc-200 ${pinned ? 'border-accent/30' : ''}`
         }`}
       >
         {isUser ? (

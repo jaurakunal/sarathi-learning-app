@@ -29,7 +29,14 @@ export function CardDetail() {
   const [tagInput, setTagInput] = useState('')
   const [showTagging, setShowTagging] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
-  const isDesktop = typeof window !== 'undefined' && window.innerWidth >= 1024
+  const [isDesktop, setIsDesktop] = useState(() => typeof window !== 'undefined' && window.innerWidth >= 1024)
+
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)')
+    const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches)
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [])
 
   useEffect(() => {
     if (card) {
@@ -178,7 +185,7 @@ export function CardDetail() {
     <div className={`min-h-screen bg-[#0a0a0f] relative ${chatOpen ? 'lg:flex' : ''}`} ref={contentRef}>
       <div className={`${chatOpen ? 'lg:w-1/2 lg:overflow-y-auto lg:h-screen' : ''} relative`}>
       <div className="ambient-orb w-72 h-72 bg-accent top-[-5rem] right-[-5rem]" />
-      <div className={`${chatOpen ? 'max-w-none lg:px-8' : 'max-w-lg lg:max-w-3xl mx-auto'} px-4 pt-safe-top pb-safe-bottom relative z-10`}>
+      <div className={`${chatOpen ? 'max-w-none lg:px-8' : 'max-w-lg lg:max-w-3xl xl:max-w-4xl mx-auto'} px-4 pt-safe-top pb-safe-bottom relative z-10`}>
         {/* Header */}
         <div className="glass-header sticky top-0 z-20 -mx-4 px-4 py-4 flex items-center justify-between">
           <button
@@ -200,7 +207,7 @@ export function CardDetail() {
         </div>
 
         {/* Hook */}
-        <div className="space-y-3 py-6">
+        <div className="space-y-3 py-6 border-b border-white/[0.06] pb-6 mb-4">
           <div className="flex items-center gap-2">
             <Clock size={12} className="text-violet-neon" />
             <span className="text-xs text-violet-neon font-medium">{card.time_estimate}</span>
@@ -306,7 +313,7 @@ export function CardDetail() {
                 setIsBookmarked(newState)
                 engagement.fireEvent('bookmark', { section: newState ? 'add' : 'remove' })
               }}
-              className={`p-2 rounded-lg transition-colors ${
+              className={`p-3 rounded-lg transition-colors ${
                 isBookmarked
                   ? 'text-accent bg-accent/20'
                   : 'text-zinc-500 hover:text-accent hover:bg-accent/10'
@@ -321,7 +328,7 @@ export function CardDetail() {
                 setUserRating(newRating || null)
                 engagement.fireRate(newRating)
               }}
-              className={`p-2 rounded-lg transition-colors ${
+              className={`p-3 rounded-lg transition-colors ${
                 userRating === 5
                   ? 'text-green-400 bg-green-400/20'
                   : 'text-zinc-500 hover:text-green-400 hover:bg-green-400/10'
@@ -336,7 +343,7 @@ export function CardDetail() {
                 setUserRating(newRating || null)
                 engagement.fireRate(newRating)
               }}
-              className={`p-2 rounded-lg transition-colors ${
+              className={`p-3 rounded-lg transition-colors ${
                 userRating === 1
                   ? 'text-red-400 bg-red-400/20'
                   : 'text-zinc-500 hover:text-red-400 hover:bg-red-400/10'

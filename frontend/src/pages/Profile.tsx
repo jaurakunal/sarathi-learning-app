@@ -151,7 +151,7 @@ export function Profile() {
               <button
                 key={t}
                 onClick={() => setTab(t)}
-                className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-all capitalize ${
+                className={`text-sm font-medium px-3 py-1.5 rounded-lg transition-all capitalize ${
                   tab === t
                     ? 'text-white bg-accent/20 border border-accent-dim'
                     : 'text-zinc-500 hover:text-zinc-300'
@@ -167,7 +167,7 @@ export function Profile() {
         {tab === 'overview' && (
           <div>
             {/* Stats cards */}
-            <div className="grid grid-cols-3 gap-2 py-4">
+            <div className="grid grid-cols-3 gap-3 py-4">
               <div className="glass-card rounded-xl p-3 text-center">
                 <div className="text-lg font-bold text-white">{stats_7d.papers_read}</div>
                 <div className="text-xs text-zinc-500 flex items-center justify-center gap-1"><BookOpen size={12} /> read</div>

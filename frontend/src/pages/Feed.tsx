@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { LogOut, TrendingUp, BookOpen, Search, X, Target, Menu, MessageCircle } from 'lucide-react'
+import { LogOut, TrendingUp, BookOpen, Search, X, Target, Menu, MessageCircle, Inbox } from 'lucide-react'
 import { getFeed } from '../api/feed'
 import { postEngagement } from '../api/engagement'
 import { FeedCard } from '../components/FeedCard'
@@ -77,7 +77,7 @@ export function Feed() {
       <div className="ambient-orb w-96 h-96 bg-accent top-[-10rem] right-[-10rem]" />
       <div className="ambient-orb w-72 h-72 bg-violet-neon bottom-[20%] left-[-8rem]" />
 
-      <div className="max-w-lg lg:max-w-3xl mx-auto px-4 pt-safe-top pb-safe-bottom relative z-10">
+      <div className="max-w-lg lg:max-w-2xl xl:max-w-3xl mx-auto px-4 pt-safe-top pb-safe-bottom relative z-10">
         {/* Header */}
         <div className="glass-header sticky top-0 z-20 -mx-4 px-4 py-4 flex items-center justify-between">
           <h1 className="text-xl font-bold text-gradient lg:hidden">Sārathi</h1>
@@ -159,7 +159,7 @@ export function Feed() {
             className={`text-sm font-medium px-3 py-1.5 rounded-lg transition-all ${
               tab === 'all'
                 ? 'text-white bg-accent/20 border border-accent-dim'
-                : 'text-zinc-500 hover:text-zinc-300'
+                : 'text-zinc-500 hover:text-zinc-300 border border-transparent'
             }`}
           >
             All
@@ -169,7 +169,7 @@ export function Feed() {
             className={`text-sm font-medium px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
               tab === 'unread'
                 ? 'text-white bg-accent/20 border border-accent-dim'
-                : 'text-zinc-500 hover:text-zinc-300'
+                : 'text-zinc-500 hover:text-zinc-300 border border-transparent'
             }`}
           >
             Unread
@@ -184,7 +184,7 @@ export function Feed() {
             className={`text-sm font-medium px-3 py-1.5 rounded-lg transition-all ${
               tab === 'dismissed'
                 ? 'text-white bg-accent/20 border border-accent-dim'
-                : 'text-zinc-500 hover:text-zinc-300'
+                : 'text-zinc-500 hover:text-zinc-300 border border-transparent'
             }`}
           >
             Dismissed
@@ -216,6 +216,7 @@ export function Feed() {
             animate={{ opacity: 1 }}
             className="text-center py-20"
           >
+            <Inbox size={32} className="text-zinc-700 mx-auto mb-3" />
             <p className="text-zinc-500 text-sm">
               {tab === 'dismissed'
                 ? 'No dismissed cards.'
@@ -246,7 +247,7 @@ export function Feed() {
             <button
               onClick={() => fetchNextPage()}
               disabled={isFetchingNextPage}
-              className="text-sm text-accent hover:text-accent-light transition-colors disabled:opacity-50"
+              className="text-sm text-accent hover:text-accent-light transition-colors disabled:opacity-50 px-4 py-2 rounded-full border border-accent-dim hover:bg-accent/10"
             >
               {isFetchingNextPage ? 'Loading...' : 'Load more'}
             </button>

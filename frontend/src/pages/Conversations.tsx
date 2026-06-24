@@ -119,7 +119,7 @@ function ConversationItem({ conv, index, editing, editTitle, onNavigate, onStart
                 {conv.title || 'New conversation'}
               </p>
             )}
-            <p className={`text-[11px] mt-1 ${accent ? 'text-zinc-500' : 'text-zinc-600'}`}>
+            <p className={`text-xs mt-1 ${accent ? 'text-zinc-500' : 'text-zinc-500'}`}>
               {conv.turn_count} messages · {new Date(conv.last_active).toLocaleDateString()}
             </p>
           </div>
@@ -185,7 +185,7 @@ export function Conversations() {
 
         {/* Header */}
         <div className="glass-header sticky top-0 z-20 -mx-4 px-4 py-4 flex items-center justify-between">
-          <button onClick={() => navigate('/')} className="text-sm text-zinc-400 hover:text-white transition-colors flex items-center gap-1 lg:hidden">
+          <button onClick={() => navigate('/')} className="text-sm text-zinc-400 hover:text-white transition-colors flex items-center gap-1 lg:invisible">
             <ArrowLeft size={18} /> Feed
           </button>
           <h1 className="text-sm font-semibold text-zinc-300 lg:text-xl lg:font-bold lg:text-gradient">Conversations</h1>

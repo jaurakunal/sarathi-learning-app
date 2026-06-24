@@ -237,6 +237,9 @@ export function Chat({ embedded, paperId: propPaperId, cardId: propCardId, resea
       {!embedded && <div className="ambient-orb w-64 h-64 bg-violet-neon top-[-5rem] left-[-5rem]" />}
 
       {/* Header */}
+      {embedded && (
+        <div className="px-4 py-3 border-b border-white/[0.06] text-xs text-zinc-400 font-medium">Chat</div>
+      )}
       {!embedded && (
         <div className="glass-header sticky top-0 z-20">
           <div className="max-w-lg lg:max-w-3xl mx-auto w-full px-4 py-4">
@@ -258,7 +261,7 @@ export function Chat({ embedded, paperId: propPaperId, cardId: propCardId, resea
         {!historyLoading && messages.length === 0 && (
           <div className="text-center py-16">
             <p className="text-zinc-500 text-sm">
-              Ask anything about this paper.
+              {isResearch ? 'Ask anything across your research library.' : 'Ask anything about this paper.'}
             </p>
           </div>
         )}
@@ -292,7 +295,7 @@ export function Chat({ embedded, paperId: propPaperId, cardId: propCardId, resea
       </div>
 
       {/* Suggestions + Input */}
-      <div className="relative z-10 border-t border-white/5">
+      <div className="relative z-10 border-t border-white/[0.08] bg-[#0a0a0f]/90 backdrop-blur-sm">
         <div className={`${embedded ? 'px-4' : 'max-w-lg lg:max-w-3xl mx-auto w-full px-4'} pt-3 ${embedded ? '' : 'pb-safe-bottom'}`}>
           {!loading && (
             <SuggestionChips

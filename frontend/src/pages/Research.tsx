@@ -58,7 +58,7 @@ export function Research() {
 
         {/* Header */}
         <div className="glass-header sticky top-0 z-20 -mx-4 px-4 py-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-start gap-4">
             <button onClick={() => navigate('/')} className="text-sm text-zinc-400 hover:text-white transition-colors flex items-center gap-1 lg:hidden">
               <ArrowLeft size={18} /> Feed
             </button>
@@ -67,7 +67,7 @@ export function Research() {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-3 gap-3 mt-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-4">
           <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3 text-center">
             <p className="text-xl font-bold text-white">{stats.core_papers}</p>
             <p className="text-[10px] text-zinc-500 uppercase tracking-wide mt-1">Core Papers</p>

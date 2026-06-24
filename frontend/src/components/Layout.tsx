@@ -35,10 +35,10 @@ export function Layout({ children }: LayoutProps) {
               <button
                 key={path}
                 onClick={() => navigate(path)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
+                className={`w-full flex items-center gap-3 px-4 py-2 rounded-lg text-sm transition-colors ${
                   active
-                    ? 'text-white bg-white/[0.06]'
-                    : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
+                    ? 'text-white bg-white/[0.06] border-l-2 border-accent pl-[10px]'
+                    : 'text-zinc-400 hover:text-white hover:bg-white/[0.04] border-l-2 border-transparent pl-[10px]'
                 }`}
               >
                 <Icon size={18} className={active ? 'text-accent' : ''} />
@@ -49,7 +49,7 @@ export function Layout({ children }: LayoutProps) {
         </nav>
 
         {/* Logout */}
-        <div className="px-3 pb-6">
+        <div className="px-3 pb-6 border-t border-white/[0.06] pt-4">
           <button
             onClick={() => { logout(); window.location.reload() }}
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-zinc-500 hover:text-red-400 hover:bg-red-400/5 transition-colors"

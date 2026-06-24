@@ -74,7 +74,7 @@ function LibraryCard({ entry, index }: { entry: LibraryEntry; index: number }) {
       <ActionBadges actions={entry.actions} questionCount={entry.question_count} />
 
       {entry.last_engaged && (
-        <p className="text-xs text-zinc-600">
+        <p className="text-xs text-zinc-500">
           Last engaged {new Date(entry.last_engaged).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
         </p>
       )}
@@ -120,6 +120,7 @@ export function Library() {
               </p>
             </div>
 
+            <p className="text-xs text-zinc-500 mb-3">Sorted by most recently engaged</p>
             <div className="space-y-3 pb-8">
               {data.papers.map((entry, i) => (
                 <LibraryCard key={entry.paper_id} entry={entry} index={i} />
