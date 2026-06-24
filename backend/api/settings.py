@@ -21,8 +21,9 @@ def _get_user_id(event: dict) -> str:
 
 def handler(event: dict, context) -> dict:
     """
-    PUT /settings/pipeline — pause/resume pipeline for this user
-    DELETE /settings/delete-account — delete all user data
+    GET /settings — return current settings
+    PUT /settings — update settings (pipeline_status in body)
+    DELETE /account — delete all user data
     """
     user_id = _get_user_id(event)
     if not user_id:
@@ -33,9 +34,9 @@ def handler(event: dict, context) -> dict:
     dynamodb = boto3.resource("dynamodb")
     table = dynamodb.Table(TABLE_NAME)
 
-    if method == "PUT" and "pipeline" in path:
+    if method == "PUT" and "/settings" in path:
         body = json.loads(event.get("body") or "{}")
-        status = body.get("status", "active")
+        status = body.get("pipeline_status", body.get("status", "active"))
         if status not in ("active", "paused"):
             return _response(400, {"error": "status must be active or paused"})
 
@@ -45,9 +46,9 @@ def handler(event: dict, context) -> dict:
             ExpressionAttributeNames={"#s": "status"},
             ExpressionAttributeValues={":s": status},
         )
-        return _response(200, {"status": status})
+        return _response(200, {"pipeline_status": status})
 
-    elif method == "DELETE" and "delete-account" in path:
+    elif method == "DELETE" and "/account" in path:
         _delete_all_user_data(table, user_id)
         _delete_cognito_user(user_id)
         return _response(200, {"status": "deleted"})

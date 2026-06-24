@@ -611,27 +611,28 @@ def handler(event, context):
       authorizer,
       authorizationType: apigw.AuthorizationType.COGNITO,
     });
-    convResource.addMethod('PUT', new apigw.LambdaIntegration(convFn), {
+    const convIdResource = convResource.addResource('{conv_id}');
+    convIdResource.addMethod('PUT', new apigw.LambdaIntegration(convFn), {
       authorizer,
       authorizationType: apigw.AuthorizationType.COGNITO,
     });
-    convResource.addMethod('DELETE', new apigw.LambdaIntegration(convFn), {
+    convIdResource.addMethod('DELETE', new apigw.LambdaIntegration(convFn), {
       authorizer,
       authorizationType: apigw.AuthorizationType.COGNITO,
     });
 
     const settingsResource = api.root.addResource('settings');
-    const settingsPipelineResource = settingsResource.addResource('pipeline');
-    settingsPipelineResource.addMethod('PUT', new apigw.LambdaIntegration(settingsFn), {
-      authorizer,
-      authorizationType: apigw.AuthorizationType.COGNITO,
-    });
-    const settingsDeleteResource = settingsResource.addResource('delete-account');
-    settingsDeleteResource.addMethod('DELETE', new apigw.LambdaIntegration(settingsFn), {
-      authorizer,
-      authorizationType: apigw.AuthorizationType.COGNITO,
-    });
     settingsResource.addMethod('GET', new apigw.LambdaIntegration(settingsFn), {
+      authorizer,
+      authorizationType: apigw.AuthorizationType.COGNITO,
+    });
+    settingsResource.addMethod('PUT', new apigw.LambdaIntegration(settingsFn), {
+      authorizer,
+      authorizationType: apigw.AuthorizationType.COGNITO,
+    });
+
+    const accountResource = api.root.addResource('account');
+    accountResource.addMethod('DELETE', new apigw.LambdaIntegration(settingsFn), {
       authorizer,
       authorizationType: apigw.AuthorizationType.COGNITO,
     });
@@ -645,13 +646,13 @@ def handler(event, context):
       authorizer,
       authorizationType: apigw.AuthorizationType.COGNITO,
     });
-    const onboardingConfirmResource = onboardingResource.addResource('confirm');
-    onboardingConfirmResource.addMethod('POST', new apigw.LambdaIntegration(onboardingConfirmFn), {
+    const onboardingProfileResource = onboardingResource.addResource('profile');
+    onboardingProfileResource.addMethod('PUT', new apigw.LambdaIntegration(onboardingConfirmFn), {
       authorizer,
       authorizationType: apigw.AuthorizationType.COGNITO,
     });
 
-    const suggestResource = api.root.addResource('suggest');
+    const suggestResource = api.root.addResource('suggestions');
     suggestResource.addMethod('POST', new apigw.LambdaIntegration(suggestFn), {
       authorizer,
       authorizationType: apigw.AuthorizationType.COGNITO,
@@ -664,12 +665,12 @@ def handler(event, context):
     });
 
     const pushResource = api.root.addResource('push');
-    const pushSubscribeResource = pushResource.addResource('subscribe');
-    pushSubscribeResource.addMethod('POST', new apigw.LambdaIntegration(pushFn), {
+    const pushSubscriptionsResource = pushResource.addResource('subscriptions');
+    pushSubscriptionsResource.addMethod('POST', new apigw.LambdaIntegration(pushFn), {
       authorizer,
       authorizationType: apigw.AuthorizationType.COGNITO,
     });
-    pushSubscribeResource.addMethod('DELETE', new apigw.LambdaIntegration(pushFn), {
+    pushSubscriptionsResource.addMethod('DELETE', new apigw.LambdaIntegration(pushFn), {
       authorizer,
       authorizationType: apigw.AuthorizationType.COGNITO,
     });

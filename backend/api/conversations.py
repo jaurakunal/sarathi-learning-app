@@ -25,12 +25,15 @@ def handler(event: dict, context) -> dict:
     """
     GET /conversations — list all conversations
     POST /conversations — create a new research conversation
+    PUT /conversations/{conv_id} — update conversation title
+    DELETE /conversations/{conv_id} — delete a conversation
     """
     user_id = _get_user_id(event)
     if not user_id:
         return _response(401, {"error": "Unauthorized"})
 
     method = event.get("httpMethod", "")
+    path_params = event.get("pathParameters") or {}
     dynamodb = boto3.resource("dynamodb")
     table = dynamodb.Table(TABLE_NAME)
 
@@ -38,8 +41,11 @@ def handler(event: dict, context) -> dict:
         return _response(200, {})
 
     if method == "PUT":
+        conv_id = path_params.get("conv_id", "")
         body = json.loads(event.get("body") or "{}")
-        conv_id = body.get("conv_id", "")
+        # Fallback: also accept conv_id in body for backwards compatibility
+        if not conv_id:
+            conv_id = body.get("conv_id", "")
         title = body.get("title", "")
         if not conv_id or not title:
             return _response(400, {"error": "conv_id and title required"})
@@ -87,8 +93,11 @@ def handler(event: dict, context) -> dict:
         })
 
     elif method == "DELETE":
-        body = json.loads(event.get("body") or "{}")
-        conv_id = body.get("conv_id", "")
+        conv_id = path_params.get("conv_id", "")
+        # Fallback: also accept conv_id in body for backwards compatibility
+        if not conv_id:
+            body = json.loads(event.get("body") or "{}")
+            conv_id = body.get("conv_id", "")
         if not conv_id:
             return _response(400, {"error": "conv_id required"})
         db.delete_conversation(table, user_id, conv_id)

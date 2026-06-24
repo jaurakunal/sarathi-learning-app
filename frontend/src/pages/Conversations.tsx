@@ -28,16 +28,15 @@ function createConversation(title: string): Promise<{ conv_id: string; title: st
 }
 
 function updateTitle(convId: string, title: string): Promise<void> {
-  return apiFetch('/conversations', {
+  return apiFetch('/conversations/' + convId, {
     method: 'PUT',
-    body: JSON.stringify({ conv_id: convId, title }),
+    body: JSON.stringify({ title }),
   })
 }
 
 function deleteConversation(convId: string): Promise<void> {
-  return apiFetch('/conversations', {
+  return apiFetch('/conversations/' + convId, {
     method: 'DELETE',
-    body: JSON.stringify({ conv_id: convId }),
   })
 }
 

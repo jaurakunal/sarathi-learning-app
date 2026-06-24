@@ -32,9 +32,9 @@ export function Settings() {
     setPauseLoading(true)
     try {
       const newStatus = paused ? 'active' : 'paused'
-      await apiFetch('/settings/pipeline', {
+      await apiFetch('/settings', {
         method: 'PUT',
-        body: JSON.stringify({ status: newStatus }),
+        body: JSON.stringify({ pipeline_status: newStatus }),
       })
       setPaused(!paused)
     } catch {
@@ -47,7 +47,7 @@ export function Settings() {
   async function deleteAccount() {
     setDeleteLoading(true)
     try {
-      await apiFetch('/settings/delete-account', { method: 'DELETE' })
+      await apiFetch('/account', { method: 'DELETE' })
       logout()
       window.location.reload()
     } catch {

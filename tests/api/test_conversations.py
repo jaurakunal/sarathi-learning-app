@@ -15,11 +15,12 @@ from backend.api.conversations import handler
 # ---------------------------------------------------------------------------
 
 
-def _make_event(method="GET", body=None, user_id="test-user-123"):
+def _make_event(method="GET", body=None, user_id="test-user-123", path_params=None):
     return {
         "httpMethod": method,
         "requestContext": {"authorizer": {"claims": {"sub": user_id}}},
         "body": json.dumps(body) if body else None,
+        "pathParameters": path_params,
     }
 
 
@@ -119,8 +120,8 @@ class TestPutConversation:
         mock_table = MagicMock()
         mock_boto3.resource.return_value.Table.return_value = mock_table
 
-        body = {"conv_id": "conv-1", "title": "Updated Title"}
-        result = handler(_make_event("PUT", body), None)
+        body = {"title": "Updated Title"}
+        result = handler(_make_event("PUT", body, path_params={"conv_id": "conv-1"}), None)
 
         assert result["statusCode"] == 200
         mock_db.update_conversation_title.assert_called_once_with(
@@ -151,8 +152,7 @@ class TestDeleteConversation:
         mock_table = MagicMock()
         mock_boto3.resource.return_value.Table.return_value = mock_table
 
-        body = {"conv_id": "conv-1"}
-        result = handler(_make_event("DELETE", body), None)
+        result = handler(_make_event("DELETE", path_params={"conv_id": "conv-1"}), None)
 
         assert result["statusCode"] == 200
         mock_db.delete_conversation.assert_called_once_with(

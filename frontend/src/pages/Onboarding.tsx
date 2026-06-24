@@ -128,8 +128,8 @@ export function Onboarding() {
   async function confirmProfile() {
     setConfirming(true)
     try {
-      await apiFetch('/onboarding/confirm', {
-        method: 'POST',
+      await apiFetch('/onboarding/profile', {
+        method: 'PUT',
         body: JSON.stringify({ profile }),
       })
       setConfirmed(true)

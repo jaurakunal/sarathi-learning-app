@@ -44,7 +44,7 @@ export function usePushNotifications() {
       applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
     })
 
-    await apiFetch('/push/subscribe', {
+    await apiFetch('/push/subscriptions', {
       method: 'POST',
       body: JSON.stringify({ subscription: subscription.toJSON() }),
     })

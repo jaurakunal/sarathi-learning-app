@@ -89,7 +89,7 @@ export function Chat({ embedded, paperId: propPaperId, cardId: propCardId, resea
     if (!paperId) return
     setSuggestionsLoading(true)
     try {
-      const res = await apiFetch<{ suggestions: string[] }>('/suggest', {
+      const res = await apiFetch<{ suggestions: string[] }>('/suggestions', {
         method: 'POST',
         body: JSON.stringify({ paper_id: paperId }),
       })
