@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { LogOut, TrendingUp, BookOpen, Search, X, Target, Menu, MessageCircle, Inbox } from 'lucide-react'
+import { LogOut, TrendingUp, BookOpen, Search, X, Target, Menu, MessageCircle, Inbox, Settings } from 'lucide-react'
 import { getFeed } from '../api/feed'
 import { postEngagement } from '../api/engagement'
 import { FeedCard } from '../components/FeedCard'
@@ -120,6 +120,9 @@ export function Feed() {
                 </button>
                 <button onClick={() => { navigate('/profile'); setMenuOpen(false) }} className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm text-zinc-300 hover:text-white hover:bg-white/[0.04] transition-colors">
                   <TrendingUp size={18} className="text-zinc-400" /> Progress
+                </button>
+                <button onClick={() => { navigate('/settings'); setMenuOpen(false) }} className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm text-zinc-300 hover:text-white hover:bg-white/[0.04] transition-colors">
+                  <Settings size={18} className="text-zinc-400" /> Settings
                 </button>
                 <div className="border-t border-white/[0.06] my-3" />
                 <button onClick={() => { logout(); window.location.reload() }} className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm text-zinc-500 hover:text-red-400 hover:bg-red-400/5 transition-colors">

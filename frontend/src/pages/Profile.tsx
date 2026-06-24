@@ -126,7 +126,17 @@ export function Profile() {
   })
 
   if (isLoading) return <Layout><div className="min-h-screen bg-[#0a0a0f]"><LoadingSpinner /></div></Layout>
-  if (isError || !data) return <Layout><div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center"><p className="text-red-400 text-sm">Failed to load profile</p></div></Layout>
+  if (isError) return <Layout><div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center"><p className="text-red-400 text-sm">Failed to load profile</p></div></Layout>
+  if (!data || (!data.areas?.length && !data.stats_7d?.papers_read === undefined)) return (
+    <Layout>
+      <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center">
+        <div className="text-center space-y-3">
+          <p className="text-zinc-500 text-sm">No profile data yet.</p>
+          <p className="text-zinc-600 text-xs">Your progress will appear here after your first papers are digested.</p>
+        </div>
+      </div>
+    </Layout>
+  )
 
   const { areas, hypothesis, stats_7d, timeline } = data
 
