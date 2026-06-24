@@ -227,81 +227,87 @@ export function CardDetail() {
           )}
         </div>
 
-        {/* Sections */}
-        <div className="space-y-0">
-          {card.digest.gist && (
-            <CollapsibleSection title="Gist" defaultOpen>
-              <p className="text-sm text-zinc-300 leading-relaxed">
-                {card.digest.gist}
-              </p>
-            </CollapsibleSection>
-          )}
+        {/* Sections — two columns on desktop */}
+        <div className="lg:flex lg:gap-8">
+          {/* Main reading content (left) */}
+          <div className="lg:flex-1 space-y-0">
+            {card.digest.gist && (
+              <CollapsibleSection title="Gist" defaultOpen>
+                <p className="text-sm text-zinc-300 leading-relaxed">
+                  {card.digest.gist}
+                </p>
+              </CollapsibleSection>
+            )}
 
-          {card.digest.key_ideas?.length > 0 && (
-            <CollapsibleSection title="Key Ideas" defaultOpen>
-              <ul className="space-y-2">
-                {card.digest.key_ideas.map((idea, i) => (
-                  <li key={i} className="text-sm text-zinc-300 leading-relaxed flex gap-2">
-                    <span className="text-zinc-600 shrink-0">•</span>
-                    <span>{idea}</span>
-                  </li>
-                ))}
-              </ul>
-            </CollapsibleSection>
-          )}
+            {card.digest.key_ideas?.length > 0 && (
+              <CollapsibleSection title="Key Ideas" defaultOpen>
+                <ul className="space-y-2">
+                  {card.digest.key_ideas.map((idea, i) => (
+                    <li key={i} className="text-sm text-zinc-300 leading-relaxed flex gap-2">
+                      <span className="text-zinc-600 shrink-0">•</span>
+                      <span>{idea}</span>
+                    </li>
+                  ))}
+                </ul>
+              </CollapsibleSection>
+            )}
 
-          {card.glossary?.length > 0 && (
-            <CollapsibleSection title="Glossary" onExpand={() => engagement.fireExpand('glossary')}>
-              <Glossary items={card.glossary} />
-            </CollapsibleSection>
-          )}
+            {card.digest.deep && (
+              <CollapsibleSection title="Deep Dive" onExpand={() => engagement.fireExpand('deep_dive')}>
+                <p className="text-sm text-zinc-300 leading-relaxed whitespace-pre-line">
+                  {card.digest.deep}
+                </p>
+              </CollapsibleSection>
+            )}
 
-          {card.digest.deep && (
-            <CollapsibleSection title="Deep Dive" onExpand={() => engagement.fireExpand('deep_dive')}>
-              <p className="text-sm text-zinc-300 leading-relaxed whitespace-pre-line">
-                {card.digest.deep}
-              </p>
-            </CollapsibleSection>
-          )}
+            {card.hypothesis_relevance && (
+              <CollapsibleSection title="For Your Hypothesis" defaultOpen>
+                <p className="text-sm text-zinc-300 leading-relaxed italic">
+                  {card.hypothesis_relevance}
+                </p>
+              </CollapsibleSection>
+            )}
+          </div>
 
-          {card.math_notes?.length > 0 && (
-            <CollapsibleSection title="Math Notes" onExpand={() => engagement.fireExpand('math_notes')}>
-              <div className="space-y-3">
-                {card.math_notes.map((note, i) => (
-                  <MathNote key={i} plain={note.plain} equation={note.equation_optional} />
-                ))}
-              </div>
-            </CollapsibleSection>
-          )}
+          {/* Reference sidebar (right) — stacks below on mobile */}
+          <div className="lg:w-80 lg:shrink-0 space-y-0 lg:border-l lg:border-white/[0.04] lg:pl-8">
+            {card.glossary?.length > 0 && (
+              <CollapsibleSection title="Glossary" onExpand={() => engagement.fireExpand('glossary')}>
+                <Glossary items={card.glossary} />
+              </CollapsibleSection>
+            )}
 
-          {card.hypothesis_relevance && (
-            <CollapsibleSection title="For Your Hypothesis" defaultOpen>
-              <p className="text-sm text-zinc-300 leading-relaxed italic">
-                {card.hypothesis_relevance}
-              </p>
-            </CollapsibleSection>
-          )}
+            {card.math_notes?.length > 0 && (
+              <CollapsibleSection title="Math Notes" onExpand={() => engagement.fireExpand('math_notes')}>
+                <div className="space-y-3">
+                  {card.math_notes.map((note, i) => (
+                    <MathNote key={i} plain={note.plain} equation={note.equation_optional} />
+                  ))}
+                </div>
+              </CollapsibleSection>
+            )}
 
-          {card.honesty_note && (
-            <CollapsibleSection title="Honesty Note" defaultOpen>
-              <p className="text-sm text-zinc-300 leading-relaxed">
-                {card.honesty_note}
-              </p>
-            </CollapsibleSection>
-          )}
+            {card.honesty_note && (
+              <CollapsibleSection title="Honesty Note" defaultOpen>
+                <p className="text-sm text-zinc-300 leading-relaxed">
+                  {card.honesty_note}
+                </p>
+              </CollapsibleSection>
+            )}
 
-          {card.suggested_questions?.length > 0 && (
-            <CollapsibleSection title="Questions You Might Ask" defaultOpen>
-              <ul className="space-y-2">
-                {card.suggested_questions.map((q, i) => (
-                  <li key={i} className="text-sm text-zinc-300 leading-relaxed flex gap-2">
-                    <span className="text-zinc-600 shrink-0">?</span>
-                    <span>{q}</span>
-                  </li>
-                ))}
-              </ul>
-            </CollapsibleSection>
-          )}
+            {card.suggested_questions?.length > 0 && (
+              <CollapsibleSection title="Questions You Might Ask" defaultOpen>
+                <ul className="space-y-2">
+                  {card.suggested_questions.map((q, i) => (
+                    <li key={i} className="text-sm text-zinc-300 leading-relaxed flex gap-2">
+                      <span className="text-zinc-600 shrink-0">?</span>
+                      <span>{q}</span>
+                    </li>
+                  ))}
+                </ul>
+              </CollapsibleSection>
+            )}
+          </div>
         </div>
 
         {/* Actions bar */}
