@@ -56,11 +56,20 @@ export function AuthGate({ children }: AuthGateProps) {
     try {
       await signUp(email, password)
       // Auto-confirmed by pre-signup trigger — sign in immediately
-      await login(email, password)
-      setAuthed(true)
+      // Small delay to allow Cognito propagation
+      await new Promise((r) => setTimeout(r, 1000))
+      try {
+        await login(email, password)
+        setAuthed(true)
+      } catch {
+        // Retry once after another second
+        await new Promise((r) => setTimeout(r, 1500))
+        await login(email, password)
+        setAuthed(true)
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Sign up failed'
-      if (msg.includes('not confirmed') || msg.includes('verification')) {
+      if (msg.includes('not confirmed') || msg.includes('UserNotConfirmedException')) {
         setView('verify')
       } else {
         setError(msg)
