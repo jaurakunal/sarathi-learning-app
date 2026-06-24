@@ -120,15 +120,16 @@ def _delete_all_user_data(table, user_id: str) -> None:
                 for item in items_resp.get("Items", []):
                     batch.delete_item(Key={"PK": item["PK"], "SK": item["SK"]})
 
-    # Delete papers
-    paper_resp = table.query(
-        IndexName="GSI2",
-        KeyConditionExpression=Key("gsi2pk").begins_with(f"USER#{user_id}#PAPER_STATUS"),
-        ProjectionExpression="PK, SK",
-    )
-    with table.batch_writer() as batch:
-        for item in paper_resp.get("Items", []):
-            batch.delete_item(Key={"PK": item["PK"], "SK": item["SK"]})
+    # Delete papers (query each status)
+    for status in ("candidate", "triaged", "surfaced", "digested", "rejected"):
+        paper_resp = table.query(
+            IndexName="GSI2",
+            KeyConditionExpression=Key("gsi2pk").eq(f"USER#{user_id}#PAPER_STATUS#{status}"),
+            ProjectionExpression="PK, SK",
+        )
+        with table.batch_writer() as batch:
+            for item in paper_resp.get("Items", []):
+                batch.delete_item(Key={"PK": item["PK"], "SK": item["SK"]})
 
     # Remove from active users
     table.delete_item(Key={"PK": "SYSTEM#USERS", "SK": f"USER#{user_id}"})
