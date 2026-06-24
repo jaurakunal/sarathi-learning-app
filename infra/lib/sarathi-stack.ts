@@ -95,7 +95,7 @@ export class SarathiStack extends cdk.Stack {
     const preSignUpFn = new lambda.Function(this, 'PreSignUpFn', {
       functionName: 'sarathi-pre-signup',
       runtime: lambda.Runtime.PYTHON_3_12,
-      handler: 'backend.auth.pre_signup.handler',
+      handler: 'index.handler',
       code: lambda.Code.fromInline(`
 def handler(event, context):
     event['response']['autoConfirmUser'] = True
