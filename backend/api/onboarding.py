@@ -155,32 +155,147 @@ def handler(event: dict, context) -> dict:
 
 
 def _extract_profile(response: str) -> dict | None:
-    """Try to extract profile_complete JSON from the LLM response."""
-    if "profile_complete" not in response:
+    """Try to extract a profile JSON from the LLM response.
+
+    Handles multiple formats:
+    - Prescribed format: {type: "profile_complete", profile: {...}}
+    - Free-form: {who: {...}, areas: {...}, level: {...}, goal: {...}}
+    - With or without markdown fences
+    """
+    # Try to find JSON in the response — either in fences or bare
+    json_str = None
+
+    # Check for markdown fences first
+    fence_start = response.find("```json")
+    if fence_start == -1:
+        fence_start = response.find("```")
+    if fence_start != -1:
+        try:
+            content_start = response.index("\n", fence_start) + 1
+            fence_end = response.find("```", content_start)
+            if fence_end != -1:
+                json_str = response[content_start:fence_end].strip()
+        except ValueError:
+            pass
+
+    # If no fences, look for a bare JSON object (starts with { on its own line)
+    if not json_str:
+        lines = response.split("\n")
+        brace_start = None
+        for i, line in enumerate(lines):
+            if line.strip() == "{":
+                brace_start = i
+                break
+            elif line.strip().startswith('{"'):
+                brace_start = i
+                break
+        if brace_start is not None:
+            remaining = "\n".join(lines[brace_start:])
+            depth = 0
+            end_idx = 0
+            for idx, ch in enumerate(remaining):
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        end_idx = idx + 1
+                        break
+            if end_idx > 0:
+                json_str = remaining[:end_idx]
+
+    if not json_str:
         return None
 
     try:
-        # Find JSON block in markdown fences
-        start = response.find("```json")
-        if start == -1:
-            start = response.find("```")
-        if start == -1:
-            return None
-
-        start = response.index("\n", start) + 1
-        end = response.find("```", start)
-        if end == -1:
-            return None
-
-        json_str = response[start:end].strip()
         data = json.loads(json_str)
+    except json.JSONDecodeError:
+        return None
 
-        if data.get("type") == "profile_complete" and data.get("profile"):
-            return data
-    except (json.JSONDecodeError, ValueError):
-        pass
+    # Handle prescribed format
+    if data.get("type") == "profile_complete" and data.get("profile"):
+        return data
+
+    # Handle free-form format (has keys like who, areas, level, goal)
+    if any(k in data for k in ("areas", "level", "goal", "who", "what")):
+        profile = _normalize_freeform_profile(data)
+        summary = _build_summary_from_profile(data)
+        return {
+            "type": "profile_complete",
+            "confidence": data.get("level", {}).get("confidence", 90) if isinstance(data.get("level"), dict) else 90,
+            "summary": summary,
+            "profile": profile,
+        }
 
     return None
+
+
+def _normalize_freeform_profile(data: dict) -> dict:
+    """Convert a free-form LLM profile JSON into the structured format we store."""
+    areas_raw = data.get("areas", {})
+    who = data.get("who", {})
+    level = data.get("level", {})
+    goal = data.get("goal", {})
+    style = data.get("style", {})
+    what = data.get("what", {})
+
+    # Build areas list
+    areas = []
+    core_areas = areas_raw.get("core", []) if isinstance(areas_raw, dict) else []
+    adjacent_areas = areas_raw.get("adjacent", []) if isinstance(areas_raw, dict) else []
+
+    for label in core_areas:
+        areas.append({
+            "id": label.lower().replace(" ", "-").replace("&", "and")[:30],
+            "label": label,
+            "role": "primary",
+            "frontier": "",
+            "current_level": level.get("ml_ai_theory", "intermediate") if isinstance(level, dict) else "intermediate",
+        })
+    for label in adjacent_areas:
+        areas.append({
+            "id": label.lower().replace(" ", "-").replace("&", "and")[:30],
+            "label": label,
+            "role": "secondary",
+            "frontier": "",
+            "current_level": "beginner",
+        })
+
+    # Build meta
+    meta = {
+        "learning_style": {
+            "depth": "practitioner",
+            "math_comfort": "avoid" if "avoid" in str(style).lower() or "math" in str(style).lower() else "tolerate",
+            "paper_preference": "applied",
+        },
+        "paper_goal": goal.get("primary", "") if isinstance(goal, dict) else str(goal),
+        "background": f"{who.get('role', '')} — {who.get('domain', '')}" if isinstance(who, dict) else "",
+    }
+
+    # Hypothesis
+    hypothesis = {
+        "statement": goal.get("primary", "") if isinstance(goal, dict) else "",
+        "status": "forming",
+    }
+
+    return {"areas": areas, "meta": meta, "hypothesis": hypothesis}
+
+
+def _build_summary_from_profile(data: dict) -> str:
+    """Build a natural-language summary from the free-form profile data."""
+    who = data.get("who", {})
+    goal = data.get("goal", {})
+    areas = data.get("areas", {})
+
+    parts = []
+    if isinstance(who, dict) and who.get("role"):
+        parts.append(f"{who['role']} working in {who.get('domain', 'tech')}")
+    if isinstance(areas, dict) and areas.get("core"):
+        parts.append(f"focused on {', '.join(areas['core'][:3])}")
+    if isinstance(goal, dict) and goal.get("primary"):
+        parts.append(f"with the goal of: {goal['primary']}")
+
+    return ". ".join(parts) + "." if parts else "Profile built from onboarding interview."
 
 
 def _response(status: int, body: dict) -> dict:

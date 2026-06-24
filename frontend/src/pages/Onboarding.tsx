@@ -53,10 +53,20 @@ export function Onboarding() {
         body: JSON.stringify({ message: text }),
       })
 
-      // Strip the JSON block from the displayed message if profile is complete
+      // Strip JSON from displayed message when profile is complete
       let displayResponse = res.response
       if (res.profile_complete) {
-        const jsonStart = displayResponse.indexOf('```json')
+        // Try fenced JSON first
+        let jsonStart = displayResponse.indexOf('```json')
+        if (jsonStart === -1) jsonStart = displayResponse.indexOf('```')
+        // Try bare JSON block (line starting with {)
+        if (jsonStart === -1) {
+          const lines = displayResponse.split('\n')
+          const braceIdx = lines.findIndex((l) => l.trim() === '{' || l.trim().startsWith('{"'))
+          if (braceIdx > -1) {
+            jsonStart = lines.slice(0, braceIdx).join('\n').length
+          }
+        }
         if (jsonStart > -1) {
           displayResponse = displayResponse.slice(0, jsonStart).trim()
         }
