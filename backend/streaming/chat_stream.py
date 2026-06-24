@@ -32,6 +32,7 @@ from backend.streaming.chat import (
     _format_summaries,
     SYSTEM_PROMPT,
 )
+from boto3.dynamodb.conditions import Key
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -181,6 +182,9 @@ def handler(event: dict, context) -> dict:
     card = db.get_feed_card_by_paper(table, user_id, paper_id)
     card_context = _format_card_context(card) if card else ""
 
+    # 3c. Load research context: tags + pinned insights across library
+    research_context = _build_research_context(table, user_id)
+
     # 4. Build LLM context
     if retrieved_context:
         system_prompt = _build_system_prompt_with_retrieval(retrieved_context, profile, card_context)
@@ -188,6 +192,8 @@ def handler(event: dict, context) -> dict:
         system_prompt = _build_system_prompt(paper_text, profile)
         if card_context:
             system_prompt += f"\n\n<card_details>\n{card_context}\n</card_details>"
+    if research_context:
+        system_prompt += f"\n\n<research_context>\n{research_context}\n</research_context>"
     llm_messages = _build_messages(turns, message)
 
     # 7. Call Bedrock streaming and publish chunks
@@ -258,3 +264,73 @@ def handler(event: dict, context) -> dict:
     )
 
     return {"conversationId": conv_id, "turnSeq": seq, "status": "ok"}
+
+
+def _build_research_context(table, user_id: str) -> str:
+    """Build research context from tagged papers + pinned insights across library."""
+    # Get all feed cards with tags
+    resp = table.query(
+        KeyConditionExpression=(
+            Key("PK").eq(f"USER#{user_id}#FEED")
+            & Key("SK").begins_with("CARD#")
+        ),
+    )
+    cards = resp.get("Items", [])
+    core_cards = [c for c in cards if c.get("relevance") == "core"]
+
+    if not core_cards:
+        # Get pinned insights even without tagged papers
+        pass
+
+    parts = []
+
+    # Tag structure
+    if core_cards:
+        tag_map: dict[str, list[str]] = {}
+        for card in core_cards:
+            for tag in card.get("tags", []):
+                if tag not in tag_map:
+                    tag_map[tag] = []
+                tag_map[tag].append(card.get("hook", "")[:80])
+
+        if tag_map:
+            parts.append("RESEARCH TAGS:")
+            for tag, hooks in tag_map.items():
+                parts.append(f"  [{tag}] ({len(hooks)} papers)")
+                for hook in hooks[:3]:
+                    parts.append(f"    - {hook}")
+
+    # Pinned insights across all conversations
+    conv_resp = table.query(
+        IndexName="GSI1",
+        KeyConditionExpression=Key("gsi1pk").eq(f"USER#{user_id}"),
+    )
+    convs = conv_resp.get("Items", [])
+
+    pinned_parts = []
+    for conv in convs:
+        conv_id = conv.get("conv_id", "")
+        turns_resp = table.query(
+            KeyConditionExpression=(
+                Key("PK").eq(f"USER#{user_id}#CONV#{conv_id}")
+                & Key("SK").begins_with("TURN#")
+            ),
+            FilterExpression="pinned = :t",
+            ExpressionAttributeValues={":t": True},
+        )
+        for turn in turns_resp.get("Items", []):
+            question = turn.get("request", "")[:100]
+            answer = (turn.get("response") or "")[:200]
+            pin_note = turn.get("pin_note", "")
+            if answer:
+                entry = f"  Q: {question}\n  A: {answer}..."
+                if pin_note:
+                    entry += f"\n  Note: {pin_note}"
+                pinned_parts.append(entry)
+
+    if pinned_parts:
+        parts.append("\nPINNED INSIGHTS (key takeaways the user marked across their library):")
+        for p in pinned_parts[:10]:
+            parts.append(p)
+
+    return "\n".join(parts) if parts else ""

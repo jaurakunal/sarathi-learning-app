@@ -485,6 +485,7 @@ def _build_system_prompt_with_retrieval(retrieved_context: str, profile: dict, c
         "\n- If the retrieved context doesn't answer the question, say so honestly rather than guessing."
         "\n- Keep citations concise — they help the reader find the original paper in their library."
         "\n- You have access to the card details (glossary, digest, math notes, etc.) for the current paper — use them when the user asks about those elements."
+        "\n- If research_context is provided, use the user's tagged papers and pinned insights to connect the current discussion to their broader research. Reference their pinned insights when relevant."
     )
     if summaries_text:
         prompt += f"\n\n<user_context>\n{summaries_text}\n</user_context>"
