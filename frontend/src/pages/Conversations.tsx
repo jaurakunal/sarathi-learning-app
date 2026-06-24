@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { ArrowLeft, Plus, MessageCircle, FileText } from 'lucide-react'
+import { ArrowLeft, Plus, MessageCircle, FileText, Pencil, Check } from 'lucide-react'
 import { apiFetch } from '../api/client'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 
@@ -26,10 +26,19 @@ function createConversation(title: string): Promise<{ conv_id: string; title: st
   })
 }
 
+function updateTitle(convId: string, title: string): Promise<void> {
+  return apiFetch('/conversations', {
+    method: 'PUT',
+    body: JSON.stringify({ conv_id: convId, title }),
+  })
+}
+
 export function Conversations() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [creating, setCreating] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editTitle, setEditTitle] = useState('')
 
   const { data, isLoading } = useQuery({
     queryKey: ['conversations'],
@@ -77,26 +86,52 @@ export function Conversations() {
             <h2 className="text-xs text-zinc-500 uppercase tracking-wide font-medium mb-2 px-1">Research</h2>
             <div className="space-y-2">
               {researchConvs.map((conv, i) => (
-                <motion.button
+                <motion.div
                   key={conv.conv_id}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.03 }}
-                  onClick={() => navigate(`/chat/research/${conv.conv_id}`)}
-                  className="w-full text-left feed-card feed-card--unread rounded-xl p-4 transition-all hover:border-accent/30"
+                  className="feed-card feed-card--unread rounded-xl p-4 transition-all hover:border-accent/30"
                 >
                   <div className="flex items-start gap-3">
                     <MessageCircle size={14} className="text-accent mt-0.5 shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-white/90 font-medium truncate">
-                        {conv.title || 'New conversation'}
-                      </p>
+                    <div className="flex-1 min-w-0 cursor-pointer" onClick={() => navigate(`/chat/research/${conv.conv_id}`)}>
+                      {editingId === conv.conv_id ? (
+                        <form onSubmit={(e) => {
+                          e.preventDefault()
+                          updateTitle(conv.conv_id, editTitle).then(() => {
+                            queryClient.invalidateQueries({ queryKey: ['conversations'] })
+                            setEditingId(null)
+                          })
+                        }} className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="text"
+                            value={editTitle}
+                            onChange={(e) => setEditTitle(e.target.value)}
+                            autoFocus
+                            className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-lg px-2 py-1 text-sm text-white focus:outline-none focus:border-accent/40"
+                          />
+                          <button type="submit" className="text-accent p-1"><Check size={14} /></button>
+                        </form>
+                      ) : (
+                        <p className="text-sm text-white/90 font-medium truncate">
+                          {conv.title || 'New conversation'}
+                        </p>
+                      )}
                       <p className="text-[11px] text-zinc-500 mt-1">
                         {conv.turn_count} messages · {new Date(conv.last_active).toLocaleDateString()}
                       </p>
                     </div>
+                    {editingId !== conv.conv_id && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setEditingId(conv.conv_id); setEditTitle(conv.title || '') }}
+                        className="text-zinc-600 hover:text-zinc-300 p-1 shrink-0"
+                      >
+                        <Pencil size={12} />
+                      </button>
+                    )}
                   </div>
-                </motion.button>
+                </motion.div>
               ))}
             </div>
           </div>
@@ -113,7 +148,7 @@ export function Conversations() {
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.03 }}
-                  onClick={() => navigate(`/card/${conv.conv_id}/chat`, { state: { paper_id: conv.paper_id } })}
+                  onClick={() => navigate(`/chat/research/${conv.conv_id}`)}
                   className="w-full text-left feed-card feed-card--read rounded-xl p-4 transition-all hover:opacity-80"
                 >
                   <div className="flex items-start gap-3">

@@ -37,14 +37,38 @@ def handler(event: dict, context) -> dict:
     if method == "OPTIONS":
         return _response(200, {})
 
+    if method == "PUT":
+        body = json.loads(event.get("body") or "{}")
+        conv_id = body.get("conv_id", "")
+        title = body.get("title", "")
+        if not conv_id or not title:
+            return _response(400, {"error": "conv_id and title required"})
+        db.update_conversation_title(table, user_id, conv_id, title)
+        return _response(200, {"status": "updated"})
+
     if method == "GET":
         convs = db.list_all_conversations(table, user_id)
+
+        # For paper conversations without titles, look up the card hook
+        paper_hooks = {}
+        for conv in convs:
+            if conv.get("scope") != "research" and not conv.get("title"):
+                pid = conv.get("paper_id") or conv.get("conv_id", "")
+                if pid and pid not in paper_hooks:
+                    card = db.get_feed_card_by_paper(table, user_id, pid)
+                    if card:
+                        paper_hooks[pid] = card.get("hook", "")[:60]
+
         result = []
         for conv in convs:
+            title = conv.get("title", "")
+            if not title and conv.get("scope") != "research":
+                pid = conv.get("paper_id") or conv.get("conv_id", "")
+                title = paper_hooks.get(pid, pid[:20])
             result.append({
                 "conv_id": conv.get("conv_id", ""),
                 "scope": conv.get("scope", "paper"),
-                "title": conv.get("title", ""),
+                "title": title,
                 "paper_id": conv.get("paper_id", ""),
                 "last_active": conv.get("last_active", ""),
                 "turn_count": int(conv.get("turn_count", 0)),
