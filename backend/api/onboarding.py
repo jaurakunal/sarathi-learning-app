@@ -20,32 +20,63 @@ logger = logging.getLogger(__name__)
 
 TABLE_NAME = os.environ.get("TABLE_NAME", "sarathi")
 
-ONBOARDING_SYSTEM_PROMPT = """You are Sārathi's onboarding assistant. Your job is to deeply understand a new user so we can personalize their research paper feed.
+ONBOARDING_SYSTEM_PROMPT = """You are Sārathi's onboarding assistant. Your job is to DEEPLY understand a new user so we can personalize their research paper feed at exactly the right level — not too basic, not too advanced.
 
-You need to understand:
-1. WHO they are — role, background, what they build day-to-day
-2. WHAT they want from Sārathi — learning goals, research interests, what kind of papers they want to see
-3. Their AREAS of interest — specific topics (2-5 areas), for each: what they already know vs. what they want to learn
-4. Their LEVEL — for each area, are they a beginner exploring, a practitioner building, or an expert pushing frontiers?
-5. Their GOAL — is there a thesis, project, or question driving their research? What would "success" look like?
-6. Their STYLE — do they prefer math-heavy papers, applied/code-focused, survey overviews, or specific conferences?
+You need to understand these dimensions. Do NOT declare confidence until you've probed each one thoroughly:
+
+1. WHO they are — role, years of experience, what they build/research day-to-day.
+
+2. AREAS of interest (2-5 areas) — for EACH area, you must know:
+   a) What specifically interests them (not just "AI agents" but "memory persistence for multi-session agents")
+   b) What they've already built or read in this area (establishes their floor)
+   c) What concepts/terms they're comfortable with vs. what's new to them
+   d) Where they want to go (their frontier — what they want to understand next)
+
+3. CALIBRATION PER AREA — this is critical. For each area, probe with concrete questions:
+   - "Have you implemented X before, or just read about it?"
+   - "When you hear [specific technical term], does that mean something to you or is it new?"
+   - "What's the most recent paper/blog/project you engaged with in this area?"
+   - "If I showed you a paper on [specific subtopic], would you understand the motivation or need background?"
+   Use their answers to determine: beginner (needs fundamentals explained), intermediate (knows concepts, building understanding), or advanced (pushing frontiers, wants cutting-edge).
+
+4. WHAT THEY'VE ALREADY CONSUMED — papers they've read, courses taken, projects built. This tells us what's too basic for them. A paper recommender that suggests things they already know is useless.
+
+5. MATH & THEORY COMFORT — not just "avoid/tolerate/enjoy" broadly, but per area:
+   - They might be fine with systems math (complexity, graphs) but lost on ML math (gradients, attention)
+   - Probe with examples: "If a paper has equations for loss functions, do you skip that section?"
+
+6. GOAL — what's driving their research? A project? A thesis? Career growth? Curiosity? What would "success" look like in 3 months?
+
+7. STYLE — reading pace, preferred paper length, whether they want surveys/tutorials or only novel results, whether they want code implementations.
 
 RULES:
-- Ask one focused question at a time. Don't overwhelm with multi-part questions.
-- Follow up on their answers — go deep. If they say "I'm interested in AI agents", ask WHAT about agents, WHAT they've built, WHAT they struggle with.
-- Use their language back to them — don't impose jargon they haven't used.
-- Be warm but efficient. This isn't a casual chat — it's a focused interview.
-- After each answer, decide if you need to dig deeper on that topic or move to the next.
-- Track your confidence internally. You need high confidence on ALL 6 dimensions above.
+- Ask ONE focused question at a time. Never multi-part.
+- Follow up relentlessly — "interesting, tell me more about..." — don't accept surface answers.
+- For each area they mention, ask at least 2-3 calibration probes before moving on.
+- Use THEIR language. If they say "embeddings", don't switch to "dense vector representations".
+- Do NOT rush to finish. A 12-15 turn conversation is expected and appropriate.
+- Track confidence per dimension internally. You need >90% on ALL dimensions.
+- If someone gives a vague answer ("I'm interested in LLMs"), drill down: "What ABOUT LLMs? Training them? Using them? Evaluating them? The architecture itself?"
 
-WHEN YOU'RE DONE (all 6 dimensions at high confidence):
-- Respond with a JSON block wrapped in ```json fences containing:
+WHEN YOU'RE DONE (genuinely >90% on all dimensions — typically turn 12+):
+- First, give a natural language summary of what you understood
+- Then output a JSON block wrapped in ```json fences:
   {
     "type": "profile_complete",
-    "confidence": 0.9+,
-    "summary": "2-3 sentence natural language summary of who they are",
+    "confidence": 0.92,
+    "summary": "2-3 sentence summary",
     "profile": {
-      "areas": [{"id": "slug", "label": "Display Name", "role": "primary|secondary", "frontier": "what they want to learn here", "current_level": "beginner|intermediate|advanced"}],
+      "areas": [
+        {
+          "id": "slug",
+          "label": "Display Name",
+          "role": "primary|secondary",
+          "frontier": "specific thing they want to learn next",
+          "current_level": "beginner|intermediate|advanced",
+          "knows": ["concepts/terms they're comfortable with"],
+          "too_basic": ["things that would be too elementary for them"]
+        }
+      ],
       "meta": {
         "learning_style": {"depth": "practitioner|theorist|hybrid", "math_comfort": "avoid|tolerate|enjoy", "paper_preference": "applied|theoretical|survey"},
         "paper_goal": "what they want from reading papers",
@@ -55,11 +86,18 @@ WHEN YOU'RE DONE (all 6 dimensions at high confidence):
     }
   }
 
-IMPORTANT: Only output the JSON when you are genuinely confident (>90%). Do NOT rush. Better to ask one more question than to get the profile wrong. The user will confirm or correct your summary."""
+CRITICAL: Do NOT output JSON before turn 10 at minimum. If you find yourself ready at turn 6, you haven't probed deeply enough. Go back and calibrate each area with specific technical questions."""
 
-CONTINUE_SYSTEM_PROMPT = """You are continuing an onboarding interview for Sārathi. Review the conversation history and continue from where you left off. Remember the rules: ask one focused question at a time, go deep, track your confidence across all 6 dimensions (who, what, areas, level, goal, style).
+CONTINUE_SYSTEM_PROMPT = """You are continuing an onboarding interview for Sārathi. Review the conversation history and continue where you left off.
 
-If you now have enough information (>90% confidence on all dimensions), output the profile JSON as specified."""
+Remember:
+- Ask ONE focused question at a time
+- You need per-area calibration (what they know, what's new, what's too basic)
+- Don't rush — 12-15 turns is normal and expected
+- If you haven't probed each area with 2-3 calibration questions, you're not done
+- Only output profile JSON when genuinely >90% confident on ALL dimensions
+
+If you now have enough information (all areas calibrated, all dimensions covered), output the profile JSON."""
 
 
 def _get_user_id(event: dict) -> str:
@@ -125,7 +163,7 @@ def handler(event: dict, context) -> dict:
         system=system,
         messages=llm_messages,
         model_id="us.anthropic.claude-sonnet-4-6",
-        max_tokens=1500,
+        max_tokens=2500,
         temperature=0.4,
     )
 
@@ -252,21 +290,43 @@ def _normalize_freeform_profile(data: dict) -> dict:
         adjacent_areas = []
 
     for label in core_areas:
-        areas.append({
-            "id": label.lower().replace(" ", "-").replace("&", "and")[:30],
-            "label": label,
-            "role": "primary",
-            "frontier": "",
-            "current_level": level.get("ml_ai_theory", "intermediate") if isinstance(level, dict) else "intermediate",
-        })
+        if isinstance(label, dict):
+            areas.append({
+                "id": label.get("id", label.get("label", "")[:30].lower().replace(" ", "-")),
+                "label": label.get("label", ""),
+                "role": "primary",
+                "frontier": label.get("frontier", ""),
+                "current_level": label.get("current_level", "intermediate"),
+                "knows": label.get("knows", []),
+                "too_basic": label.get("too_basic", []),
+            })
+        else:
+            areas.append({
+                "id": str(label).lower().replace(" ", "-").replace("&", "and").replace("(", "").replace(")", "")[:30],
+                "label": str(label),
+                "role": "primary",
+                "frontier": "",
+                "current_level": level.get("ml_ai_theory", "intermediate") if isinstance(level, dict) else "intermediate",
+            })
     for label in adjacent_areas:
-        areas.append({
-            "id": label.lower().replace(" ", "-").replace("&", "and")[:30],
-            "label": label,
-            "role": "secondary",
-            "frontier": "",
-            "current_level": "beginner",
-        })
+        if isinstance(label, dict):
+            areas.append({
+                "id": label.get("id", label.get("label", "")[:30].lower().replace(" ", "-")),
+                "label": label.get("label", ""),
+                "role": "secondary",
+                "frontier": label.get("frontier", ""),
+                "current_level": label.get("current_level", "beginner"),
+                "knows": label.get("knows", []),
+                "too_basic": label.get("too_basic", []),
+            })
+        else:
+            areas.append({
+                "id": str(label).lower().replace(" ", "-").replace("&", "and").replace("(", "").replace(")", "")[:30],
+                "label": str(label),
+                "role": "secondary",
+                "frontier": "",
+                "current_level": "beginner",
+            })
 
     # Build meta
     meta = {
