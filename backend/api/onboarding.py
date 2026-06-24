@@ -182,6 +182,14 @@ def handler(event: dict, context) -> dict:
     # Check if the response contains a profile_complete JSON
     profile_data = _extract_profile(response)
 
+    # If not found in current response, check previous turns (user may have replied after profile was generated)
+    if not profile_data:
+        for turn in reversed(turns):
+            prev_response = turn.get("response", "")
+            profile_data = _extract_profile(prev_response)
+            if profile_data:
+                break
+
     result: dict = {"response": response, "turn_seq": seq}
 
     if profile_data:
