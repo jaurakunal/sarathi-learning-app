@@ -5,6 +5,7 @@ import { motion } from 'framer-motion'
 import { ArrowLeft, Plus, MessageCircle, FileText, Pencil, Check, Trash2 } from 'lucide-react'
 import { apiFetch } from '../api/client'
 import { LoadingSpinner } from '../components/LoadingSpinner'
+import { Layout } from '../components/Layout'
 
 interface Conversation {
   conv_id: string
@@ -96,9 +97,9 @@ function ConversationItem({ conv, index, editing, editTitle, onNavigate, onStart
       >
         <div className="flex items-start gap-3">
           {accent ? (
-            <MessageCircle size={14} className="text-accent mt-0.5 shrink-0" />
+            <MessageCircle size={12} className="text-accent mt-0.5 shrink-0" />
           ) : (
-            <FileText size={14} className="text-zinc-500 mt-0.5 shrink-0" />
+            <FileText size={12} className="text-zinc-500 mt-0.5 shrink-0" />
           )}
           <div className="flex-1 min-w-0 cursor-pointer" onClick={editing ? undefined : onNavigate}>
             {editing ? (
@@ -129,13 +130,13 @@ function ConversationItem({ conv, index, editing, editTitle, onNavigate, onStart
                 onClick={(e) => { e.stopPropagation(); onStartEdit() }}
                 className="text-zinc-600 hover:text-accent p-1 transition-colors"
               >
-                <Pencil size={12} />
+                <Pencil size={14} />
               </button>
               <button
                 onClick={(e) => { e.stopPropagation(); setConfirmDelete(true) }}
                 className="text-zinc-600 hover:text-red-400 p-1 transition-colors"
               >
-                <Trash2 size={12} />
+                <Trash2 size={14} />
               </button>
             </div>
           )}
@@ -177,23 +178,24 @@ export function Conversations() {
   const paperConvs = conversations.filter((c) => c.scope === 'paper')
 
   return (
+    <Layout>
     <div className="min-h-screen bg-[#0a0a0f] relative">
       <div className="ambient-orb w-72 h-72 bg-violet-neon top-[-5rem] left-[-5rem]" />
-      <div className="max-w-lg mx-auto px-4 pt-safe-top pb-safe-bottom relative z-10">
+      <div className="max-w-lg lg:max-w-3xl mx-auto px-4 pt-safe-top pb-safe-bottom relative z-10">
 
         {/* Header */}
         <div className="glass-header sticky top-0 z-20 -mx-4 px-4 py-4 flex items-center justify-between">
-          <button onClick={() => navigate('/')} className="text-sm text-zinc-400 hover:text-white transition-colors flex items-center gap-1">
-            <ArrowLeft size={14} /> Feed
+          <button onClick={() => navigate('/')} className="text-sm text-zinc-400 hover:text-white transition-colors flex items-center gap-1 lg:hidden">
+            <ArrowLeft size={18} /> Feed
           </button>
-          <h1 className="text-sm font-semibold text-zinc-300">Conversations</h1>
+          <h1 className="text-sm font-semibold text-zinc-300 lg:text-xl lg:font-bold lg:text-gradient">Conversations</h1>
           <button
             onClick={() => createMutation.mutate()}
             disabled={createMutation.isPending}
             className="text-accent hover:text-white transition-colors p-2"
             title="New research conversation"
           >
-            <Plus size={16} />
+            <Plus size={18} />
           </button>
         </div>
 
@@ -275,5 +277,6 @@ export function Conversations() {
         <div className="pb-12" />
       </div>
     </div>
+    </Layout>
   )
 }

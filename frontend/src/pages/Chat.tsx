@@ -244,7 +244,7 @@ export function Chat({ embedded, paperId: propPaperId, cardId: propCardId, resea
               onClick={() => navigate(isResearch ? '/conversations' : `/card/${cardId}`)}
               className="text-sm text-zinc-400 hover:text-white transition-colors flex items-center gap-1"
             >
-              <ArrowLeft size={14} />
+              <ArrowLeft size={18} />
               {isResearch ? 'Conversations' : 'Back to paper'}
             </button>
           </div>

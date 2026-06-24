@@ -4,6 +4,7 @@ import { motion } from 'framer-motion'
 import { ArrowLeft, BookOpen, MessageCircle, ExternalLink, Bookmark, ThumbsUp } from 'lucide-react'
 import { getLibrary } from '../api/library'
 import { LoadingSpinner } from '../components/LoadingSpinner'
+import { Layout } from '../components/Layout'
 import type { LibraryEntry } from '../api/library'
 
 function EngagementBar({ score }: { score: number }) {
@@ -26,27 +27,27 @@ function ActionBadges({ actions, questionCount }: { actions: LibraryEntry['actio
     <div className="flex items-center gap-2 flex-wrap">
       {actions.read && (
         <span className="text-xs text-zinc-400 flex items-center gap-1">
-          <BookOpen size={10} /> Read
+          <BookOpen size={12} /> Read
         </span>
       )}
       {actions.asked && (
         <span className="text-xs text-accent flex items-center gap-1">
-          <MessageCircle size={10} /> {questionCount > 0 ? `${questionCount} questions` : 'Asked'}
+          <MessageCircle size={12} /> {questionCount > 0 ? `${questionCount} questions` : 'Asked'}
         </span>
       )}
       {actions.source_clicked && (
         <span className="text-xs text-violet-neon flex items-center gap-1">
-          <ExternalLink size={10} /> Source
+          <ExternalLink size={12} /> Source
         </span>
       )}
       {actions.bookmarked && (
         <span className="text-xs text-amber-400 flex items-center gap-1">
-          <Bookmark size={10} fill="currentColor" /> Saved
+          <Bookmark size={12} fill="currentColor" /> Saved
         </span>
       )}
       {actions.rated_up && (
         <span className="text-xs text-green-400 flex items-center gap-1">
-          <ThumbsUp size={10} fill="currentColor" />
+          <ThumbsUp size={12} fill="currentColor" />
         </span>
       )}
     </div>
@@ -89,16 +90,17 @@ export function Library() {
   })
 
   return (
+    <Layout>
     <div className="min-h-screen bg-[#0a0a0f] relative">
       <div className="ambient-orb w-64 h-64 bg-accent top-[-5rem] right-[-5rem]" />
-      <div className="max-w-lg mx-auto px-4 pt-safe-top pb-safe-bottom relative z-10">
+      <div className="max-w-lg lg:max-w-3xl mx-auto px-4 pt-safe-top pb-safe-bottom relative z-10">
 
         {/* Header */}
         <div className="glass-header sticky top-0 z-20 -mx-4 px-4 py-4 flex items-center justify-between">
-          <button onClick={() => navigate('/')} className="text-sm text-zinc-400 hover:text-white transition-colors flex items-center gap-1">
-            <ArrowLeft size={14} /> Feed
+          <button onClick={() => navigate('/')} className="text-sm text-zinc-400 hover:text-white transition-colors flex items-center gap-1 lg:hidden">
+            <ArrowLeft size={18} /> Feed
           </button>
-          <h1 className="text-sm font-semibold text-zinc-300">Library</h1>
+          <h1 className="text-sm font-semibold text-zinc-300 lg:text-xl lg:font-bold lg:text-gradient">Library</h1>
         </div>
 
         {/* Content */}
@@ -135,5 +137,6 @@ export function Library() {
         )}
       </div>
     </div>
+    </Layout>
   )
 }

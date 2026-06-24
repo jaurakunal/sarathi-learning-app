@@ -185,7 +185,7 @@ export function CardDetail() {
             onClick={() => navigate('/')}
             className="text-sm text-zinc-400 hover:text-white transition-colors flex items-center gap-1"
           >
-            <ArrowLeft size={14} />
+            <ArrowLeft size={18} />
             Back
           </button>
           <button
@@ -193,7 +193,7 @@ export function CardDetail() {
             className="text-xs font-medium text-accent border border-accent-dim px-3 py-1.5 rounded-lg hover:bg-accent/10 transition-all"
           >
             <span className="flex items-center gap-1.5">
-              <MessageCircle size={12} />
+              <MessageCircle size={14} />
               Ask a question
             </span>
           </button>
@@ -313,7 +313,7 @@ export function CardDetail() {
               }`}
               title={isBookmarked ? 'Saved' : 'Save for later'}
             >
-              <Bookmark size={16} fill={isBookmarked ? 'currentColor' : 'none'} />
+              <Bookmark size={14} fill={isBookmarked ? 'currentColor' : 'none'} />
             </button>
             <button
               onClick={() => {
@@ -328,7 +328,7 @@ export function CardDetail() {
               }`}
               title="Useful"
             >
-              <ThumbsUp size={16} fill={userRating === 5 ? 'currentColor' : 'none'} />
+              <ThumbsUp size={14} fill={userRating === 5 ? 'currentColor' : 'none'} />
             </button>
             <button
               onClick={() => {
@@ -343,7 +343,7 @@ export function CardDetail() {
               }`}
               title="Not useful"
             >
-              <ThumbsDown size={16} fill={userRating === 1 ? 'currentColor' : 'none'} />
+              <ThumbsDown size={14} fill={userRating === 1 ? 'currentColor' : 'none'} />
             </button>
           </div>
           {card.source_url && (
@@ -354,7 +354,7 @@ export function CardDetail() {
               onClick={() => engagement.fireSourceClick()}
               className="text-xs text-zinc-500 hover:text-accent transition-colors flex items-center gap-1"
             >
-              Read full paper <ExternalLink size={10} />
+              Read full paper <ExternalLink size={12} />
             </a>
           )}
         </div>
@@ -401,7 +401,7 @@ export function CardDetail() {
                       }}
                       className="text-accent/50 hover:text-accent"
                     >
-                      <X size={10} />
+                      <X size={12} />
                     </button>
                   </span>
                 ))}

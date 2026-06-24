@@ -53,7 +53,7 @@ export function ChatMessage({ message, seq, onPin }: ChatMessageProps) {
                   : 'text-zinc-500 hover:text-accent hover:bg-accent/10'
               }`}
             >
-              <Pin size={12} fill={pinned ? 'currentColor' : 'none'} />
+              <Pin size={14} fill={pinned ? 'currentColor' : 'none'} />
               {pinned ? 'Pinned' : 'Pin insight'}
             </button>
           </div>

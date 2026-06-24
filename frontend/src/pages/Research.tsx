@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, Target, Pin, FileText, Tag } from 'lucide-react'
 import { apiFetch } from '../api/client'
 import { LoadingSpinner } from '../components/LoadingSpinner'
+import { Layout } from '../components/Layout'
 
 interface PinnedInsight {
   seq: number
@@ -43,24 +44,25 @@ export function Research() {
     queryFn: getResearch,
   })
 
-  if (isLoading) return <div className="min-h-screen bg-[#0a0a0f]"><LoadingSpinner /></div>
+  if (isLoading) return <Layout><div className="min-h-screen bg-[#0a0a0f]"><LoadingSpinner /></div></Layout>
   if (!data) return null
 
   const { tag_groups, untagged_engaged, pinned_insights, stats } = data
   const tagNames = Object.keys(tag_groups).sort()
 
   return (
+    <Layout>
     <div className="min-h-screen bg-[#0a0a0f] relative">
       <div className="ambient-orb w-72 h-72 bg-accent top-[-5rem] right-[-5rem]" />
-      <div className="max-w-lg mx-auto px-4 pt-safe-top pb-safe-bottom relative z-10">
+      <div className="max-w-lg lg:max-w-3xl mx-auto px-4 pt-safe-top pb-safe-bottom relative z-10">
 
         {/* Header */}
         <div className="glass-header sticky top-0 z-20 -mx-4 px-4 py-4">
           <div className="flex items-center justify-between">
-            <button onClick={() => navigate('/')} className="text-sm text-zinc-400 hover:text-white transition-colors flex items-center gap-1">
-              <ArrowLeft size={14} /> Feed
+            <button onClick={() => navigate('/')} className="text-sm text-zinc-400 hover:text-white transition-colors flex items-center gap-1 lg:hidden">
+              <ArrowLeft size={18} /> Feed
             </button>
-            <h1 className="text-sm font-semibold text-zinc-300">Research</h1>
+            <h1 className="text-sm font-semibold text-zinc-300 lg:text-xl lg:font-bold lg:text-gradient">Research</h1>
           </div>
         </div>
 
@@ -86,7 +88,7 @@ export function Research() {
             {tagNames.map((tag) => (
               <div key={tag}>
                 <div className="flex items-center gap-2 mb-3">
-                  <Tag size={13} className="text-accent" />
+                  <Tag size={16} className="text-accent" />
                   <h2 className="text-sm font-semibold text-white">{tag}</h2>
                   <span className="text-[10px] text-zinc-500 bg-white/[0.04] px-1.5 py-0.5 rounded">
                     {tag_groups[tag].length}
@@ -109,7 +111,7 @@ export function Research() {
                     return pins.map((pin) => (
                       <div key={`${card.paper_id}-${pin.seq}`} className="ml-4 pl-3 border-l-2 border-accent/20">
                         <div className="flex items-start gap-2">
-                          <Pin size={11} className="text-accent mt-0.5 shrink-0" />
+                          <Pin size={12} className="text-accent mt-0.5 shrink-0" />
                           <div>
                             <p className="text-xs text-zinc-400 italic mb-1">"{pin.request}"</p>
                             <p className="text-xs text-zinc-300 leading-relaxed">{pin.response.slice(0, 200)}{pin.response.length > 200 ? '...' : ''}</p>
@@ -128,7 +130,7 @@ export function Research() {
         {untagged_engaged.length > 0 && (
           <div className="mt-8">
             <div className="flex items-center gap-2 mb-3">
-              <FileText size={13} className="text-zinc-400" />
+              <FileText size={16} className="text-zinc-400" />
               <h2 className="text-sm font-semibold text-zinc-400">Engaged but untagged</h2>
               <span className="text-[10px] text-zinc-500 bg-white/[0.04] px-1.5 py-0.5 rounded">
                 {untagged_engaged.length}
@@ -161,5 +163,6 @@ export function Research() {
         <div className="pb-12" />
       </div>
     </div>
+    </Layout>
   )
 }

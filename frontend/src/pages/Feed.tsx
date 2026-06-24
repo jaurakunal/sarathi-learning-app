@@ -8,6 +8,7 @@ import { postEngagement } from '../api/engagement'
 import { FeedCard } from '../components/FeedCard'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import { PushBanner } from '../components/PushBanner'
+import { Layout } from '../components/Layout'
 import { logout } from '../auth/cognito'
 import type { FeedResponse } from '../types/feed'
 
@@ -70,57 +71,59 @@ export function Feed() {
   }
 
   return (
+    <Layout>
     <div className="min-h-screen bg-[#0a0a0f] relative overflow-hidden">
       {/* Ambient glow orbs */}
       <div className="ambient-orb w-96 h-96 bg-accent top-[-10rem] right-[-10rem]" />
       <div className="ambient-orb w-72 h-72 bg-violet-neon bottom-[20%] left-[-8rem]" />
 
-      <div className="max-w-lg mx-auto px-4 pt-safe-top pb-safe-bottom relative z-10">
+      <div className="max-w-lg lg:max-w-3xl mx-auto px-4 pt-safe-top pb-safe-bottom relative z-10">
         {/* Header */}
         <div className="glass-header sticky top-0 z-20 -mx-4 px-4 py-4 flex items-center justify-between">
-          <h1 className="text-xl font-bold text-gradient">Sārathi</h1>
+          <h1 className="text-xl font-bold text-gradient lg:hidden">Sārathi</h1>
+          <h1 className="text-xl font-bold text-gradient hidden lg:block">Feed</h1>
           <div className="flex items-center gap-1">
             <button
               onClick={() => { setSearchOpen(!searchOpen); if (searchOpen) setSearchQuery('') }}
               className={`p-2 transition-colors ${searchOpen ? 'text-accent' : 'text-zinc-500 hover:text-accent'}`}
               title="Search"
             >
-              <Search size={16} />
+              <Search size={18} />
             </button>
             <button
               onClick={() => setMenuOpen(true)}
-              className="text-zinc-500 hover:text-accent transition-colors p-2"
+              className="text-zinc-500 hover:text-accent transition-colors p-2 lg:hidden"
               title="Menu"
             >
-              <Menu size={16} />
+              <Menu size={18} />
             </button>
           </div>
         </div>
 
-        {/* Slide-out menu */}
+        {/* Slide-out menu (mobile only) */}
         {menuOpen && (
           <>
-            <div className="fixed inset-0 bg-black/60 z-40" onClick={() => setMenuOpen(false)} />
-            <div className="fixed top-0 right-0 h-full w-64 bg-[#0e0e18] border-l border-white/[0.06] z-50 p-6 pt-safe-top">
+            <div className="fixed inset-0 bg-black/60 z-40 lg:hidden" onClick={() => setMenuOpen(false)} />
+            <div className="fixed top-0 right-0 h-full w-64 bg-[#0e0e18] border-l border-white/[0.06] z-50 p-6 pt-safe-top lg:hidden">
               <button onClick={() => setMenuOpen(false)} className="absolute top-4 right-4 text-zinc-500 hover:text-white p-2">
                 <X size={18} />
               </button>
               <nav className="mt-12 space-y-1">
                 <button onClick={() => { navigate('/conversations'); setMenuOpen(false) }} className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm text-zinc-300 hover:text-white hover:bg-white/[0.04] transition-colors">
-                  <MessageCircle size={16} className="text-accent" /> Conversations
+                  <MessageCircle size={18} className="text-accent" /> Conversations
                 </button>
                 <button onClick={() => { navigate('/research'); setMenuOpen(false) }} className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm text-zinc-300 hover:text-white hover:bg-white/[0.04] transition-colors">
-                  <Target size={16} className="text-zinc-400" /> Research
+                  <Target size={18} className="text-zinc-400" /> Research
                 </button>
                 <button onClick={() => { navigate('/library'); setMenuOpen(false) }} className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm text-zinc-300 hover:text-white hover:bg-white/[0.04] transition-colors">
-                  <BookOpen size={16} className="text-zinc-400" /> Library
+                  <BookOpen size={18} className="text-zinc-400" /> Library
                 </button>
                 <button onClick={() => { navigate('/profile'); setMenuOpen(false) }} className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm text-zinc-300 hover:text-white hover:bg-white/[0.04] transition-colors">
-                  <TrendingUp size={16} className="text-zinc-400" /> Progress
+                  <TrendingUp size={18} className="text-zinc-400" /> Progress
                 </button>
                 <div className="border-t border-white/[0.06] my-3" />
                 <button onClick={() => { logout(); window.location.reload() }} className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm text-zinc-500 hover:text-red-400 hover:bg-red-400/5 transition-colors">
-                  <LogOut size={16} /> Log out
+                  <LogOut size={18} /> Log out
                 </button>
               </nav>
             </div>
@@ -251,5 +254,6 @@ export function Feed() {
         )}
       </div>
     </div>
+    </Layout>
   )
 }

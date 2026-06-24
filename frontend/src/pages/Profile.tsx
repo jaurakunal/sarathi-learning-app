@@ -6,6 +6,7 @@ import { ArrowLeft, BookOpen, MessageCircle, ExternalLink, Flame, Snowflake, Che
 import Markdown from 'react-markdown'
 import { getProfile } from '../api/profile'
 import { LoadingSpinner } from '../components/LoadingSpinner'
+import { Layout } from '../components/Layout'
 import type { TimelineEntry } from '../api/profile'
 
 const STATUS_ICONS: Record<string, typeof Flame> = {
@@ -124,23 +125,24 @@ export function Profile() {
     queryFn: getProfile,
   })
 
-  if (isLoading) return <div className="min-h-screen bg-[#0a0a0f]"><LoadingSpinner /></div>
-  if (isError || !data) return <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center"><p className="text-red-400 text-sm">Failed to load profile</p></div>
+  if (isLoading) return <Layout><div className="min-h-screen bg-[#0a0a0f]"><LoadingSpinner /></div></Layout>
+  if (isError || !data) return <Layout><div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center"><p className="text-red-400 text-sm">Failed to load profile</p></div></Layout>
 
   const { areas, hypothesis, stats_7d, timeline } = data
 
   return (
+    <Layout>
     <div className="min-h-screen bg-[#0a0a0f] relative">
       <div className="ambient-orb w-72 h-72 bg-violet-neon top-[-5rem] left-[-5rem]" />
-      <div className="max-w-lg mx-auto px-4 pt-safe-top pb-safe-bottom relative z-10">
+      <div className="max-w-lg lg:max-w-3xl mx-auto px-4 pt-safe-top pb-safe-bottom relative z-10">
 
         {/* Header */}
         <div className="glass-header sticky top-0 z-20 -mx-4 px-4 py-4 space-y-3">
           <div className="flex items-center justify-between">
-            <button onClick={() => navigate('/')} className="text-sm text-zinc-400 hover:text-white transition-colors flex items-center gap-1">
-              <ArrowLeft size={14} /> Feed
+            <button onClick={() => navigate('/')} className="text-sm text-zinc-400 hover:text-white transition-colors flex items-center gap-1 lg:hidden">
+              <ArrowLeft size={18} /> Feed
             </button>
-            <h1 className="text-sm font-semibold text-zinc-300">Progress</h1>
+            <h1 className="text-sm font-semibold text-zinc-300 lg:text-xl lg:font-bold lg:text-gradient">Progress</h1>
           </div>
 
           {/* Tabs */}
@@ -168,15 +170,15 @@ export function Profile() {
             <div className="grid grid-cols-3 gap-2 py-4">
               <div className="glass-card rounded-xl p-3 text-center">
                 <div className="text-lg font-bold text-white">{stats_7d.papers_read}</div>
-                <div className="text-xs text-zinc-500 flex items-center justify-center gap-1"><BookOpen size={10} /> read</div>
+                <div className="text-xs text-zinc-500 flex items-center justify-center gap-1"><BookOpen size={12} /> read</div>
               </div>
               <div className="glass-card rounded-xl p-3 text-center">
                 <div className="text-lg font-bold text-white">{stats_7d.questions_asked}</div>
-                <div className="text-xs text-zinc-500 flex items-center justify-center gap-1"><MessageCircle size={10} /> asked</div>
+                <div className="text-xs text-zinc-500 flex items-center justify-center gap-1"><MessageCircle size={12} /> asked</div>
               </div>
               <div className="glass-card rounded-xl p-3 text-center">
                 <div className="text-lg font-bold text-white">{stats_7d.source_clicks}</div>
-                <div className="text-xs text-zinc-500 flex items-center justify-center gap-1"><ExternalLink size={10} /> deep</div>
+                <div className="text-xs text-zinc-500 flex items-center justify-center gap-1"><ExternalLink size={12} /> deep</div>
               </div>
             </div>
 
@@ -189,7 +191,7 @@ export function Profile() {
                   const colorClass = STATUS_COLORS[area.status] || STATUS_COLORS.active
                   return (
                     <div key={area.id} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium ${colorClass}`}>
-                      <Icon size={11} />
+                      <Icon size={12} />
                       {area.name}
                     </div>
                   )
@@ -309,5 +311,6 @@ export function Profile() {
 
       </div>
     </div>
+    </Layout>
   )
 }

@@ -139,12 +139,12 @@ export function FeedCard({ card, index, showRestore, onDismiss, onRestore }: Fee
 
       <div className="flex items-center gap-3 mt-4 pt-3 border-t border-white/[0.04]">
         <span className="flex items-center gap-1.5 text-[11px] text-white/35 font-medium tracking-wide uppercase">
-          <Clock size={10} />
+          <Clock size={12} />
           {card.time_estimate}
         </span>
         {card.read && (
           <span className="flex items-center gap-1 text-[11px] text-white/25">
-            <Check size={10} />
+            <Check size={12} />
             read
           </span>
         )}
