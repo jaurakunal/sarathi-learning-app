@@ -232,7 +232,7 @@ def handler(event, context):
       environment: lambdaEnv,
       role: lambdaRole,
       timeout: cdk.Duration.minutes(2),
-      memorySize: 256,
+      memorySize: 512,
     });
 
     const lensFn = new lambda.Function(this, 'LensFn', {
@@ -266,7 +266,7 @@ def handler(event, context):
       environment: lambdaEnv,
       role: lambdaRole,
       timeout: cdk.Duration.seconds(30),
-      memorySize: 256,
+      memorySize: 512,
     });
 
     const engagementFn = new lambda.Function(this, 'EngagementApiFn', {
@@ -277,7 +277,7 @@ def handler(event, context):
       environment: lambdaEnv,
       role: lambdaRole,
       timeout: cdk.Duration.seconds(10),
-      memorySize: 256,
+      memorySize: 512,
     });
 
     const profileFn = new lambda.Function(this, 'ProfileApiFn', {
@@ -288,7 +288,7 @@ def handler(event, context):
       environment: lambdaEnv,
       role: lambdaRole,
       timeout: cdk.Duration.seconds(30),
-      memorySize: 256,
+      memorySize: 512,
     });
 
     const libraryFn = new lambda.Function(this, 'LibraryApiFn', {
@@ -299,7 +299,7 @@ def handler(event, context):
       environment: lambdaEnv,
       role: lambdaRole,
       timeout: cdk.Duration.seconds(30),
-      memorySize: 256,
+      memorySize: 512,
     });
 
     const convFn = new lambda.Function(this, 'ConvFn', {
@@ -310,7 +310,7 @@ def handler(event, context):
       environment: lambdaEnv,
       role: lambdaRole,
       timeout: cdk.Duration.seconds(10),
-      memorySize: 256,
+      memorySize: 512,
     });
 
     const settingsFn = new lambda.Function(this, 'SettingsFn', {
@@ -321,7 +321,7 @@ def handler(event, context):
       environment: lambdaEnv,
       role: lambdaRole,
       timeout: cdk.Duration.seconds(30),
-      memorySize: 256,
+      memorySize: 512,
     });
 
     const onboardingFn = new lambda.Function(this, 'OnboardingFn', {
@@ -344,7 +344,7 @@ def handler(event, context):
       environment: lambdaEnv,
       role: lambdaRole,
       timeout: cdk.Duration.seconds(30),
-      memorySize: 256,
+      memorySize: 512,
     });
 
     const suggestFn = new lambda.Function(this, 'SuggestFn', {
@@ -355,7 +355,7 @@ def handler(event, context):
       environment: lambdaEnv,
       role: lambdaRole,
       timeout: cdk.Duration.seconds(15),
-      memorySize: 256,
+      memorySize: 512,
     });
 
     const researchFn = new lambda.Function(this, 'ResearchFn', {
@@ -366,7 +366,7 @@ def handler(event, context):
       environment: lambdaEnv,
       role: lambdaRole,
       timeout: cdk.Duration.seconds(30),
-      memorySize: 256,
+      memorySize: 512,
     });
 
     const pushFn = new lambda.Function(this, 'PushFn', {
@@ -377,7 +377,7 @@ def handler(event, context):
       environment: lambdaEnv,
       role: lambdaRole,
       timeout: cdk.Duration.seconds(10),
-      memorySize: 256,
+      memorySize: 512,
     });
 
     const chatFn = new lambda.Function(this, 'ChatFn', {
@@ -536,7 +536,7 @@ def handler(event, context):
         STATE_MACHINE_ARN: stateMachine.stateMachineArn,
       },
       timeout: cdk.Duration.seconds(60),
-      memorySize: 256,
+      memorySize: 512,
     });
     table.grantReadData(fanoutFn);
     stateMachine.grantStartExecution(fanoutFn);
@@ -719,7 +719,7 @@ def handler(event, context):
       },
       role: lambdaRole,
       timeout: cdk.Duration.seconds(10),
-      memorySize: 256,
+      memorySize: 512,
     });
 
     // Stream Lambda — invoked async, runs up to 5 min
