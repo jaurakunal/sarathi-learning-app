@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Home, MessageCircle, Target, BookOpen, TrendingUp, LogOut } from 'lucide-react'
+import { Home, MessageCircle, Target, BookOpen, TrendingUp, Settings, LogOut } from 'lucide-react'
 import { logout } from '../auth/cognito'
 
 const NAV_ITEMS = [
@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   { path: '/research', label: 'Research', icon: Target },
   { path: '/library', label: 'Library', icon: BookOpen },
   { path: '/profile', label: 'Progress', icon: TrendingUp },
+  { path: '/settings', label: 'Settings', icon: Settings },
 ] as const
 
 interface LayoutProps {

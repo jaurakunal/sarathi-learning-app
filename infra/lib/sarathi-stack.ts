@@ -289,6 +289,17 @@ export class SarathiStack extends cdk.Stack {
       memorySize: 256,
     });
 
+    const settingsFn = new lambda.Function(this, 'SettingsFn', {
+      functionName: 'sarathi-api-settings',
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'backend.api.settings.handler',
+      code: lambdaCode,
+      environment: lambdaEnv,
+      role: lambdaRole,
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 256,
+    });
+
     const onboardingFn = new lambda.Function(this, 'OnboardingFn', {
       functionName: 'sarathi-api-onboarding',
       runtime: lambda.Runtime.PYTHON_3_12,
@@ -584,6 +595,22 @@ export class SarathiStack extends cdk.Stack {
       authorizationType: apigw.AuthorizationType.COGNITO,
     });
     convResource.addMethod('DELETE', new apigw.LambdaIntegration(convFn), {
+      authorizer,
+      authorizationType: apigw.AuthorizationType.COGNITO,
+    });
+
+    const settingsResource = api.root.addResource('settings');
+    const settingsPipelineResource = settingsResource.addResource('pipeline');
+    settingsPipelineResource.addMethod('PUT', new apigw.LambdaIntegration(settingsFn), {
+      authorizer,
+      authorizationType: apigw.AuthorizationType.COGNITO,
+    });
+    const settingsDeleteResource = settingsResource.addResource('delete-account');
+    settingsDeleteResource.addMethod('DELETE', new apigw.LambdaIntegration(settingsFn), {
+      authorizer,
+      authorizationType: apigw.AuthorizationType.COGNITO,
+    });
+    settingsResource.addMethod('GET', new apigw.LambdaIntegration(settingsFn), {
       authorizer,
       authorizationType: apigw.AuthorizationType.COGNITO,
     });

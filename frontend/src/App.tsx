@@ -11,6 +11,7 @@ import { Research } from './pages/Research'
 import { Conversations } from './pages/Conversations'
 import { ResearchChat } from './pages/ResearchChat'
 import { Onboarding } from './pages/Onboarding'
+import { Settings } from './pages/Settings'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -39,6 +40,7 @@ export default function App() {
                   <Route path="/research" element={<Research />} />
                   <Route path="/conversations" element={<Conversations />} />
                   <Route path="/chat/research/:convId" element={<ResearchChat />} />
+                  <Route path="/settings" element={<Settings />} />
                 </Routes>
               </OnboardingGate>
             } />

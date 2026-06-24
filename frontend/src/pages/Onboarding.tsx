@@ -93,11 +93,14 @@ export function Onboarding() {
         method: 'POST',
         body: JSON.stringify({ profile }),
       })
-      navigate('/')
+      setConfirmed(true)
+      setTimeout(() => navigate('/'), 3000)
     } catch {
       setConfirming(false)
     }
   }
+
+  const [confirmed, setConfirmed] = useState(false)
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -156,7 +159,7 @@ export function Onboarding() {
         )}
 
         {/* Profile confirmation */}
-        {profileComplete && (
+        {profileComplete && !confirmed && (
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -185,6 +188,36 @@ export function Onboarding() {
               </button>
             </div>
           </motion.div>
+        )}
+
+        {/* Success — auto-navigates in 3s */}
+        {confirmed && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="p-6 rounded-xl border border-accent/30 bg-accent/5 text-center space-y-3"
+          >
+            <p className="text-lg font-semibold text-white">You're all set!</p>
+            <p className="text-sm text-zinc-400">Your first papers are being discovered now. Taking you to your feed...</p>
+            <button
+              onClick={() => navigate('/')}
+              className="text-sm text-accent hover:text-accent-light transition-colors"
+            >
+              Go to feed now →
+            </button>
+          </motion.div>
+        )}
+
+        {/* Escape hatch — shows after 6+ messages if profile wasn't auto-detected */}
+        {!profileComplete && !confirmed && messages.length >= 6 && (
+          <div className="text-center pt-4">
+            <button
+              onClick={() => navigate('/')}
+              className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+            >
+              Skip for now — go to feed →
+            </button>
+          </div>
         )}
 
         <div ref={messagesEndRef} />
