@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { LogOut, TrendingUp, BookOpen, Search, X, Target, Menu, MessageCircle, Inbox, Settings, Pause } from 'lucide-react'
@@ -20,8 +20,19 @@ export function Feed() {
   const [tab, setTab] = useState<TabFilter>('all')
   const [dismissed, setDismissed] = useState<Set<string>>(new Set())
   const [restored, setRestored] = useState<Set<string>>(new Set())
-  const [searchQuery, setSearchQuery] = useState('')
-  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const initialSearch = searchParams.get('search') || ''
+  const [searchQuery, setSearchQuery] = useState(initialSearch)
+  const [searchOpen, setSearchOpen] = useState(!!initialSearch)
+
+  useEffect(() => {
+    const s = searchParams.get('search')
+    if (s) {
+      setSearchQuery(s)
+      setSearchOpen(true)
+      setSearchParams({}, { replace: true })
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
   const [menuOpen, setMenuOpen] = useState(false)
 
   const {

@@ -1,8 +1,43 @@
-import { useState } from 'react'
+import { useState, ReactNode } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import Markdown from 'react-markdown'
 import { Pin } from 'lucide-react'
 import type { ChatMessage as ChatMessageType } from '../types/chat'
+
+const CITATION_REGEX = /\[([^\]]+?)\s*—\s*([^\]]+?)\]/g
+
+function CitationText({ children }: { children: string }) {
+  const navigate = useNavigate()
+  const parts: ReactNode[] = []
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+
+  const regex = new RegExp(CITATION_REGEX)
+  while ((match = regex.exec(children)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(children.slice(lastIndex, match.index))
+    }
+    const title = match[1].trim()
+    const section = match[2].trim()
+    const searchQuery = title.slice(0, 30)
+    parts.push(
+      <button
+        key={match.index}
+        onClick={() => navigate(`/?search=${encodeURIComponent(searchQuery)}`)}
+        className="text-accent hover:text-accent-light underline underline-offset-2 decoration-accent/30 hover:decoration-accent cursor-pointer"
+        title={`${title} — ${section}`}
+      >
+        [{title} — {section}]
+      </button>
+    )
+    lastIndex = regex.lastIndex
+  }
+  if (lastIndex < children.length) {
+    parts.push(children.slice(lastIndex))
+  }
+  return parts.length > 0 ? <>{parts}</> : <>{children}</>
+}
 
 interface ChatMessageProps {
   message: ChatMessageType
@@ -32,7 +67,19 @@ export function ChatMessage({ message, seq, onPin }: ChatMessageProps) {
           <p className="whitespace-pre-wrap">{message.content}</p>
         ) : (
           <div className="prose prose-invert prose-sm max-w-none prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-headings:my-3 prose-code:text-violet-neon prose-code:bg-surface prose-code:px-1 prose-code:rounded prose-pre:bg-surface prose-pre:border prose-pre:border-accent-dim prose-strong:text-white prose-a:text-accent">
-            <Markdown>{message.content}</Markdown>
+            <Markdown components={{
+              p: ({ children }) => {
+                // Process text children for citation links
+                const processed = Array.isArray(children) ? children.map((child, i) =>
+                  typeof child === 'string' && CITATION_REGEX.test(child)
+                    ? <CitationText key={i}>{child}</CitationText>
+                    : child
+                ) : typeof children === 'string' && CITATION_REGEX.test(children)
+                  ? <CitationText>{children}</CitationText>
+                  : children
+                return <p>{processed}</p>
+              },
+            }}>{message.content}</Markdown>
           </div>
         )}
         {message.streaming && (
