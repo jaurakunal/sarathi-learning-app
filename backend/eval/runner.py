@@ -140,7 +140,10 @@ def run_one_paper(
     paper_id = entry.get("paper_id", "")
     paper = entry.get("paper") or {}
     golden = entry.get("golden_card") or {}
+    # Try golden card first, then derive from convention (live user's S3 path)
     s3_key = golden.get("full_text_s3_key", "")
+    if not s3_key and paper_id:
+        s3_key = f"users/{eval_dataset.LIVE_USER_ID}/papers/{paper_id}/full_text.txt"
 
     result = {
         "paper_id": paper_id,

@@ -125,9 +125,10 @@ def test_run_one_paper_happy_path(mock_digest, sample_paper, sample_golden_card,
 
 
 def test_run_one_paper_missing_s3_key(sample_paper, sample_profile):
-    """Entry without an S3 key short-circuits with an error."""
+    """Entry without paper_id AND no S3 key short-circuits with an error."""
     entry = {
-        "paper_id": "p", "paper": sample_paper,
+        "paper_id": "",  # no paper_id means we can't derive the conventional key
+        "paper": sample_paper,
         "golden_card": {},  # no full_text_s3_key
     }
     s3 = MagicMock()

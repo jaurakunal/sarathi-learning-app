@@ -39,7 +39,7 @@ logging.basicConfig(
 logger = logging.getLogger("eval_full")
 
 TABLE_NAME_DEFAULT = os.environ.get("SARATHI_TABLE_NAME", "sarathi")
-S3_BUCKET_DEFAULT = os.environ.get("SARATHI_S3_BUCKET", "sarathi-papers-123456789012")
+S3_BUCKET_DEFAULT = os.environ.get("SARATHI_BUCKET", "sarathi-123456789012-us-east-1")
 REGION_DEFAULT = os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
 
 
