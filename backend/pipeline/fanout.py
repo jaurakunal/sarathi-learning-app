@@ -21,7 +21,7 @@ from backend.shared import db
 
 logger = logging.getLogger(__name__)
 
-INACTIVE_DAYS = 7
+INACTIVE_DAYS = 3
 
 
 def _can_trigger(table, sfn, user_id: str) -> bool:
@@ -93,7 +93,7 @@ def handler(event: dict, context) -> dict:
                 ExpressionAttributeNames={"#s": "status"},
                 ExpressionAttributeValues={
                     ":s": "paused",
-                    ":r": "inactive_7_days",
+                    ":r": "inactive",
                 },
             )
             paused += 1
