@@ -95,16 +95,16 @@ export class SarathiStack extends cdk.Stack {
     const preSignUpFn = new lambda.Function(this, 'PreSignUpFn', {
       functionName: 'sarathi-pre-signup',
       runtime: lambda.Runtime.PYTHON_3_12,
-      handler: 'index.handler',
-      code: lambda.Code.fromInline(`
-def handler(event, context):
-    event['response']['autoConfirmUser'] = True
-    event['response']['autoVerifyEmail'] = True
-    return event
-`),
-      timeout: cdk.Duration.seconds(5),
-      memorySize: 128,
+      handler: 'pre_signup.handler',
+      code: lambda.Code.fromAsset(path.resolve(REPO_ROOT, 'backend', 'auth')),
+      timeout: cdk.Duration.seconds(10),
+      memorySize: 256,
     });
+    // Pre-signup needs to list users and link providers
+    preSignUpFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['cognito-idp:ListUsers', 'cognito-idp:AdminLinkProviderForUser'],
+      resources: [`arn:aws:cognito-idp:${this.region}:${this.account}:userpool/*`],
+    }));
 
     const userPool = new cognito.UserPool(this, 'SarathiUserPool', {
       userPoolName: 'sarathi-users',
