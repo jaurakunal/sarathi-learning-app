@@ -116,7 +116,7 @@ export function FeedCard({ card, index, showRestore, onDismiss, onRestore }: Fee
           ) : (
             <button
               onClick={handleDismissClick}
-              className="absolute top-4 right-4 text-white/20 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all p-1"
+              className="absolute top-4 right-4 text-white/30 hover:text-red-400 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-all p-1"
               title="Not interested"
             >
               <X size={14} />
