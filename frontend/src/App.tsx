@@ -26,11 +26,13 @@ const queryClient = new QueryClient({
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthGate>
-        <BrowserRouter>
-          <Routes>
-            <Route path="/onboarding" element={<Onboarding />} />
-            <Route path="/callback" element={<Callback />} />
+      <BrowserRouter>
+        <Routes>
+          <Route path="/callback" element={<Callback />} />
+          <Route path="/*" element={
+            <AuthGate>
+              <Routes>
+                <Route path="/onboarding" element={<Onboarding />} />
             <Route path="/*" element={
               <OnboardingGate>
                 <Routes>
@@ -47,8 +49,10 @@ export default function App() {
               </OnboardingGate>
             } />
           </Routes>
-        </BrowserRouter>
-      </AuthGate>
+        </AuthGate>
+      } />
+      </Routes>
+      </BrowserRouter>
     </QueryClientProvider>
   )
 }
