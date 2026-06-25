@@ -118,17 +118,40 @@ def handler(event, context):
     const cfnUserPool = userPool.node.defaultChild as cdk.CfnResource;
     cfnUserPool.addPropertyOverride('AdminCreateUserConfig.AllowAdminCreateUserOnly', false);
 
+    // Corporate SSO OIDC provider
+    const oidcClientSecret = ssm.StringParameter.valueFromLookup(
+      this, '/sarathi/oidc-client-secret',
+    );
+    const oidcProvider = new cognito.UserPoolIdentityProviderOidc(this, 'OIDCProvider', {
+      userPool,
+      name: 'OidcSSO',
+      clientId: 'sarathi-app',
+      clientSecret: oidcClientSecret,
+      issuerUrl: 'https://idp.example.com',
+      scopes: ['openid', 'profile', 'email'],
+      attributeMapping: {
+        email: cognito.ProviderAttribute.other('email'),
+        givenName: cognito.ProviderAttribute.other('given_name'),
+        familyName: cognito.ProviderAttribute.other('family_name'),
+      },
+    });
+
     const userPoolClient = userPool.addClient('SarathiAppClient', {
       authFlows: { userPassword: true, userSrp: true },
+      supportedIdentityProviders: [
+        cognito.UserPoolClientIdentityProvider.COGNITO,
+        cognito.UserPoolClientIdentityProvider.custom('OidcSSO'),
+      ],
       oAuth: {
         flows: { authorizationCodeGrant: true },
-        scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL],
+        scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL, cognito.OAuthScope.PROFILE],
         callbackUrls: [
           'http://localhost:3000/callback',
           'https://d0000000000000.cloudfront.net/callback',
         ],
       },
     });
+    userPoolClient.node.addDependency(oidcProvider);
 
     userPool.addDomain('SarathiDomain', {
       cognitoDomain: { domainPrefix: 'sarathi-auth' },

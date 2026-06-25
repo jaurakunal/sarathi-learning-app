@@ -1,5 +1,5 @@
 import { useEffect, useState, ReactNode } from 'react'
-import { getSession, login, signUp, confirmSignUp, forgotPassword, confirmNewPassword } from './cognito'
+import { getSession, login, signUp, confirmSignUp, forgotPassword, confirmNewPassword, getOIDCLoginUrl } from './cognito'
 
 interface AuthGateProps {
   children: ReactNode
@@ -138,6 +138,22 @@ export function AuthGate({ children }: AuthGateProps) {
           <div className="text-red-400 text-sm text-center bg-red-400/10 border border-red-400/20 rounded-lg px-3 py-2">
             {error}
           </div>
+        )}
+
+        {view === 'login' && (
+          <>
+          <button
+            onClick={() => { window.location.href = getOIDCLoginUrl() }}
+            className="w-full py-3 bg-[#FF9900] hover:bg-[#FFa822] text-black font-medium rounded-xl transition-all flex items-center justify-center gap-2"
+          >
+            Sign in with SSO
+          </button>
+          <div className="flex items-center gap-3">
+            <div className="flex-1 h-px bg-zinc-800" />
+            <span className="text-xs text-zinc-600">or</span>
+            <div className="flex-1 h-px bg-zinc-800" />
+          </div>
+          </>
         )}
 
         {view === 'login' && (

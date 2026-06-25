@@ -12,6 +12,7 @@ import { Conversations } from './pages/Conversations'
 import { ResearchChat } from './pages/ResearchChat'
 import { Onboarding } from './pages/Onboarding'
 import { Settings } from './pages/Settings'
+import { Callback } from './pages/Callback'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -29,6 +30,7 @@ export default function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/onboarding" element={<Onboarding />} />
+            <Route path="/callback" element={<Callback />} />
             <Route path="/*" element={
               <OnboardingGate>
                 <Routes>
