@@ -148,6 +148,7 @@ export class SarathiStack extends cdk.Stack {
         callbackUrls: [
           'http://localhost:3000/callback',
           'https://d0000000000000.cloudfront.net/callback',
+          'https://sarathi.example.com/callback',
         ],
       },
     });

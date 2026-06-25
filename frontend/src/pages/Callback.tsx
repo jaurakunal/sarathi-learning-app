@@ -23,7 +23,7 @@ export function Callback() {
     // Exchange code for tokens via Cognito token endpoint
     const domain = import.meta.env.VITE_COGNITO_DOMAIN
     const clientId = import.meta.env.VITE_COGNITO_CLIENT_ID
-    const redirectUri = import.meta.env.VITE_REDIRECT_URI
+    const redirectUri = `${window.location.origin}/callback`
 
     fetch(`https://${domain}/oauth2/token`, {
       method: 'POST',
