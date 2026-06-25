@@ -205,3 +205,67 @@ def _render_plain(rows: list[dict]) -> str:
         if ri == 0:
             lines.append("-" * len(line))
     return "Sarathi Eval — Model Comparison\n" + "\n".join(lines)
+
+
+def render_markdown(rows: list[dict]) -> str:
+    """Render report as a markdown document with table + per-run details."""
+    from datetime import datetime, timezone
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+    lines = [
+        "# Sārathi LLM Evaluation Report",
+        "",
+        f"_Generated: {ts}_",
+        "",
+        f"_Baseline model: `{_BASELINE_MODEL}`_",
+        "",
+        "## Comparison Table",
+        "",
+        "| Model | Papers | Relev. | Specif. | Calib. | Action. | Align% | Win% | $/paper | Latency (ms) |",
+        "|---|---|---|---|---|---|---|---|---|---|",
+    ]
+    for r in rows:
+        if not r.get("judged"):
+            relev = specif = calib = action = align = win = "—"
+        else:
+            relev = f"{r['avg_relevance']:.2f}"
+            specif = f"{r['avg_specificity']:.2f}"
+            calib = f"{r['avg_calibration']:.2f}"
+            action = f"{r['avg_actionability']:.2f}"
+            align = f"{r['engagement_alignment_pct']:.1f}"
+            win = f"{r['win_rate_pct']:.1f}"
+        cost_str = f"${r['avg_cost_per_paper_usd']:.4f}" if r["avg_cost_per_paper_usd"] else "—"
+        lines.append(
+            f"| `{r['model']}` | {r['papers_succeeded']}/{r['papers_total']} | "
+            f"{relev} | {specif} | {calib} | {action} | {align} | {win} | "
+            f"{cost_str} | {r['avg_latency_ms']} |"
+        )
+
+    lines.extend([
+        "",
+        "## Score Definitions",
+        "",
+        "- **Relev.** — Does the hook connect to the user's research interests? (1-5)",
+        "- **Specif.** — Is the hook about THIS paper's contribution, or generic? (1-5)",
+        "- **Calib.** — Does the explanation match user's level (math comfort, depth)? (1-5)",
+        "- **Action.** — Does it surface 'why now' / what to do with this? (1-5)",
+        "- **Align%** — Judge's engagement prediction vs user's actual engagement",
+        "- **Win%** — Win rate vs baseline (Sonnet 4.6) on per-paper head-to-head",
+        "- **$/paper** — Approximate Bedrock cost per paper digested",
+        "",
+        "## Run Details",
+        "",
+    ])
+
+    for r in rows:
+        lines.append(f"### `{r['model']}`")
+        lines.append("")
+        lines.append(f"- **Run ID:** `{r.get('run_id', 'N/A')}`")
+        if r.get("judged"):
+            lines.append(f"- **Judge model:** `{r.get('judge_model', '?')}`")
+        lines.append(f"- **Papers:** {r['papers_succeeded']}/{r['papers_total']} succeeded")
+        lines.append(f"- **Cost per paper:** {('$' + format(r['avg_cost_per_paper_usd'], '.4f')) if r['avg_cost_per_paper_usd'] else 'N/A'}")
+        lines.append(f"- **Avg latency:** {r['avg_latency_ms']} ms")
+        lines.append("")
+
+    return "\n".join(lines)

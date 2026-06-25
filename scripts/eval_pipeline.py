@@ -160,10 +160,33 @@ def cmd_judge(args) -> int:
 
 
 def cmd_report(args) -> int:
-    """Print comparison table across runs."""
+    """Print comparison table across runs and write a markdown file."""
+    from datetime import datetime, timezone
+    from pathlib import Path
+
     table = _get_table(args.table, args.region)
     rows = report_mod.build_report_rows(table)
+
+    # Always print to stdout
     print(report_mod.render_report(rows))
+
+    # Determine output path
+    if args.output:
+        output_path = Path(args.output)
+    else:
+        # Auto-generate: sarathi_eval_<model>_<timestamp>.md
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        # Use the first non-baseline model name, or "all" if multiple
+        candidate_rows = [r for r in rows if r.get("judged")]
+        if candidate_rows:
+            model_slug = candidate_rows[0]["model"].replace(".", "-").replace("/", "_").split(":")[-1]
+        else:
+            model_slug = "all"
+        output_path = Path(f"sarathi_eval_{model_slug}_{ts}.md")
+
+    md = report_mod.render_markdown(rows)
+    output_path.write_text(md)
+    print(f"\nReport written to: {output_path}")
     return 0
 
 
@@ -231,7 +254,11 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--seed", type=int, default=42, help="RNG seed for A/B order randomization")
     sp.set_defaults(func=cmd_judge)
 
-    sp = sub.add_parser("report", help="Print comparison table across runs")
+    sp = sub.add_parser("report", help="Print comparison table across runs + write markdown")
+    sp.add_argument(
+        "--output", "-o",
+        help="Output path for markdown report (default: sarathi_eval_<model>_<timestamp>.md)",
+    )
     sp.set_defaults(func=cmd_report)
 
     return p
