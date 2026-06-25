@@ -268,6 +268,22 @@ def handler(event: dict, context) -> dict:
         tokens_out=tokens_out,
     )
 
+    # Auto-title: generate a title from the first message
+    if seq == 1 and message:
+        try:
+            from backend.shared.llm import call_llm
+            title = call_llm(
+                system="Generate a short title (max 6 words) for a conversation that starts with this message. Return ONLY the title, no quotes, no explanation.",
+                user_message=message,
+                model_id="us.anthropic.claude-haiku-4-5-20251001",
+                max_tokens=30,
+                temperature=0.3,
+            )
+            if title and len(title.strip()) > 0:
+                db.update_conversation_title(table, user_id, conv_id, title.strip())
+        except Exception:
+            pass
+
     return {"conversationId": conv_id, "turnSeq": seq, "status": "ok"}
 
 
