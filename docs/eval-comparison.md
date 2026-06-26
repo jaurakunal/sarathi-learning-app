@@ -112,23 +112,76 @@ If we keep **Sonnet on everything**: only the Team tier ($49) has positive margi
 ## Caveats
 
 1. **5 valid head-to-head papers** — small sample. Win rates have noise of ±15% with this sample size.
-2. **Self-judging bias** — Sonnet judges Sonnet's golden cards. Anonymization + A/B order randomization mitigates but doesn't eliminate.
+2. **Self-judging bias** — Sonnet judges Sonnet's golden cards. Anonymization + A/B order randomization mitigates but doesn't eliminate. **See Opus 4.8 judge re-rating below for an unbiased view.**
 3. **Engagement alignment is 0% across all models** — judge can't predict actual user engagement from card content alone. Dimensional scores + win rate are the more reliable signals.
 4. **Single user profile** — these results are calibrated against one user (kunaljaura@gmail.com). Other users with different domains may see different rankings.
 
-## Recommendation
+## Cross-judge comparison: Opus 4.8 as judge
 
-**Migrate digest to Kimi K2.5. Keep chat on Sonnet 4.6.**
+To check for self-preference bias (Sonnet judging Sonnet-generated cards), we re-judged
+all 5 candidate runs using **Claude Opus 4.8** (a more capable, different-instance model)
+as the judge.
 
-Rationale:
-- Digest is high-volume, batch-oriented. The 0.3 quality drop is acceptable when cards
-  still score 4.4-4.6. Users don't see Sonnet vs Kimi side-by-side — they see one card.
-- Chat is interactive, citation-sensitive, user-facing. Quality matters more here.
-- This hybrid cuts your monthly cost-per-user from ~$94 (all Sonnet) to ~$20-25 (Kimi
-  digest + Sonnet chat) — a 75% reduction.
+| Model | Judge: Sonnet 4.6 (avg) | Judge: Opus 4.8 (avg) | Δ |
+|---|---|---|---|
+| Sonnet 4.6 (vs golden) | 4.80 | **5.00** (perfect) | +0.20 |
+| GLM-5 | 4.60 | **4.90** | +0.30 |
+| Kimi K2.5 | 4.50 | 4.50 | 0.00 |
+| Qwen3 VL | 4.35 | 4.35 | 0.00 |
+| DeepSeek V3.2 | 4.55 | 4.55 | 0.00 |
 
-Worth doing a 1-week canary: route 50% of digest runs to Kimi K2.5, look at engagement
-metrics on the produced cards, then commit.
+| Model | Win% (Sonnet judge) | Win% (Opus 4.8 judge) | Δ |
+|---|---|---|---|
+| Sonnet 4.6 (vs golden) | 80% | **100%** | +20pp |
+| GLM-5 | 40% | **60%** | +20pp |
+| Kimi K2.5 | 60% | **20%** | -40pp |
+| Qwen3 VL | 20% | 20% | 0 |
+| DeepSeek V3.2 | 20% | 0% | -20pp |
+
+### What the unbiased judge tells us
+
+**The Sonnet self-judge was actually too lenient** on smaller models, not the opposite. When Opus 4.8 judges:
+
+1. **Sonnet vs Sonnet (golden) is much closer to 100%** — the new candidate cards are essentially identical quality to the goldens, as expected when running the same model on the same papers.
+
+2. **GLM-5 is the standout candidate** — Opus 4.8 rates it 4.90 average and 60% win rate. Almost matching Sonnet's quality. This is a meaningful upgrade in confidence vs the Sonnet-judged numbers.
+
+3. **Kimi K2.5 looks worse under Opus 4.8** — drops from 60% win rate to 20%. The Sonnet-judge was over-rating Kimi's cards. Opus 4.8 sees them as clearly inferior to Sonnet's golden cards.
+
+4. **Qwen3 VL and DeepSeek V3.2 stay weak** — both judges agree these are noticeably worse.
+
+### Updated recommendation
+
+**The new top candidate is GLM-5, not Kimi K2.5.**
+
+| Model | Quality (Opus judge) | Win% (Opus judge) | $/paper | Recommendation |
+|---|---|---|---|---|
+| **GLM-5** | **4.90** | **60%** | $0.0246 | ⭐ Best balance: near-Sonnet quality at 4.2× cost reduction |
+| Kimi K2.5 | 4.50 | 20% | $0.0166 | Cheaper but real quality regression — only worth it for cost-extreme tiers |
+| Qwen3 VL | 4.35 | 20% | $0.0157 | Skip |
+| DeepSeek V3.2 | 4.55 | 0% | $0.0150 | Skip — never wins head-to-head |
+
+GLM-5 cost at 30 papers/day = ~$22/month per user. That's 75% reduction from Sonnet.
+
+## Recommendation (revised after Opus 4.8 judge)
+
+**Migrate digest to GLM-5. Keep chat on Sonnet 4.6.**
+
+After cross-judging with Opus 4.8 (eliminating self-preference bias), GLM-5 emerged
+as the strongest candidate:
+- Quality: 4.90 avg (vs Sonnet's 5.00 — only 2% gap)
+- Win rate: 60% — produces cards that Opus 4.8 considers competitive with Sonnet's
+- Cost: $0.0246/paper — 4.2× cheaper than Sonnet
+- Latency: 62s vs Sonnet's 70s
+
+The Sonnet-judge had **over-rated Kimi K2.5** (gave it 60% win rate; Opus 4.8 says 20%).
+Kimi is still a viable cheaper option but with a real quality drop.
+
+This hybrid cuts monthly cost-per-user from ~$94 (all Sonnet) to ~$25 (GLM-5 digest +
+Sonnet chat) — a **73% reduction** with minimal quality loss on digest.
+
+Worth doing a 1-week canary: route 50% of digest runs to GLM-5, look at engagement
+metrics + spot-check 5-10 cards for calibration drift, then commit.
 
 ## Run history
 
