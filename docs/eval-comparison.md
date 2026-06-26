@@ -163,6 +163,45 @@ as the judge.
 
 GLM-5 cost at 30 papers/day = ~$22/month per user. That's 75% reduction from Sonnet.
 
+## Judge variance: 3-seed replication (Opus 4.8)
+
+To check whether the rankings above are stable or noisy, we re-judged each candidate
+3 times with different RNG seeds (controls A/B order randomization in the judge prompt).
+Numbers below are mean ± standard deviation.
+
+| Model | Relev (μ±σ) | Specif (μ±σ) | Calib (μ±σ) | Action (μ±σ) | Win% (μ±σ) |
+|---|---|---|---|---|---|
+| **Sonnet 4.6 (vs golden)** | **5.00±0.00** | **5.00±0.00** | **4.93±0.12** | **5.00±0.00** | **100.0±0.0** |
+| GLM-5 | 5.00±0.00 | 5.00±0.00 | 4.60±0.20 | 4.73±0.12 | **53.33±11.55** |
+| Kimi K2.5 | 4.60±0.00 | 4.87±0.12 | 4.20±0.00 | 4.40±0.20 | 20.00±0.00 |
+| Qwen3 VL | 4.67±0.12 | 4.40±0.00 | 4.00±0.20 | 4.47±0.12 | 20.00±0.00 |
+| DeepSeek V3.2 | 4.60±0.00 | 4.53±0.31 | 4.13±0.23 | 4.33±0.12 | 13.33±11.55 |
+
+### What this tells us
+
+**The rankings are robust to judge variance:**
+
+1. **Dimensional scores are remarkably stable** — σ ≤ 0.3 on every dimension across all
+   models. The judge consistently rates the same cards similarly across seeds.
+
+2. **Win rates have meaningful but not damaging variance** — σ around 0-12pp.
+   The bottom-tier models (Kimi/Qwen) are locked at 20%; GLM-5 swings 40-60%; Sonnet
+   stays at 100%. The orderings never flip.
+
+3. **The GLM-5 vs Kimi K2.5 gap is real, not noise.**
+   GLM-5: 53% ± 12% win rate (range: 40-60%).
+   Kimi K2.5: 20% ± 0% win rate (range: 20-20%).
+   Even at GLM-5's worst seed (40%) it doubles Kimi's best seed (20%).
+
+4. **Sonnet 4.6 vs golden is essentially deterministic** — 100% win rate every time.
+   This makes sense: the candidate cards are very similar to the goldens (same model,
+   same prompts, same papers).
+
+### Conclusion
+
+The single-run results were not noise. **GLM-5 is genuinely the strongest non-Sonnet
+candidate** across multiple judge seeds. Migration recommendation stands.
+
 ## Recommendation (revised after Opus 4.8 judge)
 
 **Migrate digest to GLM-5. Keep chat on Sonnet 4.6.**
