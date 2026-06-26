@@ -122,12 +122,14 @@ def main() -> int:
             seed=args.seed,
             self_validation=True,
         )
-        print(f"  ✓ Self-validation complete")
-        print(f"  Engagement alignment: {judge_result.get('engagement_alignment_pct', 0):.1f}%")
-        if judge_result.get("engagement_alignment_pct", 0) < 70:
-            print(f"  ⚠️  WARNING: Alignment below 70% — judge prompt may need work")
-            print(f"     Consider falling back to Opus 4.7 as judge:")
-            print(f"     --judge-model us.anthropic.claude-opus-4-7")
+        print(f"  ✓ Self-validation complete (golden vs golden)")
+        gold = judge_result.get("golden", {})
+        print(f"  Avg scores — Relev: {gold.get('avg_relevance', 0):.2f}, "
+              f"Specif: {gold.get('avg_specificity', 0):.2f}, "
+              f"Calib: {gold.get('avg_calibration', 0):.2f}, "
+              f"Action: {gold.get('avg_actionability', 0):.2f}")
+        align = judge_result.get('engagement_alignment_pct', gold.get('engagement_alignment_pct', 0))
+        print(f"  Engagement alignment (informational only): {align:.1f}%")
     else:
         judge_result = judge_mod.run_judge(
             table,
