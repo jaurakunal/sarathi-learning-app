@@ -71,6 +71,7 @@ def run_one_paper(
     """
     paper_id = entry.get("paper_id", "")
     paper = entry.get("paper") or {}
+    is_negative = bool(entry.get("is_negative", False))
 
     # Golden values — Sonnet's output stored on the paper record
     golden = {
@@ -85,6 +86,7 @@ def run_one_paper(
         "paper_id": paper_id,
         "success": False,
         "model_used": model,
+        "is_negative": is_negative,
         "latency_ms": 0,
         "tokens_in": 0,
         "tokens_out": 0,
@@ -209,18 +211,79 @@ def compute_classification_accuracy(pairs: list[tuple[Any, Any]]) -> float:
     return round(matches / len(pairs), 4)
 
 
+def compute_confusion_matrix(
+    pairs: list[tuple[bool, bool]],
+) -> dict:
+    """Confusion matrix for a binary classification task.
+
+    Convention: golden=True is the positive class, candidate=True is "predicted
+    positive". So:
+      TP = candidate=True  AND golden=True
+      FP = candidate=True  AND golden=False
+      TN = candidate=False AND golden=False
+      FN = candidate=False AND golden=True
+
+    Returns counts plus precision/recall/specificity/F1/accuracy.
+    """
+    tp = fp = tn = fn = 0
+    for c, g in pairs:
+        c, g = bool(c), bool(g)
+        if c and g:
+            tp += 1
+        elif c and not g:
+            fp += 1
+        elif (not c) and g:
+            fn += 1
+        else:
+            tn += 1
+    n = tp + fp + tn + fn
+    accuracy = (tp + tn) / n if n else 0.0
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    specificity = tn / (tn + fp) if (tn + fp) > 0 else 0.0
+    f1 = (
+        2 * precision * recall / (precision + recall)
+        if (precision + recall) > 0 else 0.0
+    )
+    return {
+        "tp": tp, "fp": fp, "tn": tn, "fn": fn,
+        "accuracy": round(accuracy, 4),
+        "precision": round(precision, 4),
+        "recall": round(recall, 4),
+        "specificity": round(specificity, 4),
+        "f1": round(f1, 4),
+    }
+
+
 def aggregate_triage_results(per_paper: list[dict]) -> dict:
-    """Compute MAE + correlation + classification accuracy across results."""
+    """Compute MAE + correlation + classification accuracy across results.
+
+    When per-paper records carry an `is_negative` flag (added by
+    `run_eval` once the dataset switched to mixed positive+negative), we
+    additionally split metrics per class and compute a confusion matrix on
+    `worth_my_hours`. Records without the flag are treated as positives so
+    older runs keep working.
+    """
     score_pairs: list[tuple[float, float]] = []
     worth_pairs: list[tuple[bool, bool]] = []
     level_pairs: list[tuple[str, str]] = []
     hyp_pairs: list[tuple[bool, bool]] = []
+
+    pos_worth_pairs: list[tuple[bool, bool]] = []
+    neg_worth_pairs: list[tuple[bool, bool]] = []
+    pos_count = 0
+    neg_count = 0
 
     for r in per_paper:
         if not r.get("success"):
             continue
         cand = r.get("candidate") or {}
         gold = r.get("golden") or {}
+        is_neg = bool(r.get("is_negative", False))
+        if is_neg:
+            neg_count += 1
+        else:
+            pos_count += 1
 
         c_score = _coerce_float(cand.get("triage_score"))
         g_score = _coerce_float(gold.get("triage_score"))
@@ -230,7 +293,12 @@ def aggregate_triage_results(per_paper: list[dict]) -> dict:
         c_worth = cand.get("worth_my_hours")
         g_worth = gold.get("worth_my_hours")
         if c_worth is not None and g_worth is not None:
-            worth_pairs.append((bool(c_worth), bool(g_worth)))
+            pair = (bool(c_worth), bool(g_worth))
+            worth_pairs.append(pair)
+            if is_neg:
+                neg_worth_pairs.append(pair)
+            else:
+                pos_worth_pairs.append(pair)
 
         c_level = cand.get("level")
         g_level = gold.get("level")
@@ -242,13 +310,44 @@ def aggregate_triage_results(per_paper: list[dict]) -> dict:
         if c_hyp is not None and g_hyp is not None:
             hyp_pairs.append((bool(c_hyp), bool(g_hyp)))
 
+    confusion = compute_confusion_matrix(worth_pairs)
+
+    # Per-class breakdown.
+    # Positives: how often candidate also said worth_my_hours=True (recall).
+    # Negatives: how often candidate correctly said worth_my_hours=False
+    # (specificity = TN / (TN+FP)).
+    pos_recall = (
+        sum(1 for c, g in pos_worth_pairs if c and g)
+        / max(sum(1 for _, g in pos_worth_pairs if g), 1)
+        if pos_worth_pairs else 0.0
+    )
+    neg_specificity = (
+        sum(1 for c, g in neg_worth_pairs if (not c) and (not g))
+        / max(sum(1 for _, g in neg_worth_pairs if not g), 1)
+        if neg_worth_pairs else 0.0
+    )
+
     return {
         "papers_evaluated": sum(1 for r in per_paper if r.get("success")),
+        "positives_evaluated": pos_count,
+        "negatives_evaluated": neg_count,
         "triage_score_mae": compute_mae(score_pairs),
         "triage_score_pearson": compute_pearson(score_pairs),
         "worth_my_hours_accuracy": compute_classification_accuracy(worth_pairs),
         "level_accuracy": compute_classification_accuracy(level_pairs),
         "hypothesis_relevant_accuracy": compute_classification_accuracy(hyp_pairs),
+        # Per-class
+        "positives_recall": round(pos_recall, 4),
+        "negatives_specificity": round(neg_specificity, 4),
+        # Confusion matrix on worth_my_hours
+        "tp": confusion["tp"],
+        "fp": confusion["fp"],
+        "tn": confusion["tn"],
+        "fn": confusion["fn"],
+        "precision": confusion["precision"],
+        "recall": confusion["recall"],
+        "specificity": confusion["specificity"],
+        "f1": confusion["f1"],
     }
 
 
@@ -274,16 +373,18 @@ def run_eval(
             f"Test user {user_id} has no profile — run `eval_pipeline.py setup` first"
         )
 
-    entries = eval_dataset.load_dataset(table)
+    entries = eval_dataset.load_combined_dataset(table)
     if not entries:
         raise RuntimeError("No eval dataset found — run `eval_pipeline.py setup` first")
 
     run_id = f"{db._now_iso()}_{uuid.uuid4().hex[:8]}"
     started = time.time()
 
+    n_pos = sum(1 for e in entries if not e.get("is_negative"))
+    n_neg = sum(1 for e in entries if e.get("is_negative"))
     logger.info(
-        "Triage eval run %s: model=%s papers=%d workers=%d",
-        run_id, model, len(entries), max_workers,
+        "Triage eval run %s: model=%s papers=%d (pos=%d neg=%d) workers=%d",
+        run_id, model, len(entries), n_pos, n_neg, max_workers,
     )
 
     results: list[dict] = []
@@ -326,6 +427,8 @@ def run_eval(
         "model": model,
         "started_at": db._now_iso(),
         "papers_total": len(entries),
+        "positives_total": n_pos,
+        "negatives_total": n_neg,
         "papers_succeeded": successes,
         "papers_failed": len(entries) - successes,
         "total_cost_usd": round(total_cost, 6),
@@ -339,10 +442,13 @@ def run_eval(
     table.put_item(Item=db._sanitize_item(summary))
 
     logger.info(
-        "Triage eval %s done: %d/%d ok, MAE=%.3f corr=%.3f worth_acc=%.3f $%.4f",
+        "Triage eval %s done: %d/%d ok, MAE=%.3f corr=%.3f worth_acc=%.3f "
+        "recall=%.3f spec=%.3f f1=%.3f $%.4f",
         run_id, successes, len(entries),
         aggregate["triage_score_mae"], aggregate["triage_score_pearson"],
-        aggregate["worth_my_hours_accuracy"], total_cost,
+        aggregate["worth_my_hours_accuracy"],
+        aggregate["recall"], aggregate["specificity"], aggregate["f1"],
+        total_cost,
     )
     return {k: v for k, v in summary.items() if k not in ("PK", "SK")}
 

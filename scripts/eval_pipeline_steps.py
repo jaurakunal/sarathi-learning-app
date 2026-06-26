@@ -72,6 +72,35 @@ def _jsonable(obj):
 # ---------------------------------------------------------------------------
 
 
+def cmd_setup_negatives(args) -> int:
+    """Pull rejected-at-triage papers from the live user, persist as negative
+    eval set under EVAL#DATASET_NEG. Idempotent — re-running overwrites.
+    """
+    table = _get_table(args.table, args.region)
+    entries = eval_dataset.build_negative_dataset_entries(
+        table, source_user_id=eval_dataset.LIVE_USER_ID, limit=args.limit,
+    )
+    if not entries:
+        logger.warning(
+            "No negative-class entries found — does the live user have any "
+            "candidate-status papers with worth_my_hours=False?"
+        )
+        return 1
+    written = eval_dataset.persist_negative_dataset(table, entries)
+
+    # Quick breakdown by triage_level for visibility
+    by_level: dict[str, int] = {}
+    for e in entries:
+        lvl = (e.get("paper") or {}).get("triage_level") or "unknown"
+        by_level[lvl] = by_level.get(lvl, 0) + 1
+    logger.info(
+        "setup-negatives: wrote %d papers (%s)",
+        written,
+        ", ".join(f"{k}={v}" for k, v in sorted(by_level.items())),
+    )
+    return 0
+
+
 def cmd_triage(args) -> int:
     table = _get_table(args.table, args.region)
     summary = triage_eval.run_eval(
@@ -438,6 +467,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--table", default=TABLE_NAME_DEFAULT, help="DDB table name")
     p.add_argument("--region", default=REGION_DEFAULT, help="AWS region")
     sub = p.add_subparsers(dest="cmd", required=True)
+
+    # setup-negatives
+    sp = sub.add_parser(
+        "setup-negatives",
+        help="Pull + persist real negative-class papers from production DDB",
+    )
+    sp.add_argument("--limit", type=int, default=50,
+                    help="Max negative papers to pull (default: 50)")
+    sp.set_defaults(func=cmd_setup_negatives)
 
     # triage
     sp = sub.add_parser("triage", help="Run triage eval")

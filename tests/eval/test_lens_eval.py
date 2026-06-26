@@ -140,6 +140,49 @@ def test_aggregate_lens_results_handles_empty():
     assert agg["lens_alignment_pct"] == 0.0
 
 
+def test_aggregate_lens_with_mixed_positive_and_negative():
+    """Aggregator should split per-class metrics on relevance."""
+    per_paper = [
+        # Positive — both say supports → relevant=True
+        {"success": True, "is_negative": False, "verdict_match": True,
+         "reasoning_coherent": True,
+         "candidate_verdict": "supports", "golden_verdict": "supports"},
+        # Positive — golden refines, candidate refutes (still relevant=True both)
+        {"success": True, "is_negative": False, "verdict_match": False,
+         "reasoning_coherent": True,
+         "candidate_verdict": "refutes", "golden_verdict": "refines"},
+        # Negative — both say irrelevant
+        {"success": True, "is_negative": True, "verdict_match": True,
+         "reasoning_coherent": True,
+         "candidate_verdict": "irrelevant", "golden_verdict": "irrelevant"},
+        # Negative — candidate says supports (FP); golden says irrelevant
+        {"success": True, "is_negative": True, "verdict_match": False,
+         "reasoning_coherent": False,
+         "candidate_verdict": "supports", "golden_verdict": "irrelevant"},
+    ]
+    agg = lens_eval.aggregate_lens_results(per_paper)
+    assert agg["positives_evaluated"] == 2
+    assert agg["negatives_evaluated"] == 2
+    # Both positives are relevant according to both candidate + golden
+    assert agg["positives_recall"] == pytest.approx(1.0)
+    # Specificity on negatives = 1/2
+    assert agg["negatives_specificity"] == pytest.approx(0.5)
+    # Confusion matrix on relevance: TP=2, FP=1, TN=1, FN=0
+    assert agg["tp"] == 2
+    assert agg["fp"] == 1
+    assert agg["tn"] == 1
+    assert agg["fn"] == 0
+
+
+def test_is_relevant_verdict_helper():
+    assert lens_eval._is_relevant_verdict("supports") is True
+    assert lens_eval._is_relevant_verdict("refutes") is True
+    assert lens_eval._is_relevant_verdict("refines") is True
+    assert lens_eval._is_relevant_verdict("irrelevant") is False
+    assert lens_eval._is_relevant_verdict("unknown") is None
+    assert lens_eval._is_relevant_verdict(None) is None
+
+
 # ---------------------------------------------------------------------------
 # run_one_paper
 # ---------------------------------------------------------------------------
@@ -247,6 +290,50 @@ def test_run_one_paper_missing_golden_card_short_circuits():
     assert result["error"] == "missing_golden_card"
 
 
+@patch("backend.eval.lens_eval.call_llm_with_usage")
+def test_run_one_paper_negative_uses_synth_card(mock_call):
+    """For negative entries with no golden_card, lens synthesizes one from the
+    paper's title + abstract and treats hypothesis_relevant=False as
+    'irrelevant' golden verdict."""
+    mock_call.return_value = (
+        "This paper is irrelevant to the hypothesis.",
+        {"tokens_in": 40, "tokens_out": 20},
+    )
+    entry = {
+        "paper_id": "neg-1",
+        "paper": {
+            "id": "neg-1",
+            "title": "Off-topic title",
+            "abstract": "Off-topic abstract.",
+            "hypothesis_relevant": False,
+            "triage_reasoning": "Off-topic.",
+        },
+        "golden_card": None,
+        "is_negative": True,
+    }
+    result = lens_eval.run_one_paper(
+        entry=entry, hypothesis_statement="H", model="zai.glm-5",
+        skip_reasoning_judge=True,
+    )
+    assert result["success"] is True
+    assert result["is_negative"] is True
+    assert result["golden_verdict"] == "irrelevant"
+    assert result["candidate_verdict"] == "irrelevant"
+    assert result["verdict_match"] is True
+
+
+def test_synth_card_from_paper_shape():
+    """Helper produces dict with hook + digest fields lens prompt expects."""
+    card = lens_eval._synth_card_from_paper({
+        "title": "T", "abstract": "A long abstract." * 200,
+    })
+    assert card["hook"] == "T"
+    assert "gist" in card["digest"]
+    assert card["digest"]["key_ideas"] == []
+    # Truncates very long abstracts
+    assert len(card["digest"]["gist"]) <= 1500
+
+
 # ---------------------------------------------------------------------------
 # run_eval orchestration
 # ---------------------------------------------------------------------------
@@ -317,3 +404,67 @@ def test_run_eval_raises_when_dataset_missing(fake_table, sample_profile):
     )
     with pytest.raises(RuntimeError, match="dataset"):
         lens_eval.run_eval(fake_table, model="m")
+
+
+@patch("backend.eval.lens_eval.call_llm")
+@patch("backend.eval.lens_eval.call_llm_with_usage")
+def test_run_eval_with_mixed_positive_and_negative(
+    mock_call, mock_judge, fake_table, sample_profile,
+):
+    """run_eval pulls combined dataset and reports per-class metrics."""
+    mock_judge.return_value = "yes"
+    # Candidate always says "supports" — positive verdict matches positive
+    # gold but FAILS on the negative (where gold = irrelevant).
+    mock_call.return_value = (
+        "This paper supports the hypothesis.",
+        {"tokens_in": 40, "tokens_out": 20},
+    )
+
+    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, sample_profile["meta"])
+    for area in sample_profile["areas"]:
+        db.put_profile_area(fake_table, eval_dataset.TEST_USER_ID, area)
+    db.put_profile_hypothesis(
+        fake_table, eval_dataset.TEST_USER_ID, sample_profile["hypothesis"],
+    )
+
+    # 1 positive
+    fake_table.put_item(Item={
+        "PK": eval_dataset.DATASET_PK,
+        "SK": "PAPER#pos-1",
+        "paper_id": "pos-1",
+        "paper": {"id": "pos-1", "title": "T", "abstract": "A"},
+        "golden_card": {
+            "hook": "h",
+            "digest": {"gist": "g", "key_ideas": []},
+            "hypothesis_relevance": "The paper supports the hypothesis.",
+        },
+    })
+    # 1 negative — Sonnet rejected, hypothesis_relevant=False
+    fake_table.put_item(Item={
+        "PK": eval_dataset.DATASET_NEG_PK,
+        "SK": "PAPER#neg-1",
+        "paper_id": "neg-1",
+        "paper": {
+            "id": "neg-1",
+            "title": "Off",
+            "abstract": "Off.",
+            "hypothesis_relevant": False,
+            "triage_reasoning": "Off-topic.",
+        },
+        "golden_card": None,
+        "is_negative": True,
+    })
+
+    summary = lens_eval.run_eval(fake_table, model="zai.glm-5", max_workers=1)
+    assert summary["positives_total"] == 1
+    assert summary["negatives_total"] == 1
+    assert summary["positives_evaluated"] == 1
+    assert summary["negatives_evaluated"] == 1
+    # Positive: candidate=supports, golden=supports → relevant=True both → TP
+    # Negative: candidate=supports, golden=irrelevant → FP
+    assert summary["tp"] == 1
+    assert summary["fp"] == 1
+    assert summary["tn"] == 0
+    # Positive recall = 1.0; specificity = 0.0 (we kept the FP)
+    assert float(summary["positives_recall"]) == pytest.approx(1.0)
+    assert float(summary["negatives_specificity"]) == pytest.approx(0.0)

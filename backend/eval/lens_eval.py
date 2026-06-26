@@ -131,6 +131,21 @@ def judge_reasoning_coherent(
 # ---------------------------------------------------------------------------
 
 
+def _synth_card_from_paper(paper: dict) -> dict:
+    """Build a card-shaped dict from a raw paper for negative-class entries
+    (which have no Sonnet-generated golden card). The lens prompt expects
+    hook + digest{gist, key_ideas} fields."""
+    title = paper.get("title", "")
+    abstract = (paper.get("abstract") or "")[:1500]
+    return {
+        "hook": title,
+        "digest": {
+            "gist": abstract,
+            "key_ideas": [],
+        },
+    }
+
+
 def run_one_paper(
     *,
     entry: dict,
@@ -139,20 +154,43 @@ def run_one_paper(
     judge_model: str = DEFAULT_MODEL_ID,
     skip_reasoning_judge: bool = False,
 ) -> dict:
-    """Run lens against the golden card for `entry`, judge the result."""
+    """Run lens against the golden card for `entry`, judge the result.
+
+    For negative-class entries (`is_negative=True`) we synthesize a card from
+    the paper's title/abstract since there is no Sonnet-generated card. The
+    "golden" answer for negatives is `hypothesis_relevant=False`, mapped to
+    the `irrelevant` verdict.
+    """
     paper_id = entry.get("paper_id", "")
     paper = entry.get("paper") or {}
-    golden_card = entry.get("golden_card") or {}
+    golden_card = entry.get("golden_card") or None
+    is_negative = bool(entry.get("is_negative", False))
 
-    # Golden value: the lens annotation already on the golden card
-    golden_text = golden_card.get("hypothesis_relevance") or ""
-    golden_verdict = extract_verdict(golden_text)
+    if is_negative:
+        # Golden answer comes from Sonnet's hypothesis_relevant decision on
+        # the paper. False → irrelevant; True → unknown (rare for rejected
+        # papers, but if present we leave verdict resolution to the candidate
+        # text only).
+        hyp_rel = paper.get("hypothesis_relevant")
+        golden_text = paper.get("triage_reasoning") or ""
+        if hyp_rel is False:
+            golden_verdict = "irrelevant"
+        else:
+            golden_verdict = extract_verdict(golden_text) if golden_text else "unknown"
+        # Use a synthesized card so lens has something to score
+        card_for_prompt = _synth_card_from_paper(paper)
+    else:
+        golden_card = golden_card or {}
+        golden_text = (golden_card or {}).get("hypothesis_relevance") or ""
+        golden_verdict = extract_verdict(golden_text)
+        card_for_prompt = golden_card
 
     result: dict[str, Any] = {
         "paper_id": paper_id,
         "success": False,
         "model_used": model,
         "judge_model": judge_model,
+        "is_negative": is_negative,
         "latency_ms": 0,
         "tokens_in": 0,
         "tokens_out": 0,
@@ -166,12 +204,12 @@ def run_one_paper(
         "error": None,
     }
 
-    if not golden_card:
+    if not is_negative and not golden_card:
         result["error"] = "missing_golden_card"
         return result
 
     system_prompt = lens_module.SYSTEM_PROMPT
-    user_message = lens_module._build_user_message(hypothesis_statement, golden_card)
+    user_message = lens_module._build_user_message(hypothesis_statement, card_for_prompt)
 
     start = time.time()
     raw_text, usage = call_llm_with_usage(
@@ -226,8 +264,30 @@ def run_one_paper(
 # ---------------------------------------------------------------------------
 
 
+def _is_relevant_verdict(v: Optional[str]) -> Optional[bool]:
+    """Reduce a verdict to a relevance bool.
+
+    supports/refutes/refines → True (the paper IS relevant, regardless of
+    direction). irrelevant → False. unknown → None.
+    """
+    if v in ("supports", "refutes", "refines"):
+        return True
+    if v == "irrelevant":
+        return False
+    return None
+
+
 def aggregate_lens_results(per_paper: list[dict]) -> dict:
-    """Compute verdict accuracy + reasoning coherence + combined alignment."""
+    """Compute verdict accuracy + reasoning coherence + combined alignment.
+
+    With mixed positive+negative entries, we additionally compute:
+    - Recall on positives: of papers where Sonnet said "relevant" (any
+      supports/refutes/refines verdict), how often did the candidate also
+      land on a relevant verdict.
+    - Specificity on negatives: of papers where Sonnet said "irrelevant",
+      how often did the candidate also say "irrelevant".
+    - Confusion matrix on the binary relevant-or-not signal.
+    """
     n = sum(1 for r in per_paper if r.get("success"))
     matches = sum(1 for r in per_paper if r.get("success") and r.get("verdict_match"))
     coherent = sum(
@@ -239,7 +299,12 @@ def aggregate_lens_results(per_paper: list[dict]) -> dict:
         and r.get("reasoning_coherent") is True
     )
 
-    # Per-class verdict distribution (candidate)
+    pos_count = 0
+    neg_count = 0
+    relevance_pairs: list[tuple[bool, bool]] = []
+    pos_relevance_pairs: list[tuple[bool, bool]] = []
+    neg_relevance_pairs: list[tuple[bool, bool]] = []
+
     cand_distribution: dict[str, int] = {}
     for r in per_paper:
         if not r.get("success"):
@@ -247,12 +312,67 @@ def aggregate_lens_results(per_paper: list[dict]) -> dict:
         v = r.get("candidate_verdict") or "unknown"
         cand_distribution[v] = cand_distribution.get(v, 0) + 1
 
+        is_neg = bool(r.get("is_negative", False))
+        if is_neg:
+            neg_count += 1
+        else:
+            pos_count += 1
+
+        c_rel = _is_relevant_verdict(r.get("candidate_verdict"))
+        g_rel = _is_relevant_verdict(r.get("golden_verdict"))
+        if c_rel is None or g_rel is None:
+            continue
+        pair = (c_rel, g_rel)
+        relevance_pairs.append(pair)
+        if is_neg:
+            neg_relevance_pairs.append(pair)
+        else:
+            pos_relevance_pairs.append(pair)
+
+    # Confusion matrix on relevance — golden=True is positive class.
+    tp = sum(1 for c, g in relevance_pairs if c and g)
+    fp = sum(1 for c, g in relevance_pairs if c and not g)
+    tn = sum(1 for c, g in relevance_pairs if (not c) and (not g))
+    fn = sum(1 for c, g in relevance_pairs if (not c) and g)
+    n_rel = tp + fp + tn + fn
+    accuracy = (tp + tn) / n_rel if n_rel else 0.0
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    specificity = tn / (tn + fp) if (tn + fp) > 0 else 0.0
+    f1 = (
+        2 * precision * recall / (precision + recall)
+        if (precision + recall) > 0 else 0.0
+    )
+
+    pos_recall = (
+        sum(1 for c, g in pos_relevance_pairs if c and g)
+        / max(sum(1 for _, g in pos_relevance_pairs if g), 1)
+        if pos_relevance_pairs else 0.0
+    )
+    neg_specificity = (
+        sum(1 for c, g in neg_relevance_pairs if (not c) and (not g))
+        / max(sum(1 for _, g in neg_relevance_pairs if not g), 1)
+        if neg_relevance_pairs else 0.0
+    )
+
     return {
         "papers_evaluated": n,
+        "positives_evaluated": pos_count,
+        "negatives_evaluated": neg_count,
         "verdict_match_pct": round(100.0 * matches / max(n, 1), 1),
         "reasoning_coherent_pct": round(100.0 * coherent / max(n, 1), 1),
         "lens_alignment_pct": round(100.0 * aligned / max(n, 1), 1),
         "candidate_verdict_distribution": cand_distribution,
+        # Per-class
+        "positives_recall": round(pos_recall, 4),
+        "negatives_specificity": round(neg_specificity, 4),
+        # Confusion matrix on relevance
+        "tp": tp, "fp": fp, "tn": tn, "fn": fn,
+        "accuracy": round(accuracy, 4),
+        "precision": round(precision, 4),
+        "recall": round(recall, 4),
+        "specificity": round(specificity, 4),
+        "f1": round(f1, 4),
     }
 
 
@@ -282,16 +402,18 @@ def run_eval(
     if not hypothesis_statement:
         raise RuntimeError("No hypothesis on test profile — cannot run lens eval")
 
-    entries = eval_dataset.load_dataset(table)
+    entries = eval_dataset.load_combined_dataset(table)
     if not entries:
         raise RuntimeError("No eval dataset found — run `eval_pipeline.py setup` first")
 
     run_id = f"{db._now_iso()}_{uuid.uuid4().hex[:8]}"
     started = time.time()
 
+    n_pos = sum(1 for e in entries if not e.get("is_negative"))
+    n_neg = sum(1 for e in entries if e.get("is_negative"))
     logger.info(
-        "Lens eval run %s: model=%s judge=%s papers=%d workers=%d",
-        run_id, model, judge_model, len(entries), max_workers,
+        "Lens eval run %s: model=%s judge=%s papers=%d (pos=%d neg=%d) workers=%d",
+        run_id, model, judge_model, len(entries), n_pos, n_neg, max_workers,
     )
 
     results: list[dict] = []
@@ -346,6 +468,8 @@ def run_eval(
         "judge_model": judge_model,
         "started_at": db._now_iso(),
         "papers_total": len(entries),
+        "positives_total": n_pos,
+        "negatives_total": n_neg,
         "papers_succeeded": successes,
         "papers_failed": len(entries) - successes,
         "total_cost_usd": round(total_cost, 6),

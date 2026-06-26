@@ -8,9 +8,12 @@ classification metrics.
 Approach:
 - Positive class: the 18 papers in EVAL#DATASET (they all passed the filter
   in production, since they made it all the way to digested status).
-- Negative class: 10-15 synthetic off-topic papers shipped in
-  `SYNTHETIC_OFFTOPIC_PAPERS` below. Mixing real papers with off-topic
-  papers also exercises the filter's true negative behavior.
+- Negative class: REAL near-miss papers from EVAL#DATASET_NEG — papers that
+  Sonnet rejected at triage with off-topic / not-relevant reasoning. These
+  are harder than synthetic negatives because they're in adjacent CS
+  subfields rather than blatantly different domains. Falls back to the
+  synthetic `SYNTHETIC_OFFTOPIC_PAPERS` list when the negative dataset
+  hasn't been populated.
 
 The eval reuses the production prompt construction (SYSTEM_PROMPT + the
 indexed-paper-list user message) but invokes `call_llm_with_usage` instead of
@@ -326,10 +329,77 @@ def compute_classification_metrics(
 # ---------------------------------------------------------------------------
 
 
-def _build_eval_paper_set(table) -> list[dict]:
-    """Construct the eval paper set (positives from dataset, negatives synthetic).
+_OFFTOPIC_KEYWORDS = (
+    "off-topic", "off topic", "not relevant", "not related",
+    "outside the user's areas", "outside scope", "unrelated",
+    "different domain", "irrelevant", "not in scope",
+)
 
-    Each paper dict gains a `_golden_keep` bool that the filter does NOT see.
+
+def _is_near_miss_negative(paper: dict) -> bool:
+    """Heuristic: a candidate paper is a "near-miss" relevance negative if its
+    Sonnet triage reasoning indicates the paper was rejected for being
+    off-topic / outside the user's areas (rather than e.g. too-basic).
+
+    We also accept any paper whose hypothesis_relevant=False AND
+    triage_score is low (< 0.4), which catches papers Sonnet decisively
+    deemed off-area without explicit keyword matches.
+    """
+    reasoning = (paper.get("triage_reasoning") or "").lower()
+    if any(k in reasoning for k in _OFFTOPIC_KEYWORDS):
+        return True
+    try:
+        score = float(paper.get("triage_score") or 0)
+    except (TypeError, ValueError):
+        score = 0.0
+    if (
+        paper.get("hypothesis_relevant") is False
+        and score < 0.4
+    ):
+        return True
+    return False
+
+
+def _select_real_negatives(table, target: int = 25) -> list[dict]:
+    """Pull real near-miss negative papers from EVAL#DATASET_NEG.
+
+    Returns up to `target` papers that look like off-topic rejects. Returns
+    an empty list if the negative dataset isn't populated yet (caller falls
+    back to synthetic).
+    """
+    neg_entries = eval_dataset.load_negative_dataset(table)
+    candidates: list[dict] = []
+    fallback: list[dict] = []
+    for e in neg_entries:
+        paper = e.get("paper") or {}
+        if not paper.get("title"):
+            continue
+        if _is_near_miss_negative(paper):
+            candidates.append(paper)
+        else:
+            fallback.append(paper)
+
+    # Stable order so re-running doesn't churn the eval set
+    candidates.sort(key=lambda p: p.get("id", ""))
+    fallback.sort(key=lambda p: p.get("id", ""))
+    out = candidates[:target]
+    if len(out) < target:
+        # Backfill with whatever rejected papers we have so the negative
+        # class isn't tiny — anything Sonnet rejected is still a useful
+        # negative signal.
+        out.extend(fallback[: target - len(out)])
+    return out
+
+
+def _build_eval_paper_set(table, prefer_real_negatives: bool = True) -> list[dict]:
+    """Construct the eval paper set.
+
+    Positives = papers in EVAL#DATASET. Negatives = real near-miss papers
+    from EVAL#DATASET_NEG when available, else the synthetic off-topic
+    papers.
+
+    Each paper dict gains a `_golden_keep` bool that the filter does NOT
+    see.
     """
     entries = eval_dataset.load_dataset(table)
     positives = []
@@ -338,7 +408,15 @@ def _build_eval_paper_set(table) -> list[dict]:
         if p.get("title"):
             positives.append({**p, "_golden_keep": True})
 
-    negatives = [{**p, "_golden_keep": False} for p in SYNTHETIC_OFFTOPIC_PAPERS]
+    real_neg_papers: list[dict] = []
+    if prefer_real_negatives:
+        real_neg_papers = _select_real_negatives(table, target=25)
+
+    if real_neg_papers:
+        negatives = [{**p, "_golden_keep": False} for p in real_neg_papers]
+    else:
+        negatives = [{**p, "_golden_keep": False} for p in SYNTHETIC_OFFTOPIC_PAPERS]
+
     return positives + negatives
 
 
@@ -348,6 +426,7 @@ def run_eval(
     model: str = DEFAULT_MODEL_ID,
     user_id: str = eval_dataset.TEST_USER_ID,
     batch_size: int = 25,
+    prefer_real_negatives: bool = True,
 ) -> dict:
     """Run relevance filter eval. Stores results under EVAL#RELEVANCE#<run_id>."""
     profile = db.get_full_profile(table, user_id)
@@ -360,7 +439,14 @@ def run_eval(
     if not areas:
         raise RuntimeError("Test profile has no areas — cannot run relevance eval")
 
-    all_papers = _build_eval_paper_set(table)
+    all_papers = _build_eval_paper_set(
+        table, prefer_real_negatives=prefer_real_negatives,
+    )
+    # Track whether negatives are real near-misses or synthetic fallback
+    real_neg_count = 0
+    if prefer_real_negatives:
+        real_neg_count = len(_select_real_negatives(table, target=25))
+    negatives_source = "real" if real_neg_count > 0 else "synthetic"
     n_positives = sum(1 for p in all_papers if p["_golden_keep"])
     if n_positives == 0:
         raise RuntimeError(
@@ -444,6 +530,7 @@ def run_eval(
         "papers_total": len(all_papers),
         "positives_total": sum(1 for p in all_papers if p["_golden_keep"]),
         "negatives_total": sum(1 for p in all_papers if not p["_golden_keep"]),
+        "negatives_source": negatives_source,
         "papers_evaluated": len(successful_calls),
         "n_batches": n_batches,
         "batch_size": batch_size,

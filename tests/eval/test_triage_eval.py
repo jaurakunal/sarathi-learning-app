@@ -113,6 +113,112 @@ def test_aggregate_handles_no_papers():
 
 
 # ---------------------------------------------------------------------------
+# Confusion matrix + per-class metrics on mixed positive+negative entries
+# ---------------------------------------------------------------------------
+
+
+def test_compute_confusion_matrix_basic():
+    pairs = [
+        (True, True),    # TP
+        (True, True),    # TP
+        (True, False),   # FP
+        (False, False),  # TN
+        (False, True),   # FN
+    ]
+    out = triage_eval.compute_confusion_matrix(pairs)
+    assert out["tp"] == 2
+    assert out["fp"] == 1
+    assert out["tn"] == 1
+    assert out["fn"] == 1
+    assert out["precision"] == pytest.approx(2 / 3, abs=1e-3)
+    assert out["recall"] == pytest.approx(2 / 3, abs=1e-3)
+    assert out["specificity"] == pytest.approx(0.5)
+
+
+def test_compute_confusion_matrix_empty():
+    out = triage_eval.compute_confusion_matrix([])
+    assert out["tp"] == 0 == out["fp"] == out["tn"] == out["fn"]
+    assert out["accuracy"] == 0.0
+    assert out["f1"] == 0.0
+
+
+def test_aggregate_with_mixed_positive_and_negative():
+    """Per-class recall + specificity should reflect the dual classes."""
+    per_paper = [
+        # 2 positives — candidate agrees with golden=True on both
+        {
+            "success": True, "is_negative": False,
+            "candidate": {"worth_my_hours": True, "triage_score": 0.7,
+                          "level": "just_right", "hypothesis_relevant": True},
+            "golden": {"worth_my_hours": True, "triage_score": 0.65,
+                       "level": "just_right", "hypothesis_relevant": True},
+        },
+        {
+            "success": True, "is_negative": False,
+            "candidate": {"worth_my_hours": True, "triage_score": 0.6,
+                          "level": "just_right", "hypothesis_relevant": True},
+            "golden": {"worth_my_hours": True, "triage_score": 0.6,
+                       "level": "just_right", "hypothesis_relevant": True},
+        },
+        # 3 negatives — candidate correctly says False on 2, lenient on 1
+        {
+            "success": True, "is_negative": True,
+            "candidate": {"worth_my_hours": False, "triage_score": 0.2,
+                          "level": "too_basic", "hypothesis_relevant": False},
+            "golden": {"worth_my_hours": False, "triage_score": 0.2,
+                       "level": "too_basic", "hypothesis_relevant": False},
+        },
+        {
+            "success": True, "is_negative": True,
+            "candidate": {"worth_my_hours": False, "triage_score": 0.3,
+                          "level": "over_head", "hypothesis_relevant": False},
+            "golden": {"worth_my_hours": False, "triage_score": 0.3,
+                       "level": "over_head", "hypothesis_relevant": False},
+        },
+        {
+            "success": True, "is_negative": True,
+            "candidate": {"worth_my_hours": True, "triage_score": 0.5,
+                          "level": "just_right", "hypothesis_relevant": False},
+            "golden": {"worth_my_hours": False, "triage_score": 0.2,
+                       "level": "too_basic", "hypothesis_relevant": False},
+        },
+    ]
+    agg = triage_eval.aggregate_triage_results(per_paper)
+    assert agg["positives_evaluated"] == 2
+    assert agg["negatives_evaluated"] == 3
+    # Recall on positives = 2/2 = 1.0
+    assert agg["positives_recall"] == pytest.approx(1.0)
+    # Specificity on negatives = 2/3 (one was lenient)
+    assert agg["negatives_specificity"] == pytest.approx(2 / 3, abs=1e-3)
+    # Confusion matrix on worth_my_hours:
+    # TP=2 (positives candidate=True+golden=True)
+    # FP=1 (lenient negative)
+    # TN=2 (correctly rejected negatives)
+    # FN=0
+    assert agg["tp"] == 2
+    assert agg["fp"] == 1
+    assert agg["tn"] == 2
+    assert agg["fn"] == 0
+    assert agg["specificity"] == pytest.approx(2 / 3, abs=1e-3)
+
+
+def test_aggregate_treats_unflagged_as_positive():
+    """Old eval entries with no is_negative flag should count as positives."""
+    per_paper = [
+        {
+            "success": True,  # no is_negative
+            "candidate": {"worth_my_hours": True, "triage_score": 0.6,
+                          "level": "just_right", "hypothesis_relevant": True},
+            "golden": {"worth_my_hours": True, "triage_score": 0.7,
+                       "level": "just_right", "hypothesis_relevant": True},
+        },
+    ]
+    agg = triage_eval.aggregate_triage_results(per_paper)
+    assert agg["positives_evaluated"] == 1
+    assert agg["negatives_evaluated"] == 0
+
+
+# ---------------------------------------------------------------------------
 # run_one_paper
 # ---------------------------------------------------------------------------
 
@@ -286,3 +392,69 @@ def test_run_eval_raises_when_dataset_missing(fake_table, sample_profile):
     db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, sample_profile["meta"])
     with pytest.raises(RuntimeError, match="dataset"):
         triage_eval.run_eval(fake_table, model="m", max_workers=1)
+
+
+@patch("backend.eval.triage_eval.call_llm_with_usage")
+def test_run_eval_with_mixed_positive_and_negative(
+    mock_call, fake_table, sample_profile,
+):
+    """End-to-end run_eval picks up positive + negative dataset entries and
+    surfaces specificity / per-class metrics in the summary."""
+    # Profile setup
+    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, sample_profile["meta"])
+    for area in sample_profile["areas"]:
+        db.put_profile_area(fake_table, eval_dataset.TEST_USER_ID, area)
+    db.put_profile_hypothesis(
+        fake_table, eval_dataset.TEST_USER_ID, sample_profile["hypothesis"],
+    )
+
+    # 1 positive
+    pos_paper = _entry_with_golden("paper-pos")["paper"]
+    fake_table.put_item(Item={
+        "PK": eval_dataset.DATASET_PK,
+        "SK": f"PAPER#{pos_paper['id']}",
+        "paper_id": pos_paper["id"],
+        "paper": pos_paper,
+    })
+
+    # 1 negative — Sonnet rejected
+    neg_paper = {
+        "id": "paper-neg",
+        "title": "Reject me",
+        "abstract": "Off-topic abstract.",
+        "worth_my_hours": False,
+        "triage_score": 0.2,
+        "triage_level": "too_basic",
+        "hypothesis_relevant": False,
+        "triage_reasoning": "Not relevant.",
+    }
+    fake_table.put_item(Item={
+        "PK": eval_dataset.DATASET_NEG_PK,
+        "SK": f"PAPER#{neg_paper['id']}",
+        "paper_id": neg_paper["id"],
+        "paper": neg_paper,
+        "is_negative": True,
+        "golden_card": None,
+    })
+
+    # Mock: candidate returns worth_my_hours=False/score=0.25 every call.
+    # On positive (golden True) → FN; on negative (golden False) → TN.
+    mock_call.return_value = (
+        _ok_triage_text(triage_score=0.25, worth_my_hours=False, level="too_basic",
+                        hypothesis_relevant=False),
+        {"tokens_in": 60, "tokens_out": 30},
+    )
+
+    summary = triage_eval.run_eval(fake_table, model="zai.glm-5", max_workers=1)
+    assert summary["papers_total"] == 2
+    assert summary["positives_total"] == 1
+    assert summary["negatives_total"] == 1
+    # Confusion matrix: TP=0, FN=1, TN=1, FP=0
+    assert summary["tp"] == 0
+    assert summary["fn"] == 1
+    assert summary["tn"] == 1
+    assert summary["fp"] == 0
+    # Specificity on the single negative = 1.0
+    assert float(summary["negatives_specificity"]) == pytest.approx(1.0)
+    # Recall on positives = 0.0 (candidate rejected the positive)
+    assert float(summary["positives_recall"]) == pytest.approx(0.0)

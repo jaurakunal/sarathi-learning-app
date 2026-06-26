@@ -192,6 +192,145 @@ def test_synthetic_offtopic_papers_well_formed():
 
 
 # ---------------------------------------------------------------------------
+# Near-miss negative selection
+# ---------------------------------------------------------------------------
+
+
+def test_is_near_miss_negative_keyword_match():
+    paper = {
+        "title": "Some paper",
+        "triage_reasoning": "This paper is OFF-TOPIC for the user.",
+        "hypothesis_relevant": True,
+        "triage_score": 0.6,
+    }
+    assert relevance_eval._is_near_miss_negative(paper) is True
+
+
+def test_is_near_miss_negative_low_score_and_irrelevant():
+    paper = {
+        "triage_reasoning": "Solid paper but unrelated.",  # no keyword
+        "hypothesis_relevant": False,
+        "triage_score": 0.2,
+    }
+    # No keyword, but hypothesis_relevant=False AND score<0.4 → near-miss
+    assert relevance_eval._is_near_miss_negative(paper) is True
+
+
+def test_is_near_miss_negative_high_score_excluded():
+    """A paper with high triage_score isn't a near-miss negative — Sonnet
+    rated it well even if hypothesis_relevant=False."""
+    paper = {
+        "triage_reasoning": "Useful but tangential.",
+        "hypothesis_relevant": False,
+        "triage_score": 0.7,
+    }
+    assert relevance_eval._is_near_miss_negative(paper) is False
+
+
+def test_select_real_negatives_uses_negative_dataset(fake_table):
+    """Negatives marked off-topic in DDB get pulled."""
+    # Seed 2 near-miss negatives + 1 too-basic non-near-miss
+    for pid, reasoning, score, hyp in [
+        ("near-1", "off-topic for the user", 0.5, True),
+        ("near-2", "not relevant to the user's areas", 0.3, False),
+        ("not-near", "too basic for the user's level", 0.2, True),
+    ]:
+        fake_table.put_item(Item={
+            "PK": eval_dataset.DATASET_NEG_PK,
+            "SK": f"PAPER#{pid}",
+            "paper_id": pid,
+            "is_negative": True,
+            "paper": {
+                "id": pid,
+                "title": f"T{pid}",
+                "abstract": "abs",
+                "triage_reasoning": reasoning,
+                "triage_score": score,
+                "hypothesis_relevant": hyp,
+            },
+        })
+
+    out = relevance_eval._select_real_negatives(fake_table, target=10)
+    ids = {p["id"] for p in out}
+    # Both near-miss papers selected. The non-near-miss is included as
+    # backfill since target=10 and we only have 3 candidates.
+    assert "near-1" in ids
+    assert "near-2" in ids
+
+
+def test_select_real_negatives_returns_empty_when_no_negatives(fake_table):
+    assert relevance_eval._select_real_negatives(fake_table, target=10) == []
+
+
+def test_build_eval_paper_set_falls_back_to_synthetic(fake_table):
+    """No negative dataset → use SYNTHETIC_OFFTOPIC_PAPERS."""
+    # Just one positive
+    fake_table.put_item(Item={
+        "PK": eval_dataset.DATASET_PK,
+        "SK": "PAPER#pos-1",
+        "paper_id": "pos-1",
+        "paper": {"id": "pos-1", "title": "Positive", "abstract": "A"},
+    })
+    papers = relevance_eval._build_eval_paper_set(fake_table)
+    pos = [p for p in papers if p["_golden_keep"]]
+    neg = [p for p in papers if not p["_golden_keep"]]
+    assert len(pos) == 1
+    # Falls back to synthetic list
+    assert len(neg) == len(relevance_eval.SYNTHETIC_OFFTOPIC_PAPERS)
+
+
+def test_build_eval_paper_set_uses_real_negatives_when_available(fake_table):
+    """When EVAL#DATASET_NEG has near-miss papers, those replace synthetics."""
+    fake_table.put_item(Item={
+        "PK": eval_dataset.DATASET_PK,
+        "SK": "PAPER#pos-1",
+        "paper_id": "pos-1",
+        "paper": {"id": "pos-1", "title": "Positive", "abstract": "A"},
+    })
+    fake_table.put_item(Item={
+        "PK": eval_dataset.DATASET_NEG_PK,
+        "SK": "PAPER#near-1",
+        "paper_id": "near-1",
+        "is_negative": True,
+        "paper": {
+            "id": "near-1", "title": "Near miss", "abstract": "Adjacent CS.",
+            "triage_reasoning": "off-topic for the user",
+            "hypothesis_relevant": False, "triage_score": 0.3,
+        },
+    })
+    papers = relevance_eval._build_eval_paper_set(fake_table)
+    neg = [p for p in papers if not p["_golden_keep"]]
+    neg_ids = {p["id"] for p in neg}
+    assert neg_ids == {"near-1"}  # synthetic NOT used
+
+
+def test_build_eval_paper_set_can_force_synthetic(fake_table):
+    """prefer_real_negatives=False ignores DDB negatives."""
+    fake_table.put_item(Item={
+        "PK": eval_dataset.DATASET_PK,
+        "SK": "PAPER#pos-1",
+        "paper_id": "pos-1",
+        "paper": {"id": "pos-1", "title": "Positive", "abstract": "A"},
+    })
+    fake_table.put_item(Item={
+        "PK": eval_dataset.DATASET_NEG_PK,
+        "SK": "PAPER#near-1",
+        "paper_id": "near-1",
+        "is_negative": True,
+        "paper": {
+            "id": "near-1", "title": "Near miss", "abstract": "A",
+            "triage_reasoning": "off-topic", "hypothesis_relevant": False,
+            "triage_score": 0.2,
+        },
+    })
+    papers = relevance_eval._build_eval_paper_set(
+        fake_table, prefer_real_negatives=False,
+    )
+    neg = [p for p in papers if not p["_golden_keep"]]
+    assert len(neg) == len(relevance_eval.SYNTHETIC_OFFTOPIC_PAPERS)
+
+
+# ---------------------------------------------------------------------------
 # run_eval orchestration
 # ---------------------------------------------------------------------------
 
@@ -280,3 +419,70 @@ def test_run_eval_raises_when_dataset_missing(fake_table, sample_profile):
     # Dataset PK still empty
     with pytest.raises(RuntimeError, match="dataset"):
         relevance_eval.run_eval(fake_table, model="m")
+
+
+@patch("backend.eval.relevance_eval.call_llm_with_usage")
+def test_run_eval_with_real_negatives(mock_call, fake_table, sample_profile):
+    """run_eval picks up real near-miss negatives and reports the source."""
+    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, sample_profile["meta"])
+    for area in sample_profile["areas"]:
+        db.put_profile_area(fake_table, eval_dataset.TEST_USER_ID, area)
+
+    # 1 positive in the dataset
+    fake_table.put_item(Item={
+        "PK": eval_dataset.DATASET_PK,
+        "SK": "PAPER#pos-1",
+        "paper_id": "pos-1",
+        "paper": {"id": "pos-1", "title": "Positive", "abstract": "Memory."},
+    })
+    # 2 real near-miss negatives
+    for pid in ("near-1", "near-2"):
+        fake_table.put_item(Item={
+            "PK": eval_dataset.DATASET_NEG_PK,
+            "SK": f"PAPER#{pid}",
+            "paper_id": pid,
+            "is_negative": True,
+            "paper": {
+                "id": pid, "title": f"Near {pid}",
+                "abstract": "Adjacent CS subfield.",
+                "triage_reasoning": "off-topic for the user's areas",
+                "hypothesis_relevant": False,
+                "triage_score": 0.25,
+            },
+        })
+
+    # Mock: keep only paper 0 — perfect (positive in, negatives out)
+    mock_call.return_value = ("[0]", {"tokens_in": 200, "tokens_out": 30})
+
+    summary = relevance_eval.run_eval(
+        fake_table, model="zai.glm-5", batch_size=25,
+    )
+    assert summary["positives_total"] == 1
+    assert summary["negatives_total"] == 2
+    assert summary["negatives_source"] == "real"
+    # 1 TP, 0 FP, 2 TN, 0 FN → accuracy=1.0
+    assert float(summary["accuracy"]) == 1.0
+    assert float(summary["precision"]) == 1.0
+    assert float(summary["recall"]) == 1.0
+
+
+@patch("backend.eval.relevance_eval.call_llm_with_usage")
+def test_run_eval_records_synthetic_source_when_no_negatives(
+    mock_call, fake_table, sample_profile,
+):
+    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, sample_profile["meta"])
+    for area in sample_profile["areas"]:
+        db.put_profile_area(fake_table, eval_dataset.TEST_USER_ID, area)
+    fake_table.put_item(Item={
+        "PK": eval_dataset.DATASET_PK,
+        "SK": "PAPER#pos-1",
+        "paper_id": "pos-1",
+        "paper": {"id": "pos-1", "title": "Positive", "abstract": "A."},
+    })
+    mock_call.return_value = ("[0]", {"tokens_in": 200, "tokens_out": 30})
+
+    summary = relevance_eval.run_eval(
+        fake_table, model="zai.glm-5", batch_size=25,
+    )
+    assert summary["negatives_source"] == "synthetic"
+    assert summary["negatives_total"] == len(relevance_eval.SYNTHETIC_OFFTOPIC_PAPERS)
