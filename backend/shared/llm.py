@@ -63,6 +63,60 @@ def _extract_text(model_id: str, response_body: dict) -> Optional[str]:
     return None
 
 
+def _extract_usage(model_id: str, response_body: dict) -> dict:
+    """Extract {tokens_in, tokens_out} from a model response body. Empty dict on miss."""
+    usage = response_body.get("usage", {}) or {}
+    if _is_openai_compat(model_id):
+        return {
+            "tokens_in": int(usage.get("prompt_tokens", 0) or 0),
+            "tokens_out": int(usage.get("completion_tokens", 0) or 0),
+        }
+    # Anthropic format
+    return {
+        "tokens_in": int(usage.get("input_tokens", 0) or 0),
+        "tokens_out": int(usage.get("output_tokens", 0) or 0),
+    }
+
+
+def call_llm_with_usage(
+    system: str,
+    user_message: str,
+    model_id: str = DEFAULT_MODEL_ID,
+    max_tokens: int = 4096,
+    temperature: float = 0.7,
+    region: Optional[str] = None,
+) -> tuple[Optional[str], dict]:
+    """Same as call_llm but also returns Bedrock-reported usage.
+
+    Returns (text, {"tokens_in": int, "tokens_out": int}). Usage dict is empty
+    on failure or when the model returns no usage fields.
+    """
+    client = boto3.client(
+        "bedrock-runtime",
+        region_name=region or DEFAULT_REGION,
+        config=Config(read_timeout=300, retries={"max_attempts": 2}),
+    )
+    body = _build_request_body(
+        model_id, system,
+        [{"role": "user", "content": user_message}],
+        max_tokens, temperature,
+    )
+    try:
+        response = client.invoke_model(
+            modelId=model_id,
+            contentType="application/json",
+            accept="application/json",
+            body=json.dumps(body),
+        )
+        response_body = json.loads(response["body"].read())
+        text = _extract_text(model_id, response_body)
+        usage = _extract_usage(model_id, response_body)
+        return text, usage
+    except Exception:
+        logger.exception("Bedrock LLM call failed (model=%s)", model_id)
+        return None, {}
+
+
 def call_llm(
     system: str,
     user_message: str,

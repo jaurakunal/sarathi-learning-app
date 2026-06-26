@@ -28,14 +28,21 @@ from backend.shared.llm import DEFAULT_MODEL_ID
 logger = logging.getLogger(__name__)
 
 
-# Approximate Bedrock pricing per 1K tokens for cost reporting
-# (rough estimates — kept in code so /report has something to print).
+# Published Bedrock on-demand prices per 1K tokens (US East/West).
+# Sources: aws.amazon.com/bedrock/pricing — verified 2026-06-26.
 PRICING_PER_1K = {
-    "us.anthropic.claude-sonnet-4-6":      {"in": 0.003, "out": 0.015},
-    "us.anthropic.claude-opus-4-7":        {"in": 0.015, "out": 0.075},
-    "us.anthropic.claude-haiku-4-5":       {"in": 0.001, "out": 0.005},
-    "us.anthropic.claude-3-5-sonnet-v2":   {"in": 0.003, "out": 0.015},
-    "us.anthropic.claude-3-5-haiku":       {"in": 0.0008, "out": 0.004},
+    # Anthropic
+    "us.anthropic.claude-sonnet-4-6":      {"in": 0.003,  "out": 0.015},
+    "us.anthropic.claude-opus-4-7":        {"in": 0.015,  "out": 0.075},
+    "us.anthropic.claude-opus-4-8":        {"in": 0.015,  "out": 0.075},
+    "us.anthropic.claude-haiku-4-5":       {"in": 0.001,  "out": 0.005},
+    # Z.AI (GLM)
+    "zai.glm-5":        {"in": 0.001,    "out": 0.0032},
+    "zai.glm-4.7":      {"in": 0.0006,   "out": 0.0022},
+    "zai.glm-4.7-flash": {"in": 0.00007, "out": 0.0004},
+    # Moonshot AI (Kimi)
+    "moonshotai.kimi-k2.5":     {"in": 0.0006, "out": 0.003},
+    "moonshot.kimi-k2-thinking": {"in": 0.0006, "out": 0.0025},
 }
 
 
@@ -170,19 +177,44 @@ def run_one_paper(
     system_prompt = digest_module._build_system_prompt(profile_context)
     user_prompt = digest_module._build_user_prompt(paper, full_text)
 
+    from backend.shared.llm import call_llm_with_usage
+    import json as _json
+
     start = time.time()
-    card = digest_module._generate_card(model, system_prompt, user_prompt)
+    raw_text, usage = call_llm_with_usage(
+        system=system_prompt,
+        user_message=user_prompt,
+        model_id=model,
+        max_tokens=8192,
+    )
     elapsed = (time.time() - start) * 1000.0
 
-    if card is None:
+    if raw_text is None:
         result["error"] = "llm_generation_failed"
         result["latency_ms"] = int(elapsed)
         return result
 
-    tokens_in = _approx_tokens(system_prompt) + _approx_tokens(user_prompt)
-    # Roughly approximate output tokens from the JSON serialization
-    import json as _json
-    tokens_out = _approx_tokens(_json.dumps(card))
+    # Parse the card JSON the same way digest._generate_card does
+    text = raw_text.strip()
+    if text.startswith("```"):
+        first_newline = text.index("\n")
+        text = text[first_newline + 1:]
+    if text.endswith("```"):
+        text = text[:-3]
+    text = text.strip()
+
+    try:
+        card = _json.loads(text)
+    except Exception:
+        result["error"] = "card_json_parse_failed"
+        result["latency_ms"] = int(elapsed)
+        return result
+
+    # Use real Bedrock-reported token counts; fall back to approximation only if missing
+    tokens_in = usage.get("tokens_in", 0) or (
+        _approx_tokens(system_prompt) + _approx_tokens(user_prompt)
+    )
+    tokens_out = usage.get("tokens_out", 0) or _approx_tokens(_json.dumps(card))
 
     pricing = PRICING_PER_1K.get(model, {"in": 0.003, "out": 0.015})
     cost = (tokens_in / 1000.0) * pricing["in"] + (tokens_out / 1000.0) * pricing["out"]

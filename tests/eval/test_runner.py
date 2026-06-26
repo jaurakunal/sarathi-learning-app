@@ -94,13 +94,14 @@ def _make_s3_client(text: str = "Full paper text..."):
     return s3
 
 
+@patch("backend.shared.llm.call_llm_with_usage")
 @patch("backend.eval.runner.digest_module")
-def test_run_one_paper_happy_path(mock_digest, sample_paper, sample_golden_card, sample_profile):
+def test_run_one_paper_happy_path(mock_digest, mock_call, sample_paper, sample_golden_card, sample_profile):
     """Single paper: reads S3, builds prompts, parses card → success record."""
     mock_digest._build_profile_context.return_value = "PROFILE_CONTEXT"
     mock_digest._build_system_prompt.return_value = "SYSTEM"
     mock_digest._build_user_prompt.return_value = "USER"
-    mock_digest._generate_card.return_value = json.loads(_ok_card_text())
+    mock_call.return_value = (_ok_card_text(), {"tokens_in": 100, "tokens_out": 200})
 
     s3 = _make_s3_client("paper text")
     entry = {
@@ -118,8 +119,8 @@ def test_run_one_paper_happy_path(mock_digest, sample_paper, sample_golden_card,
     assert result["success"] is True
     assert result["candidate_card"]["hook"].startswith("Candidate hook")
     assert result["model_used"] == "us.anthropic.claude-haiku-4-5"
-    assert result["tokens_in"] > 0
-    assert result["tokens_out"] > 0
+    assert result["tokens_in"] == 100
+    assert result["tokens_out"] == 200
     assert result["cost_usd"] > 0
     assert result["latency_ms"] >= 0
 
@@ -141,15 +142,16 @@ def test_run_one_paper_missing_s3_key(sample_paper, sample_profile):
     assert s3.get_object.call_count == 0
 
 
+@patch("backend.shared.llm.call_llm_with_usage")
 @patch("backend.eval.runner.digest_module")
 def test_run_one_paper_llm_failure_records_error(
-    mock_digest, sample_paper, sample_golden_card, sample_profile,
+    mock_digest, mock_call, sample_paper, sample_golden_card, sample_profile,
 ):
-    """If digest._generate_card returns None, result is error not success."""
+    """If call_llm_with_usage returns (None, {}), result is error not success."""
     mock_digest._build_profile_context.return_value = "P"
     mock_digest._build_system_prompt.return_value = "S"
     mock_digest._build_user_prompt.return_value = "U"
-    mock_digest._generate_card.return_value = None
+    mock_call.return_value = (None, {})
 
     s3 = _make_s3_client()
     entry = {
@@ -185,15 +187,16 @@ def test_run_one_paper_s3_read_failure(sample_paper, sample_golden_card, sample_
 # ---------------------------------------------------------------------------
 
 
+@patch("backend.shared.llm.call_llm_with_usage")
 @patch("backend.eval.runner.digest_module")
 def test_run_eval_persists_results_and_summary(
-    mock_digest, fake_table, sample_paper, sample_golden_card, sample_profile,
+    mock_digest, mock_call, fake_table, sample_paper, sample_golden_card, sample_profile,
 ):
     """End-to-end: dataset → run → DDB has per-paper records + META."""
     mock_digest._build_profile_context.return_value = "P"
     mock_digest._build_system_prompt.return_value = "S"
     mock_digest._build_user_prompt.return_value = "U"
-    mock_digest._generate_card.return_value = json.loads(_ok_card_text())
+    mock_call.return_value = (_ok_card_text(), {"tokens_in": 100, "tokens_out": 200})
 
     # Seed test user profile
     db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, sample_profile["meta"])
