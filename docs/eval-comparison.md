@@ -202,6 +202,78 @@ Numbers below are mean ± standard deviation.
 The single-run results were not noise. **GLM-5 is genuinely the strongest non-Sonnet
 candidate** across multiple judge seeds. Migration recommendation stands.
 
+## Option A: full replication (3 digest runs × 1 judge)
+
+To control for **model variance** (not just judge variance — `temperature=0.7` on the
+digest step means each run produces slightly different cards), we re-ran the full eval
+3× per model. ~51 minutes total wall time, ~$8.50 in Bedrock costs.
+
+### Results
+
+| Model | Relev (μ±σ) | Specif (μ±σ) | Calib (μ±σ) | Action (μ±σ) | Win% (μ±σ) | $/paper | Latency |
+|---|---|---|---|---|---|---|---|
+| **Sonnet 4.6** | 5.00±0.00 | 5.00±0.00 | 4.80±0.00 | 5.00±0.00 | **86.67±11.55** | $0.1048 | 74s |
+| GLM-5 | 5.00±0.00 | 4.87±0.12 | 4.63±0.15 | 4.72±0.10 | 56.67±20.82 | $0.0249 | 51s |
+| **Kimi K2.5** | 4.80±0.00 | 4.93±0.12 | 4.73±0.12 | 4.73±0.12 | **60.00±0.00** | **$0.0166** | **30s** |
+| Qwen3 VL | 4.67±0.12 | 4.47±0.12 | 4.07±0.23 | 4.47±0.12 | 26.67±11.55 | $0.0154 | 35s |
+| DeepSeek V3.2 | 4.67±0.12 | 4.60±0.00 | 4.20±0.00 | 4.20±0.20 | 20.00±0.00 | $0.0150 | 35s |
+
+### What flipped vs single-run results
+
+**Kimi K2.5 came back as a serious contender.** Across 3 model runs, Kimi:
+- Hit 60.00% win rate with **0% variance** — strikingly consistent
+- Scored 4.93 specificity and 4.73 calibration — actually beat GLM-5 on these dimensions
+- Sat at $0.0166/paper — 33% cheaper than GLM-5
+
+GLM-5's win rate was **56.67% ± 20.82** — high variance. One run was 80%, another was 40%.
+This means the original Sonnet-judge result that put GLM-5 ahead was likely **lucky** for
+GLM-5 and **unlucky** for Kimi.
+
+### Final ranking (with full variance accounted for)
+
+| Rank | Model | Win% (3-run μ) | Quality avg | $/paper | Notes |
+|---|---|---|---|---|---|
+| 1 | **Sonnet 4.6** | 86.67% ± 11.55 | 4.95 | $0.1048 | Baseline, best quality |
+| 2 | **Kimi K2.5** | **60.00% ± 0.00** | 4.80 | **$0.0166** | Most consistent candidate; 6.3× cheaper |
+| 3 | GLM-5 | 56.67% ± 20.82 | 4.81 | $0.0249 | Quality on par with Kimi but cost is 50% higher and run-to-run quality less stable |
+| 4 | Qwen3 VL | 26.67% ± 11.55 | 4.42 | $0.0154 | Below quality threshold |
+| 5 | DeepSeek V3.2 | 20.00% ± 0.00 | 4.42 | $0.0150 | Consistently lowest |
+
+### Key insights from Option A
+
+1. **Kimi K2.5 is the most consistent model** — every dimension and win rate has either zero
+   or low variance. You get the same quality every run.
+
+2. **GLM-5 is a coin flip** — win rate ranged 40-80% across 3 runs. Calibration σ=0.15.
+   Choosing GLM-5 means accepting more variance in card quality.
+
+3. **Sonnet 4.6 isn't perfect either** — its self-vs-golden win rate was 86.67% ± 11.55, not
+   the perfect 100% from single-run. Some natural variance from `temperature=0.7`.
+
+4. **Cost ranking (μ):** Sonnet ($0.1048) → GLM-5 ($0.0249) → Kimi ($0.0166) → Qwen ($0.0154)
+   → DeepSeek ($0.0150). The $0.001 differences at the bottom are noise.
+
+5. **Calibration is the differentiator that Kimi nails** — Kimi's 4.73 calibration matches
+   user level better than GLM-5's 4.63 across runs. Sonnet still leads at 4.80.
+
+## Final recommendation (revised)
+
+**Migrate digest to Kimi K2.5.**
+
+Rationale (now backed by 3-run variance data):
+- **Most consistent candidate** — 60% win rate with σ=0, vs GLM-5's σ=21
+- **Cheapest viable option** — $0.0166/paper, 33% cheaper than GLM-5
+- **Fastest** — 30s/paper, 2.5× faster than Sonnet
+- **Calibration beats GLM-5** — 4.73 vs 4.63
+- **Acceptable quality drop** — 4.80 avg vs Sonnet's 4.95 (3% gap)
+
+Per-user cost projection:
+- Sonnet 4.6 only: ~$94/month (~$3.13/day × 30 papers)
+- **Kimi K2.5 digest + Sonnet chat: ~$20/month (~80% reduction)**
+
+The hybrid keeps user-facing chat at Sonnet quality while moving the high-volume,
+batch-oriented digest step to Kimi K2.5.
+
 ## Recommendation (revised after Opus 4.8 judge)
 
 **Migrate digest to GLM-5. Keep chat on Sonnet 4.6.**
