@@ -23,6 +23,14 @@ def _is_openai_compat(model_id: str) -> bool:
     return mid.startswith(("zai.", "moonshot", "qwen.", "deepseek."))
 
 
+def _drops_temperature(model_id: str) -> bool:
+    """Opus 4.7+, Fable 5, and Mythos 5 reject temperature/top_p/top_k.
+    Adaptive thinking is always on; sampling parameters are removed.
+    """
+    mid = model_id.lower()
+    return any(x in mid for x in ("opus-4-7", "opus-4-8", "fable", "mythos"))
+
+
 def _build_request_body(model_id: str, system: str, messages: list[dict],
                         max_tokens: int, temperature: float) -> dict:
     """Return the request body for the given model family."""
@@ -31,19 +39,23 @@ def _build_request_body(model_id: str, system: str, messages: list[dict],
         if system:
             full_messages.append({"role": "system", "content": system})
         full_messages.extend(messages)
-        return {
+        body = {
             "messages": full_messages,
             "max_tokens": max_tokens,
-            "temperature": temperature,
         }
+        if not _drops_temperature(model_id):
+            body["temperature"] = temperature
+        return body
     # Anthropic format
-    return {
+    body = {
         "anthropic_version": "bedrock-2023-05-31",
         "max_tokens": max_tokens,
-        "temperature": temperature,
         "system": system,
         "messages": messages,
     }
+    if not _drops_temperature(model_id):
+        body["temperature"] = temperature
+    return body
 
 
 def _extract_text(model_id: str, response_body: dict) -> Optional[str]:
