@@ -47,6 +47,8 @@ PRICING_PER_1K = {
     "qwen.qwen3-vl-235b-a22b":  {"in": 0.00053, "out": 0.00266},
     "qwen.qwen3-next-80b-a3b":  {"in": 0.00015, "out": 0.0012},
     "qwen.qwen3-32b-v1:0":      {"in": 0.0002,  "out": 0.00078},
+    # DeepSeek
+    "deepseek.v3.2":            {"in": 0.00062, "out": 0.00185},
 }
 
 

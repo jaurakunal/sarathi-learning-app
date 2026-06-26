@@ -10,9 +10,10 @@ on Sārathi's digest task. Baseline details: see `docs/eval-baseline-sonnet-4-6.
 | Model | Papers OK | Relev. | Specif. | Calib. | Action. | Win% vs golden | $/paper | Latency | $ vs Sonnet | Quality vs Sonnet |
 |---|---|---|---|---|---|---|---|---|---|---|
 | **Sonnet 4.6 (baseline)** | 18/18 | **4.80** | **4.80** | **4.80** | **4.80** | 80% | $0.1045 | 70s | 1.0× | 1.0× |
-| GLM-5 | 15/18 | 4.80 | 4.60 | 4.40 | 4.60 | 40% | **$0.0246** | 62s | **0.24×** (4.2× cheaper) | -0.20 to -0.40 |
-| Kimi K2.5 | 17/18 | 4.60 | 4.60 | 4.20 | 4.60 | **60%** | **$0.0166** | **20s** | **0.16×** (6.3× cheaper) | -0.20 to -0.60 |
-| Qwen3 VL 235B A22B | 18/18 | 4.40 | 4.40 | 4.00 | 4.60 | 20% | **$0.0157** | 37s | **0.15×** (6.7× cheaper) | -0.20 to -0.80 |
+| GLM-5 | 15/18 | 4.80 | 4.60 | 4.40 | 4.60 | 40% | $0.0246 | 62s | 0.24× (4.2× cheaper) | -0.20 to -0.40 |
+| **Kimi K2.5** | 17/18 | 4.60 | 4.60 | 4.20 | 4.60 | **60%** | $0.0166 | **20s** | 0.16× (6.3× cheaper) | -0.20 to -0.60 |
+| Qwen3 VL 235B A22B | 18/18 | 4.40 | 4.40 | 4.00 | 4.60 | 20% | $0.0157 | 37s | 0.15× (6.7× cheaper) | -0.20 to -0.80 |
+| DeepSeek V3.2 | 18/18 | 4.40 | 4.00 | 4.00 | 4.20 | 20% | **$0.0150** | 39s | **0.14×** (7.0× cheaper) | -0.40 to -0.80 |
 
 ## Cost basis (per active user, ~30 papers/day)
 
@@ -22,15 +23,16 @@ on Sārathi's digest task. Baseline details: see `docs/eval-baseline-sonnet-4-6.
 | GLM-5 | $0.74 | ~$22 |
 | Kimi K2.5 | $0.50 | ~$15 |
 | Qwen3 VL 235B | $0.47 | ~$14 |
+| DeepSeek V3.2 | $0.45 | ~$13.50 |
 
 ## Quality dimension comparison
 
-| Dimension | Sonnet | GLM-5 | Kimi K2.5 | Qwen3 VL | Notes |
-|---|---|---|---|---|---|
-| Relevance | 4.80 | 4.80 ✓ | 4.60 | 4.40 | All within range; Qwen weakest |
-| Specificity | 4.80 | 4.60 | 4.60 | 4.40 | Sonnet slightly stronger on paper-specific framing |
-| **Calibration** | **4.80** | 4.40 | 4.20 | **4.00** | This is the most divergent dimension — all candidates write less calibrated to user's level |
-| Actionability | 4.80 | 4.60 | 4.60 | 4.60 | All competitive |
+| Dimension | Sonnet | GLM-5 | Kimi K2.5 | Qwen3 VL | DeepSeek V3.2 | Notes |
+|---|---|---|---|---|---|---|
+| Relevance | 4.80 | 4.80 ✓ | 4.60 | 4.40 | 4.40 | All within range |
+| Specificity | 4.80 | 4.60 | 4.60 | 4.40 | **4.00** | DeepSeek weakest — drifts most generic |
+| **Calibration** | **4.80** | 4.40 | 4.20 | 4.00 | 4.00 | Consistent weak spot across all candidates |
+| Actionability | 4.80 | 4.60 | 4.60 | 4.60 | 4.20 | DeepSeek slightly weaker |
 
 **Calibration is the differentiator.** Sonnet is consistently better at matching the user's
 math comfort and applied bias. Cheaper models drift toward generic explanations.
@@ -43,6 +45,7 @@ Higher = produces cards that "win" against the original Sonnet golden cards more
 2. **Kimi K2.5**: 60% — most competitive against Sonnet's golden cards
 3. **GLM-5**: 40%
 4. **Qwen3 VL**: 20% — consistently loses head-to-head despite reasonable dimension scores
+5. **DeepSeek V3.2**: 20% — same head-to-head loss rate, lowest scores overall
 
 ## Speed
 
@@ -50,6 +53,7 @@ Higher = produces cards that "win" against the original Sonnet golden cards more
 |---|---|
 | Kimi K2.5 | **20s** — fastest |
 | Qwen3 VL | 37s |
+| DeepSeek V3.2 | 39s |
 | GLM-5 | 62s |
 | Sonnet 4.6 | 70s |
 
@@ -76,13 +80,20 @@ Quality (avg of 4 dimensions, lower = worse)
      │
 4.35 ┤              ● Qwen3 VL
      │
-4.20 ┴─┬───────┬───────┬───────┬─── Cost ($/paper)
-       $0.10  $0.05   $0.025  $0.015
+4.20 ┤                  ● DeepSeek V3.2
+     │
+4.00 ┴─┬───────┬───────┬───────┬───────┬─── Cost ($/paper)
+       $0.10  $0.05   $0.025  $0.017  $0.015
 ```
 
 **Sweet spot: Kimi K2.5.** Below the diminishing-returns elbow — moving from Sonnet to Kimi
-saves 84% on cost for ~0.3 quality drop. Moving further to Qwen3 saves another $0.001 but
-drops quality 0.4 more. Not worth it.
+saves 84% on cost for ~0.3 quality drop. Moving further (Qwen3, DeepSeek) saves only ~$0.001
+more per paper but drops quality 0.4-0.6 more. Not worth it.
+
+DeepSeek V3.2's reputation for strong quality (especially on coding/reasoning benchmarks)
+doesn't translate well to this task. Specificity 4.00 and Calibration 4.00 are the weakest
+dimensional scores in the candidate set — DeepSeek tends to produce generic explanations
+rather than paper-specific or user-calibrated framing.
 
 ### Pricing implications
 
@@ -127,5 +138,6 @@ metrics on the produced cards, then commit.
 | Candidate | GLM-5 | 2026-06-26 | `2026-06-26T18:21:55.000Z` |
 | Candidate | Kimi K2.5 | 2026-06-26 | `2026-06-26T18:31:02.000Z` |
 | Candidate | Qwen3 VL 235B | 2026-06-26 | `2026-06-26T18:34:28.000Z` |
+| Candidate | DeepSeek V3.2 | 2026-06-26 | `2026-06-26T18:39:42.000Z` |
 
 Generated reports under `sarathi_eval_*.md` in repo root.
