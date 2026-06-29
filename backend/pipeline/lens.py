@@ -9,15 +9,19 @@ focused LLM call with just the hypothesis + card summary.
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime, timezone
 
 import boto3
 
 from backend.shared import db
-from backend.shared.llm import call_llm
+from backend.shared.llm import call_llm, call_llm_with_fallback
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+DEFAULT_MODEL = os.environ.get("LENS_MODEL", "moonshotai.kimi-k2.5")
+FALLBACK_MODEL = "us.anthropic.claude-sonnet-4-6"
 
 SYSTEM_PROMPT = (
     "You evaluate whether a research paper supports, refutes, or refines a given hypothesis. "
@@ -62,10 +66,11 @@ def _annotate_card(
 
     Returns the annotation string, or None on failure.
     """
-    text = call_llm(
+    text = call_llm_with_fallback(
         system=SYSTEM_PROMPT,
         user_message=_build_user_message(hypothesis_statement, card),
-        model_id=model,
+        primary_model=model,
+        fallback_model=FALLBACK_MODEL,
         max_tokens=300,
     )
 
@@ -103,7 +108,7 @@ def handler(event: dict, context) -> dict:
     """
     user_id = event["user_id"]
     table_name = event["table_name"]
-    model = event.get("model", "us.anthropic.claude-sonnet-4-6")
+    model = event.get("model", DEFAULT_MODEL)
 
     # Set up DynamoDB table resource
     dynamodb = boto3.resource("dynamodb")

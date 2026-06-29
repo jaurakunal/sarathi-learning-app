@@ -20,7 +20,7 @@ from typing import Any, Optional
 import boto3
 
 from backend.shared import db
-from backend.shared.llm import call_llm
+from backend.shared.llm import call_llm, call_llm_with_fallback
 from backend.sources.arxiv import ArxivSource
 from backend.sources.arxiv_rss import ArxivRssSource
 from backend.sources.hf_daily_papers import HFDailyPapersSource
@@ -63,7 +63,8 @@ def _build_sources() -> dict:
         "papers_with_code": PapersWithCodeSource(),
     }
 
-DEFAULT_MODEL = "us.anthropic.claude-sonnet-4-6"
+DEFAULT_MODEL = os.environ.get("DIGEST_MODEL", "moonshotai.kimi-k2.5")
+FALLBACK_MODEL = "us.anthropic.claude-sonnet-4-6"
 
 
 # ---------------------------------------------------------------------------
@@ -215,12 +216,17 @@ def _generate_card(
     system_prompt: str,
     user_prompt: str,
 ) -> Optional[dict]:
-    """Call the LLM to generate the feed card content. Returns parsed JSON or None."""
+    """Call the LLM to generate the feed card content. Returns parsed JSON or None.
+
+    Uses Kimi K2.5 (or whatever DIGEST_MODEL is set to) as the primary model and
+    falls back to Sonnet on failure.
+    """
     try:
-        text = call_llm(
+        text = call_llm_with_fallback(
             system=system_prompt,
             user_message=user_prompt,
-            model_id=model,
+            primary_model=model,
+            fallback_model=FALLBACK_MODEL,
             max_tokens=8192,
         )
 

@@ -4,14 +4,18 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 
 import boto3
 
 from backend.shared import db
-from backend.shared.llm import call_llm
+from backend.shared.llm import call_llm, call_llm_with_fallback
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+DEFAULT_MODEL = os.environ.get("TRIAGE_MODEL", "moonshotai.kimi-k2.5")
+FALLBACK_MODEL = "us.anthropic.claude-sonnet-4-6"
 
 
 def _build_system_prompt() -> str:
@@ -100,10 +104,11 @@ def _score_paper(model: str, paper: dict, profile: dict) -> dict:
     On failure, returns a zeroed-out result.
     """
     try:
-        text = call_llm(
+        text = call_llm_with_fallback(
             system=_build_system_prompt(),
             user_message=_build_user_message(paper, profile),
-            model_id=model,
+            primary_model=model,
+            fallback_model=FALLBACK_MODEL,
             max_tokens=500,
         )
 
@@ -175,7 +180,7 @@ def handler(event: dict, context) -> dict:
     """
     user_id = event["user_id"]
     table_name = event["table_name"]
-    model = event.get("model", "us.anthropic.claude-sonnet-4-6")
+    model = event.get("model", DEFAULT_MODEL)
 
     # Set up DynamoDB table resource
     dynamodb = boto3.resource("dynamodb")

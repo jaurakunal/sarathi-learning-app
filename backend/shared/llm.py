@@ -183,6 +183,60 @@ def call_llm(
         return None
 
 
+def call_llm_with_fallback(
+    system: str,
+    user_message: str,
+    primary_model: str,
+    fallback_model: str = DEFAULT_MODEL_ID,
+    max_tokens: int = 4096,
+    temperature: float = 0.7,
+    region: Optional[str] = None,
+) -> Optional[str]:
+    """Try primary model first; fall back to fallback_model on failure.
+
+    Logs a WARNING when falling back so we can detect outages of the primary
+    model in CloudWatch. Returns None only if both calls fail.
+
+    Args:
+        system: System prompt.
+        user_message: User message content.
+        primary_model: Bedrock model ID to try first (e.g. moonshotai.kimi-k2.5).
+        fallback_model: Bedrock model ID to use if primary returns None.
+            Defaults to Sonnet (DEFAULT_MODEL_ID).
+        max_tokens: Max output tokens.
+        temperature: Sampling temperature.
+        region: AWS region (defaults to us-east-1).
+
+    Returns:
+        The assistant's text response from whichever model succeeded,
+        or None if BOTH the primary and fallback calls failed.
+    """
+    text = call_llm(
+        system=system,
+        user_message=user_message,
+        model_id=primary_model,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        region=region,
+    )
+    if text is not None:
+        return text
+
+    logger.warning(
+        "Primary LLM call failed (model=%s) — falling back to %s",
+        primary_model,
+        fallback_model,
+    )
+    return call_llm(
+        system=system,
+        user_message=user_message,
+        model_id=fallback_model,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        region=region,
+    )
+
+
 def call_llm_multi(
     system: str,
     messages: list[dict],

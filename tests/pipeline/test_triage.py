@@ -13,7 +13,7 @@ import pytest
 # Happy path: LLM returns valid JSON, papers get scored and updated
 # ---------------------------------------------------------------------------
 
-@patch("backend.pipeline.triage.call_llm")
+@patch("backend.pipeline.triage.call_llm_with_fallback")
 @patch("backend.pipeline.triage.boto3")
 @patch("backend.pipeline.triage.db")
 def test_happy_path_papers_scored(mock_db, mock_boto3, mock_call_llm, user_id, table_name, sample_papers, sample_profile):
@@ -52,7 +52,7 @@ def test_happy_path_papers_scored(mock_db, mock_boto3, mock_call_llm, user_id, t
 # LLM returns malformed JSON → paper gets score=0, pipeline continues
 # ---------------------------------------------------------------------------
 
-@patch("backend.pipeline.triage.call_llm")
+@patch("backend.pipeline.triage.call_llm_with_fallback")
 @patch("backend.pipeline.triage.boto3")
 @patch("backend.pipeline.triage.db")
 def test_malformed_json_scores_zero(mock_db, mock_boto3, mock_call_llm, user_id, table_name, sample_papers, sample_profile):
@@ -85,7 +85,7 @@ def test_malformed_json_scores_zero(mock_db, mock_boto3, mock_call_llm, user_id,
 # LLM API throws → paper gets score=0, pipeline continues
 # ---------------------------------------------------------------------------
 
-@patch("backend.pipeline.triage.call_llm")
+@patch("backend.pipeline.triage.call_llm_with_fallback")
 @patch("backend.pipeline.triage.boto3")
 @patch("backend.pipeline.triage.db")
 def test_api_error_paper_scored_zero(mock_db, mock_boto3, mock_call_llm, user_id, table_name, sample_papers, sample_profile):
@@ -122,7 +122,7 @@ def test_api_error_paper_scored_zero(mock_db, mock_boto3, mock_call_llm, user_id
 # Papers with worth_my_hours=True get status promoted to "surfaced"
 # ---------------------------------------------------------------------------
 
-@patch("backend.pipeline.triage.call_llm")
+@patch("backend.pipeline.triage.call_llm_with_fallback")
 @patch("backend.pipeline.triage.boto3")
 @patch("backend.pipeline.triage.db")
 def test_worth_reading_promoted_to_surfaced(mock_db, mock_boto3, mock_call_llm, user_id, table_name, sample_papers, sample_profile):
@@ -170,7 +170,7 @@ def test_worth_reading_promoted_to_surfaced(mock_db, mock_boto3, mock_call_llm, 
 # No candidate papers → returns {papers_triaged: 0}
 # ---------------------------------------------------------------------------
 
-@patch("backend.pipeline.triage.call_llm")
+@patch("backend.pipeline.triage.call_llm_with_fallback")
 @patch("backend.pipeline.triage.boto3")
 @patch("backend.pipeline.triage.db")
 def test_no_candidates_returns_zero(mock_db, mock_boto3, mock_call_llm, user_id, table_name, sample_profile):
@@ -193,7 +193,7 @@ def test_no_candidates_returns_zero(mock_db, mock_boto3, mock_call_llm, user_id,
 # No profile → returns zeros
 # ---------------------------------------------------------------------------
 
-@patch("backend.pipeline.triage.call_llm")
+@patch("backend.pipeline.triage.call_llm_with_fallback")
 @patch("backend.pipeline.triage.boto3")
 @patch("backend.pipeline.triage.db")
 def test_no_profile_returns_zero(mock_db, mock_boto3, mock_call_llm, user_id, table_name):
@@ -215,7 +215,7 @@ def test_no_profile_returns_zero(mock_db, mock_boto3, mock_call_llm, user_id, ta
 # Verify correct arguments passed to db functions
 # ---------------------------------------------------------------------------
 
-@patch("backend.pipeline.triage.call_llm")
+@patch("backend.pipeline.triage.call_llm_with_fallback")
 @patch("backend.pipeline.triage.boto3")
 @patch("backend.pipeline.triage.db")
 def test_db_calls_correct_arguments(mock_db, mock_boto3, mock_call_llm, user_id, table_name, sample_papers, sample_profile):
@@ -257,7 +257,7 @@ def test_db_calls_correct_arguments(mock_db, mock_boto3, mock_call_llm, user_id,
 # LLM response with markdown fences is handled gracefully
 # ---------------------------------------------------------------------------
 
-@patch("backend.pipeline.triage.call_llm")
+@patch("backend.pipeline.triage.call_llm_with_fallback")
 @patch("backend.pipeline.triage.boto3")
 @patch("backend.pipeline.triage.db")
 def test_markdown_fenced_json_parsed(mock_db, mock_boto3, mock_call_llm, user_id, table_name, sample_papers, sample_profile):
@@ -293,7 +293,7 @@ def test_markdown_fenced_json_parsed(mock_db, mock_boto3, mock_call_llm, user_id
 # Triage score is clamped to [0, 1]
 # ---------------------------------------------------------------------------
 
-@patch("backend.pipeline.triage.call_llm")
+@patch("backend.pipeline.triage.call_llm_with_fallback")
 @patch("backend.pipeline.triage.boto3")
 @patch("backend.pipeline.triage.db")
 def test_score_clamped_to_valid_range(mock_db, mock_boto3, mock_call_llm, user_id, table_name, sample_papers, sample_profile):
@@ -319,3 +319,78 @@ def test_score_clamped_to_valid_range(mock_db, mock_boto3, mock_call_llm, user_i
 
     written_paper = mock_db.put_paper.call_args[0][2]
     assert written_paper["triage_score"] == 1.0
+
+
+# ---------------------------------------------------------------------------
+# Triage uses call_llm_with_fallback with Kimi primary + Sonnet fallback
+# ---------------------------------------------------------------------------
+
+@patch("backend.pipeline.triage.call_llm_with_fallback")
+@patch("backend.pipeline.triage.boto3")
+@patch("backend.pipeline.triage.db")
+def test_uses_fallback_wrapper_with_kimi_primary(
+    mock_db, mock_boto3, mock_fallback,
+    user_id, table_name, sample_papers, sample_profile,
+):
+    """_score_paper goes through call_llm_with_fallback with Kimi + Sonnet fallback."""
+    from backend.pipeline.triage import handler, FALLBACK_MODEL
+
+    mock_table = MagicMock()
+    mock_boto3.resource.return_value.Table.return_value = mock_table
+
+    mock_db.get_full_profile.return_value = sample_profile
+    mock_db.list_papers_by_status.return_value = [sample_papers[0]]
+
+    mock_fallback.return_value = json.dumps({
+        "triage_score": 0.5,
+        "level": "just_right",
+        "hypothesis_relevant": False,
+        "reasoning": "Meh.",
+        "worth_my_hours": False,
+    })
+
+    handler({
+        "user_id": user_id,
+        "table_name": table_name,
+        "model": "moonshotai.kimi-k2.5",
+    }, None)
+
+    mock_fallback.assert_called_once()
+    kwargs = mock_fallback.call_args.kwargs
+    assert kwargs["primary_model"] == "moonshotai.kimi-k2.5"
+    assert kwargs["fallback_model"] == FALLBACK_MODEL
+    assert FALLBACK_MODEL == "us.anthropic.claude-sonnet-4-6"
+
+
+# ---------------------------------------------------------------------------
+# Triage handler defaults to TRIAGE_MODEL env (Kimi K2.5) when 'model' missing
+# ---------------------------------------------------------------------------
+
+@patch("backend.pipeline.triage.call_llm_with_fallback")
+@patch("backend.pipeline.triage.boto3")
+@patch("backend.pipeline.triage.db")
+def test_default_model_when_event_omits_it(
+    mock_db, mock_boto3, mock_fallback,
+    user_id, table_name, sample_papers, sample_profile,
+):
+    """When event has no 'model' key, falls back to module DEFAULT_MODEL (env-driven)."""
+    from backend.pipeline.triage import handler, DEFAULT_MODEL
+
+    mock_table = MagicMock()
+    mock_boto3.resource.return_value.Table.return_value = mock_table
+
+    mock_db.get_full_profile.return_value = sample_profile
+    mock_db.list_papers_by_status.return_value = [sample_papers[0]]
+
+    mock_fallback.return_value = json.dumps({
+        "triage_score": 0.5,
+        "level": "just_right",
+        "hypothesis_relevant": False,
+        "reasoning": "Meh.",
+        "worth_my_hours": False,
+    })
+
+    handler({"user_id": user_id, "table_name": table_name}, None)
+
+    kwargs = mock_fallback.call_args.kwargs
+    assert kwargs["primary_model"] == DEFAULT_MODEL

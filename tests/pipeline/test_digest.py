@@ -14,7 +14,7 @@ import pytest
 # ---------------------------------------------------------------------------
 
 @patch("backend.pipeline.digest._build_sources")
-@patch("backend.pipeline.digest.call_llm")
+@patch("backend.pipeline.digest.call_llm_with_fallback")
 @patch("backend.pipeline.digest.boto3")
 @patch("backend.pipeline.digest.db")
 def test_happy_path_card_generated(mock_db, mock_boto3, mock_call_llm, mock_sources, user_id, table_name, sample_profile, sample_surfaced_papers):
@@ -34,7 +34,7 @@ def test_happy_path_card_generated(mock_db, mock_boto3, mock_call_llm, mock_sour
     mock_source.fetch_full_text.return_value = "Full paper text here..."
     mock_sources.return_value = {"semantic_scholar": mock_source, "arxiv": mock_source, "arxiv_rss": mock_source, "openreview": mock_source, "hf_daily_papers": mock_source, "papers_with_code": mock_source}
 
-    # call_llm returns a JSON string directly
+    # call_llm_with_fallback returns a JSON string directly (primary model succeeded)
     card_content = {
         "hook": "What if your agent could remember last Tuesday?",
         "why_you_now": "Your clone needs episodic memory.",
@@ -83,7 +83,7 @@ def test_happy_path_card_generated(mock_db, mock_boto3, mock_call_llm, mock_sour
 # ---------------------------------------------------------------------------
 
 @patch("backend.pipeline.digest._build_sources")
-@patch("backend.pipeline.digest.call_llm")
+@patch("backend.pipeline.digest.call_llm_with_fallback")
 @patch("backend.pipeline.digest.boto3")
 @patch("backend.pipeline.digest.db")
 def test_full_text_fetch_fails_skips_paper(mock_db, mock_boto3, mock_call_llm, mock_sources, user_id, table_name, sample_profile, sample_surfaced_papers):
@@ -132,7 +132,7 @@ def test_full_text_fetch_fails_skips_paper(mock_db, mock_boto3, mock_call_llm, m
 # ---------------------------------------------------------------------------
 
 @patch("backend.pipeline.digest._build_sources")
-@patch("backend.pipeline.digest.call_llm")
+@patch("backend.pipeline.digest.call_llm_with_fallback")
 @patch("backend.pipeline.digest.boto3")
 @patch("backend.pipeline.digest.db")
 def test_llm_malformed_json_skips_paper(mock_db, mock_boto3, mock_call_llm, mock_sources, user_id, table_name, sample_profile, sample_surfaced_papers):
@@ -203,7 +203,7 @@ def test_card_id_uniqueness():
 # ---------------------------------------------------------------------------
 
 @patch("backend.pipeline.digest._build_sources")
-@patch("backend.pipeline.digest.call_llm")
+@patch("backend.pipeline.digest.call_llm_with_fallback")
 @patch("backend.pipeline.digest.boto3")
 @patch("backend.pipeline.digest.db")
 def test_s3_key_user_scoped(mock_db, mock_boto3, mock_call_llm, mock_sources, user_id, table_name, sample_profile, sample_surfaced_papers):
@@ -248,7 +248,7 @@ def test_s3_key_user_scoped(mock_db, mock_boto3, mock_call_llm, mock_sources, us
 # No profile → returns early with error
 # ---------------------------------------------------------------------------
 
-@patch("backend.pipeline.digest.call_llm")
+@patch("backend.pipeline.digest.call_llm_with_fallback")
 @patch("backend.pipeline.digest.boto3")
 @patch("backend.pipeline.digest.db")
 def test_no_profile_returns_error(mock_db, mock_boto3, mock_call_llm, user_id, table_name):
@@ -275,7 +275,7 @@ def test_no_profile_returns_error(mock_db, mock_boto3, mock_call_llm, user_id, t
 # No surfaced papers → returns zeros
 # ---------------------------------------------------------------------------
 
-@patch("backend.pipeline.digest.call_llm")
+@patch("backend.pipeline.digest.call_llm_with_fallback")
 @patch("backend.pipeline.digest.boto3")
 @patch("backend.pipeline.digest.db")
 def test_no_surfaced_papers_returns_zeros(mock_db, mock_boto3, mock_call_llm, user_id, table_name, sample_profile):
@@ -304,7 +304,7 @@ def test_no_surfaced_papers_returns_zeros(mock_db, mock_boto3, mock_call_llm, us
 # ---------------------------------------------------------------------------
 
 @patch("backend.pipeline.digest._build_sources")
-@patch("backend.pipeline.digest.call_llm")
+@patch("backend.pipeline.digest.call_llm_with_fallback")
 @patch("backend.pipeline.digest.boto3")
 @patch("backend.pipeline.digest.db")
 def test_unknown_source_skips_paper(mock_db, mock_boto3, mock_call_llm, mock_sources, user_id, table_name, sample_profile):
@@ -341,7 +341,7 @@ def test_unknown_source_skips_paper(mock_db, mock_boto3, mock_call_llm, mock_sou
 # ---------------------------------------------------------------------------
 
 @patch("backend.pipeline.digest._build_sources")
-@patch("backend.pipeline.digest.call_llm")
+@patch("backend.pipeline.digest.call_llm_with_fallback")
 @patch("backend.pipeline.digest.boto3")
 @patch("backend.pipeline.digest.db")
 def test_feed_card_structure(mock_db, mock_boto3, mock_call_llm, mock_sources, user_id, table_name, sample_profile, sample_surfaced_papers):
@@ -395,3 +395,56 @@ def test_feed_card_structure(mock_db, mock_boto3, mock_call_llm, mock_sources, u
     assert isinstance(card["digest"], dict)
     assert isinstance(card["glossary"], list)
     assert isinstance(card["suggested_questions"], list)
+
+
+# ---------------------------------------------------------------------------
+# Fallback wrapper is used: primary model + Sonnet fallback
+# ---------------------------------------------------------------------------
+
+@patch("backend.pipeline.digest._build_sources")
+@patch("backend.pipeline.digest.call_llm_with_fallback")
+@patch("backend.pipeline.digest.boto3")
+@patch("backend.pipeline.digest.db")
+def test_uses_fallback_wrapper_with_kimi_primary(
+    mock_db, mock_boto3, mock_fallback, mock_sources,
+    user_id, table_name, sample_profile, sample_surfaced_papers,
+):
+    """_generate_card calls call_llm_with_fallback with Kimi primary + Sonnet fallback."""
+    from backend.pipeline.digest import run, FALLBACK_MODEL
+
+    mock_table = MagicMock()
+    mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_boto3.client.return_value = MagicMock()
+
+    mock_db.get_full_profile.return_value = sample_profile
+    mock_db.list_papers_by_status.return_value = [sample_surfaced_papers[0]]
+
+    mock_source = MagicMock()
+    mock_source.fetch_full_text.return_value = "Full text"
+    mock_sources.return_value = {
+        "semantic_scholar": mock_source, "arxiv": mock_source,
+        "arxiv_rss": mock_source, "openreview": mock_source,
+        "hf_daily_papers": mock_source, "papers_with_code": mock_source,
+    }
+
+    mock_fallback.return_value = json.dumps({
+        "hook": "H", "why_you_now": "W", "time_estimate": "5 min",
+        "digest": {"gist": "G", "key_ideas": ["K"], "deep": "D"},
+        "glossary": [], "math_notes": [],
+        "hypothesis_relevance": "R", "honesty_note": "N",
+        "suggested_questions": ["Q"],
+    })
+
+    run({
+        "user_id": user_id,
+        "table_name": table_name,
+        "s3_bucket": "bucket",
+        "model": "moonshotai.kimi-k2.5",
+    })
+
+    # Verify the wrapper was called with primary=Kimi and fallback=Sonnet
+    mock_fallback.assert_called_once()
+    kwargs = mock_fallback.call_args.kwargs
+    assert kwargs["primary_model"] == "moonshotai.kimi-k2.5"
+    assert kwargs["fallback_model"] == FALLBACK_MODEL
+    assert FALLBACK_MODEL == "us.anthropic.claude-sonnet-4-6"

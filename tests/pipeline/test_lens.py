@@ -11,7 +11,7 @@ import pytest
 # Happy path: cards without hypothesis_relevance get annotated
 # ---------------------------------------------------------------------------
 
-@patch("backend.pipeline.lens.call_llm")
+@patch("backend.pipeline.lens.call_llm_with_fallback")
 @patch("backend.pipeline.lens.boto3")
 @patch("backend.pipeline.lens.db")
 def test_happy_path_cards_annotated(mock_db, mock_boto3, mock_call_llm, user_id, table_name, sample_profile, sample_feed_cards):
@@ -54,7 +54,7 @@ def test_happy_path_cards_annotated(mock_db, mock_boto3, mock_call_llm, user_id,
 # Card already has hypothesis_relevance → skipped
 # ---------------------------------------------------------------------------
 
-@patch("backend.pipeline.lens.call_llm")
+@patch("backend.pipeline.lens.call_llm_with_fallback")
 @patch("backend.pipeline.lens.boto3")
 @patch("backend.pipeline.lens.db")
 def test_already_annotated_card_skipped(mock_db, mock_boto3, mock_call_llm, user_id, table_name, sample_profile, sample_feed_cards):
@@ -81,7 +81,7 @@ def test_already_annotated_card_skipped(mock_db, mock_boto3, mock_call_llm, user
 # LLM failure → card skipped, others continue
 # ---------------------------------------------------------------------------
 
-@patch("backend.pipeline.lens.call_llm")
+@patch("backend.pipeline.lens.call_llm_with_fallback")
 @patch("backend.pipeline.lens.boto3")
 @patch("backend.pipeline.lens.db")
 def test_llm_failure_skips_card(mock_db, mock_boto3, mock_call_llm, user_id, table_name, sample_profile):
@@ -130,7 +130,7 @@ def test_llm_failure_skips_card(mock_db, mock_boto3, mock_call_llm, user_id, tab
 # No hypothesis in profile → returns {cards_annotated: 0}
 # ---------------------------------------------------------------------------
 
-@patch("backend.pipeline.lens.call_llm")
+@patch("backend.pipeline.lens.call_llm_with_fallback")
 @patch("backend.pipeline.lens.boto3")
 @patch("backend.pipeline.lens.db")
 def test_no_hypothesis_returns_zero(mock_db, mock_boto3, mock_call_llm, user_id, table_name):
@@ -157,7 +157,7 @@ def test_no_hypothesis_returns_zero(mock_db, mock_boto3, mock_call_llm, user_id,
 # Empty hypothesis statement → returns {cards_annotated: 0}
 # ---------------------------------------------------------------------------
 
-@patch("backend.pipeline.lens.call_llm")
+@patch("backend.pipeline.lens.call_llm_with_fallback")
 @patch("backend.pipeline.lens.boto3")
 @patch("backend.pipeline.lens.db")
 def test_empty_hypothesis_statement_returns_zero(mock_db, mock_boto3, mock_call_llm, user_id, table_name):
@@ -183,7 +183,7 @@ def test_empty_hypothesis_statement_returns_zero(mock_db, mock_boto3, mock_call_
 # No cards needing annotation → returns zero
 # ---------------------------------------------------------------------------
 
-@patch("backend.pipeline.lens.call_llm")
+@patch("backend.pipeline.lens.call_llm_with_fallback")
 @patch("backend.pipeline.lens.boto3")
 @patch("backend.pipeline.lens.db")
 def test_no_cards_needing_annotation(mock_db, mock_boto3, mock_call_llm, user_id, table_name, sample_profile):
@@ -218,7 +218,7 @@ def test_no_cards_needing_annotation(mock_db, mock_boto3, mock_call_llm, user_id
 # Verify correct arguments passed to db functions
 # ---------------------------------------------------------------------------
 
-@patch("backend.pipeline.lens.call_llm")
+@patch("backend.pipeline.lens.call_llm_with_fallback")
 @patch("backend.pipeline.lens.boto3")
 @patch("backend.pipeline.lens.db")
 def test_db_calls_correct_arguments(mock_db, mock_boto3, mock_call_llm, user_id, table_name, sample_profile):
@@ -303,7 +303,7 @@ def test_needs_annotation_has_content():
 # Fallback: when no cards match today prefix, all cards are considered
 # ---------------------------------------------------------------------------
 
-@patch("backend.pipeline.lens.call_llm")
+@patch("backend.pipeline.lens.call_llm_with_fallback")
 @patch("backend.pipeline.lens.boto3")
 @patch("backend.pipeline.lens.db")
 def test_fallback_when_no_today_cards(mock_db, mock_boto3, mock_call_llm, user_id, table_name, sample_profile):
@@ -335,3 +335,84 @@ def test_fallback_when_no_today_cards(mock_db, mock_boto3, mock_call_llm, user_i
 
     # Fallback: all cards considered since no today cards found
     assert result["cards_annotated"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Lens uses call_llm_with_fallback with Kimi primary + Sonnet fallback
+# ---------------------------------------------------------------------------
+
+@patch("backend.pipeline.lens.call_llm_with_fallback")
+@patch("backend.pipeline.lens.boto3")
+@patch("backend.pipeline.lens.db")
+def test_uses_fallback_wrapper_with_kimi_primary(
+    mock_db, mock_boto3, mock_fallback,
+    user_id, table_name, sample_profile,
+):
+    """_annotate_card goes through call_llm_with_fallback with Kimi + Sonnet fallback."""
+    from backend.pipeline.lens import handler, FALLBACK_MODEL
+
+    mock_table = MagicMock()
+    mock_boto3.resource.return_value.Table.return_value = mock_table
+
+    mock_db.get_full_profile.return_value = sample_profile
+
+    cards = [{
+        "card_id": "20260607_120000_test1234",
+        "paper_id": "paper-001",
+        "hook": "Test hook",
+        "digest": {"gist": "Test gist", "key_ideas": ["Idea"]},
+        "hypothesis_relevance": "",
+    }]
+    mock_db.list_feed_cards.return_value = (cards, None)
+
+    mock_fallback.return_value = "Supports."
+
+    with patch("backend.pipeline.lens._today_prefix", return_value="20260607"):
+        handler({
+            "user_id": user_id,
+            "table_name": table_name,
+            "model": "moonshotai.kimi-k2.5",
+        }, None)
+
+    mock_fallback.assert_called_once()
+    kwargs = mock_fallback.call_args.kwargs
+    assert kwargs["primary_model"] == "moonshotai.kimi-k2.5"
+    assert kwargs["fallback_model"] == FALLBACK_MODEL
+    assert FALLBACK_MODEL == "us.anthropic.claude-sonnet-4-6"
+
+
+# ---------------------------------------------------------------------------
+# Lens handler defaults to LENS_MODEL env (Kimi K2.5) when 'model' missing
+# ---------------------------------------------------------------------------
+
+@patch("backend.pipeline.lens.call_llm_with_fallback")
+@patch("backend.pipeline.lens.boto3")
+@patch("backend.pipeline.lens.db")
+def test_default_model_when_event_omits_it(
+    mock_db, mock_boto3, mock_fallback,
+    user_id, table_name, sample_profile,
+):
+    """When event has no 'model' key, falls back to module DEFAULT_MODEL (env-driven)."""
+    from backend.pipeline.lens import handler, DEFAULT_MODEL
+
+    mock_table = MagicMock()
+    mock_boto3.resource.return_value.Table.return_value = mock_table
+
+    mock_db.get_full_profile.return_value = sample_profile
+
+    cards = [{
+        "card_id": "20260607_120000_x",
+        "paper_id": "paper-001",
+        "hook": "Test",
+        "digest": {"gist": "G", "key_ideas": []},
+        "hypothesis_relevance": "",
+    }]
+    mock_db.list_feed_cards.return_value = (cards, None)
+
+    mock_fallback.return_value = "Supports."
+
+    with patch("backend.pipeline.lens._today_prefix", return_value="20260607"):
+        handler({"user_id": user_id, "table_name": table_name}, None)
+
+    kwargs = mock_fallback.call_args.kwargs
+    assert kwargs["primary_model"] == DEFAULT_MODEL
