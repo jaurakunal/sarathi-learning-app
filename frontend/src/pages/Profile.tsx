@@ -5,9 +5,99 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { ArrowLeft, BookOpen, MessageCircle, ExternalLink, Flame, Snowflake, ChevronDown } from 'lucide-react'
 import Markdown from 'react-markdown'
 import { getProfile } from '../api/profile'
+import { getBriefs } from '../api/briefs'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import { Layout } from '../components/Layout'
 import type { TimelineEntry } from '../api/profile'
+import type { BriefSummary } from '../api/briefs'
+
+const TIER_ORDER: { key: string; label: string; defaultExpanded: boolean }[] = [
+  { key: 'yesterday', label: 'Yesterday', defaultExpanded: false },
+  { key: '3_day', label: 'Last 3 days', defaultExpanded: false },
+  { key: '7_day', label: 'Last 7 days', defaultExpanded: true },
+  { key: 'month', label: 'Last month', defaultExpanded: true },
+  { key: 'quarter', label: 'Last quarter', defaultExpanded: true },
+]
+
+function SummaryCard({
+  label,
+  content,
+  defaultExpanded,
+}: {
+  label: string
+  content: string | undefined
+  defaultExpanded: boolean
+}) {
+  const [expanded, setExpanded] = useState(defaultExpanded)
+  const isEmpty = !content || content.trim() === '' || content === 'No activity yet.'
+
+  return (
+    <div className="glass-card rounded-xl overflow-hidden">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-white/5 transition-colors"
+      >
+        <span className="text-sm font-medium text-zinc-200">{label}</span>
+        <motion.span animate={{ rotate: expanded ? 180 : 0 }} className="text-zinc-500">
+          <ChevronDown size={16} />
+        </motion.span>
+      </button>
+      <AnimatePresence>
+        {expanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <div className="px-4 pb-4 pt-1 border-t border-white/5">
+              {isEmpty ? (
+                <p className="text-xs text-zinc-500 italic">No activity in this window</p>
+              ) : (
+                <div className="prose prose-invert prose-sm max-w-none prose-p:my-2 prose-ul:my-2 prose-li:my-0.5 prose-strong:text-white prose-a:text-accent">
+                  <Markdown>{content}</Markdown>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+function BriefArchiveItem({ brief }: { brief: BriefSummary }) {
+  const [expanded, setExpanded] = useState(false)
+  const date = new Date(`${brief.week}T00:00:00Z`).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
+  const preview = brief.content.length > 200 ? `${brief.content.slice(0, 200)}…` : brief.content
+  const hasMore = brief.content.length > 200
+
+  return (
+    <div className="glass-card rounded-xl p-4">
+      <h3 className="text-sm font-semibold text-zinc-200 mb-2">Week of {date}</h3>
+      {expanded ? (
+        <div className="prose prose-invert prose-sm max-w-none prose-p:my-2 prose-ul:my-2 prose-li:my-0.5 prose-strong:text-white prose-a:text-accent">
+          <Markdown>{brief.content}</Markdown>
+        </div>
+      ) : (
+        <p className="text-xs text-zinc-400 leading-relaxed whitespace-pre-wrap">{preview}</p>
+      )}
+      {hasMore && (
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="mt-2 text-xs text-accent hover:underline"
+        >
+          {expanded ? 'Show less' : 'Show more'}
+        </button>
+      )}
+    </div>
+  )
+}
 
 const STATUS_ICONS: Record<string, typeof Flame> = {
   hot: Flame,
@@ -118,11 +208,17 @@ function TimelineNode({ entry, isLast }: { entry: TimelineEntry; isLast: boolean
 
 export function Profile() {
   const navigate = useNavigate()
-  const [tab, setTab] = useState<'overview' | 'insights' | 'timeline'>('overview')
+  const [tab, setTab] = useState<'overview' | 'insights' | 'timeline' | 'activity'>('overview')
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['profile'],
     queryFn: getProfile,
+  })
+
+  const briefsQuery = useQuery({
+    queryKey: ['briefs'],
+    queryFn: () => getBriefs({ limit: 20 }),
+    enabled: tab === 'activity',
   })
 
   if (isLoading) return <Layout><div className="min-h-screen bg-[#0a0a0f]"><LoadingSpinner /></div></Layout>
@@ -156,12 +252,12 @@ export function Profile() {
           </div>
 
           {/* Tabs */}
-          <div className="flex gap-1">
-            {(['overview', 'insights', 'timeline'] as const).map((t) => (
+          <div className="flex gap-1 overflow-x-auto">
+            {(['overview', 'insights', 'timeline', 'activity'] as const).map((t) => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
-                className={`text-sm font-medium px-3 py-1.5 rounded-lg transition-all capitalize ${
+                className={`text-sm font-medium px-3 py-1.5 rounded-lg transition-all capitalize shrink-0 ${
                   tab === t
                     ? 'text-white bg-accent/20 border border-accent-dim'
                     : 'text-zinc-500 hover:text-zinc-300'
@@ -316,6 +412,49 @@ export function Profile() {
                 <p className="text-sm text-zinc-500">No learning updates yet. The pipeline runs nightly at 2am UTC.</p>
               )
             })()}
+          </div>
+        )}
+
+        {/* Tab: Activity */}
+        {tab === 'activity' && (
+          <div className="py-4 pb-12 space-y-6">
+            {/* Section 1: Tiered Summaries */}
+            <div>
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-3">Activity Summaries</h2>
+              <div className="space-y-2">
+                {TIER_ORDER.map(({ key, label, defaultExpanded }) => (
+                  <SummaryCard
+                    key={key}
+                    label={label}
+                    content={data.summaries?.[key]}
+                    defaultExpanded={defaultExpanded}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* Section 2: Brief Archive */}
+            <div>
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-3">Brief Archive</h2>
+              {briefsQuery.isLoading && (
+                <p className="text-xs text-zinc-500">Loading briefs…</p>
+              )}
+              {briefsQuery.isError && (
+                <p className="text-xs text-red-400">Failed to load briefs.</p>
+              )}
+              {briefsQuery.data && briefsQuery.data.briefs.length === 0 && (
+                <p className="text-sm text-zinc-500">
+                  No weekly briefs yet — the first one drops this Monday.
+                </p>
+              )}
+              {briefsQuery.data && briefsQuery.data.briefs.length > 0 && (
+                <div className="space-y-3">
+                  {briefsQuery.data.briefs.map((brief) => (
+                    <BriefArchiveItem key={brief.week} brief={brief} />
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
 

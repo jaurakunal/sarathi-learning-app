@@ -393,6 +393,31 @@ export class SarathiStack extends cdk.Stack {
       memorySize: 512,
     });
 
+    // Briefs Lambda has its own least-privilege role: dynamodb:Query only.
+    // The handler scopes every query to PK=USER#<authed-cognito-sub>#BRIEF, so this role
+    // cannot read engagement, profile, or other users' data.
+    const briefsLambdaRole = new iam.Role(this, 'BriefsLambdaRole', {
+      assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole'),
+      ],
+    });
+    briefsLambdaRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['dynamodb:Query'],
+      resources: [table.tableArn],
+    }));
+
+    const briefsFn = new lambda.Function(this, 'BriefsApiFn', {
+      functionName: 'sarathi-api-briefs',
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'backend.api.briefs.handler',
+      code: lambdaCode,
+      environment: lambdaEnv,
+      role: briefsLambdaRole,
+      timeout: cdk.Duration.seconds(15),
+      memorySize: 256,
+    });
+
     const pushFn = new lambda.Function(this, 'PushFn', {
       functionName: 'sarathi-api-push',
       runtime: lambda.Runtime.PYTHON_3_12,
@@ -722,6 +747,12 @@ export class SarathiStack extends cdk.Stack {
 
     const researchResource = api.root.addResource('research');
     researchResource.addMethod('GET', new apigw.LambdaIntegration(researchFn), {
+      authorizer,
+      authorizationType: apigw.AuthorizationType.COGNITO,
+    });
+
+    const briefsResource = api.root.addResource('briefs');
+    briefsResource.addMethod('GET', new apigw.LambdaIntegration(briefsFn), {
       authorizer,
       authorizationType: apigw.AuthorizationType.COGNITO,
     });

@@ -12,10 +12,14 @@ Run with:
 
 import uuid
 
+import boto3
 import pytest
 import requests
 
 pytestmark = pytest.mark.integration
+
+TEST_USER_ID = "447844a8-c0e1-700b-2fdf-f9512eee3e49"
+TABLE_NAME = "sarathi"
 
 
 # ===========================================================================
@@ -252,6 +256,52 @@ class TestChat:
         assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text[:200]}"
         body = r.json()
         assert "turns" in body, f"Expected 'turns' key in response, got: {list(body.keys())}"
+
+
+# ===========================================================================
+# Briefs Tests
+# ===========================================================================
+
+
+class TestBriefs:
+    """Tests for GET /briefs."""
+
+    def test_briefs_endpoint_returns_list(self, api, setup_test_data):
+        """GET /briefs returns 200 with {briefs: [...]} after seeding a fake brief.
+
+        Inserts one fake brief into DDB for the test user, hits the endpoint,
+        verifies it shows up, then cleans up.
+        """
+        table = boto3.Session(region_name="us-east-1").resource("dynamodb").Table(TABLE_NAME)
+
+        fake_week = "2026-01-05"  # arbitrary past Monday, far from anything real
+        pk = f"USER#{TEST_USER_ID}#BRIEF"
+        sk = f"WEEK#{fake_week}"
+        try:
+            table.put_item(Item={
+                "PK": pk,
+                "SK": sk,
+                "user_id": TEST_USER_ID,
+                "week": fake_week,
+                "content": "## Integration test brief\n\nThis is a fake brief for testing.",
+                "created_at": f"{fake_week}T17:00:00Z",
+                "stats": {"papers_read": 0, "questions_asked": 0, "source_clicks": 0},
+            })
+
+            r = api.get("/briefs")
+            assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text[:200]}"
+            body = r.json()
+            assert "briefs" in body, f"Missing 'briefs' key: {body}"
+            assert isinstance(body["briefs"], list)
+            weeks = [b.get("week") for b in body["briefs"]]
+            assert fake_week in weeks, f"Seeded brief not returned: weeks={weeks}"
+
+            # Each brief should have the expected shape.
+            seeded = next(b for b in body["briefs"] if b.get("week") == fake_week)
+            assert "content" in seeded
+            assert "generated_at" in seeded
+        finally:
+            table.delete_item(Key={"PK": pk, "SK": sk})
 
 
 # ===========================================================================
