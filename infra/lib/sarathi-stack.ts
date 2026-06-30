@@ -572,6 +572,39 @@ export class SarathiStack extends cdk.Stack {
       targets: [new targets.LambdaFunction(fanoutFn)],
     });
 
+    // ─── Weekly Brief Lambda + scheduler ─────────────────────────────
+    const weeklyBriefFn = new lambda.Function(this, 'WeeklyBriefFn', {
+      functionName: 'sarathi-weekly-brief',
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'backend.pipeline.weekly_brief.handler',
+      code: lambdaCode,
+      environment: lambdaEnv,
+      role: lambdaRole,
+      timeout: cdk.Duration.seconds(300),
+      memorySize: 512,
+    });
+
+    const weeklyBriefFanoutFn = new lambda.Function(this, 'WeeklyBriefFanoutFn', {
+      functionName: 'sarathi-weekly-brief-fanout',
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'backend.pipeline.weekly_brief_fanout.handler',
+      code: lambdaCode,
+      environment: {
+        TABLE_NAME: table.tableName,
+        BRIEF_FUNCTION_NAME: weeklyBriefFn.functionName,
+      },
+      timeout: cdk.Duration.seconds(60),
+      memorySize: 256,
+    });
+    table.grantReadData(weeklyBriefFanoutFn);
+    weeklyBriefFn.grantInvoke(weeklyBriefFanoutFn);
+
+    // Mondays at 8am UTC = 12am PST = 1:30pm IST. Reasonable global window.
+    new events.Rule(this, 'WeeklyBriefTrigger', {
+      schedule: events.Schedule.cron({ weekDay: 'MON', hour: '8', minute: '0' }),
+      targets: [new targets.LambdaFunction(weeklyBriefFanoutFn)],
+    });
+
     // ─── API Gateway ─────────────────────────────────────────────────
     const authorizer = new apigw.CognitoUserPoolsAuthorizer(this, 'SarathiAuthorizer', {
       cognitoUserPools: [userPool],

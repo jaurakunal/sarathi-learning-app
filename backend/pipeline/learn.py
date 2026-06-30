@@ -36,7 +36,11 @@ Rules:
 - Question sophistication reveals level: definitional ("what is X") → comparative ("how does X differ from Y") → applied ("how would I use X for my project") → critical ("what breaks if we relax this assumption").
 - Hypothesis evidence: look for conversation content that directly supports, refutes, or refines the user's stated hypothesis.
 
-Output valid JSON matching the schema below. Only include fields that actually changed."""
+Output valid JSON matching the schema below.
+
+ALWAYS include the `summaries` field on every run — these are user-facing recap text shown on the Progress page, regenerated each time so they stay current. Write 1-3 sentences per tier (yesterday, three_day, seven_day, month, quarter) describing what the user actually engaged with in that window. If a tier has no activity, return an empty string for that tier.
+
+For all other fields (areas, hypothesis, learning_style, etc.): only include fields that actually changed."""
 
 
 LEARN_OUTPUT_SCHEMA = {
