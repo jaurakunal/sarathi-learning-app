@@ -562,7 +562,9 @@ export class SarathiStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(60),
       memorySize: 512,
     });
-    table.grantReadData(fanoutFn);
+    // ReadWrite needed: fanout updates SYSTEM#USERS to auto-pause inactive
+    // users and to write USER#<id>#PIPELINE / LATEST records for dedup.
+    table.grantReadWriteData(fanoutFn);
     stateMachine.grantStartExecution(fanoutFn);
 
     new events.Rule(this, 'NightlyTrigger', {
