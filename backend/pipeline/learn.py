@@ -208,6 +208,7 @@ def _build_learn_prompt(
     profile: dict,
     engagement_stats: dict,
     conversations: list[dict],
+    tier_stats: dict | None = None,
 ) -> str:
     """Build the user message for the Learn LLM call."""
     parts = []
@@ -226,6 +227,15 @@ def _build_learn_prompt(
         parts.append(f"\nHypothesis: {h.get('statement', '')}")
         parts.append(f"  Supporting: {h.get('supporting', [])}")
         parts.append(f"  Refuting: {h.get('refuting', [])}")
+    # Existing tiered summaries — the LLM should refresh these based on the windows below
+    summaries = {s.get("tier", ""): s.get("content", "") for s in profile.get("summaries", []) or []}
+    if summaries:
+        parts.append("\n<existing_summaries>")
+        for tier in ("yesterday", "3_day", "7_day", "month", "quarter"):
+            content = summaries.get(tier, "")
+            parts.append(f"  {tier}: {content if content else '(empty)'}")
+        parts.append("</existing_summaries>")
+
     parts.append("</current_profile>")
 
     # Engagement stats
@@ -242,6 +252,24 @@ def _build_learn_prompt(
     parts.append(f"Impressions (cards seen in feed): {engagement_stats['impressions']}")
     parts.append(f"Views (cards opened): {engagement_stats['views']}")
     parts.append("</engagement_since_last_update>")
+
+    # Per-tier engagement (calendar windows — for regenerating tiered summaries)
+    if tier_stats:
+        parts.append("\n<engagement_by_window>")
+        parts.append("Use these counts to regenerate the corresponding tiered summary fields. Each window is independent, looking back from now.")
+        for tier in ("yesterday", "3_day", "7_day", "month", "quarter"):
+            s = tier_stats.get(tier, {})
+            parts.append(
+                f"  {tier}: total_events={s.get('total_events', 0)}, "
+                f"papers_read={len(s.get('papers_read', []))}, "
+                f"papers_dismissed={len(s.get('papers_dismissed', []))}, "
+                f"papers_bookmarked={s.get('papers_bookmarked', 0)}, "
+                f"source_clicks={s.get('source_clicks', 0)}, "
+                f"impressions={s.get('impressions', 0)}, "
+                f"views={s.get('views', 0)}, "
+                f"active_ms={s.get('total_active_ms', 0)}"
+            )
+        parts.append("</engagement_by_window>")
 
     # Conversations
     if conversations:
@@ -283,12 +311,27 @@ def handler(event: dict, context) -> dict:
         since = last_learn_ts
 
     # 3. Read engagement events since last run
+    now = datetime.now(timezone.utc)
     now_ts = _now_iso()
     events = db.list_engagement_events(table, user_id, since, now_ts)
     logger.info("Found %d engagement events since %s", len(events), since)
 
-    # 4. Aggregate engagement stats
+    # 4. Aggregate engagement stats (since last run — drives area/frontier updates)
     engagement_stats = _aggregate_engagement(events)
+
+    # 4b. Per-tier stats for summary regeneration (calendar windows, not delta)
+    tier_windows = {
+        "yesterday": now - timedelta(days=1),
+        "3_day": now - timedelta(days=3),
+        "7_day": now - timedelta(days=7),
+        "month": now - timedelta(days=30),
+        "quarter": now - timedelta(days=90),
+    }
+    tier_stats = {}
+    for tier, since_dt in tier_windows.items():
+        tier_since = since_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+        tier_events = db.list_engagement_events(table, user_id, tier_since, now_ts)
+        tier_stats[tier] = _aggregate_engagement(tier_events)
 
     # 5. Collect new conversation turns
     conversations = _collect_conversations(table, user_id, since)
@@ -304,7 +347,7 @@ def handler(event: dict, context) -> dict:
         return {"status": "skipped", "reason": "no_activity"}
 
     # 7. Build prompt and call LLM
-    user_message = _build_learn_prompt(profile, engagement_stats, conversations)
+    user_message = _build_learn_prompt(profile, engagement_stats, conversations, tier_stats=tier_stats)
 
     llm_response = call_llm(
         system=LEARN_SYSTEM_PROMPT,
