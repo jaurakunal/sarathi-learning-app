@@ -1,5 +1,6 @@
+import { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Home, MessageCircle, Target, BookOpen, TrendingUp, Settings, LogOut } from 'lucide-react'
+import { Home, MessageCircle, Target, BookOpen, TrendingUp, Settings, LogOut, Menu, X } from 'lucide-react'
 import { logout } from '../auth/cognito'
 import { WorkspaceSwitcher } from './WorkspaceSwitcher'
 
@@ -19,6 +20,7 @@ interface LayoutProps {
 export function Layout({ children }: LayoutProps) {
   const location = useLocation()
   const navigate = useNavigate()
+  const [menuOpen, setMenuOpen] = useState(false)
 
   return (
     <div className="min-h-screen bg-[#0a0a0f] lg:flex">
@@ -69,11 +71,67 @@ export function Layout({ children }: LayoutProps) {
 
       {/* Main content — offset by sidebar width on desktop */}
       <main className="lg:ml-[240px] flex-1 min-h-screen">
-        {/* Mobile top bar with workspace switcher */}
+        {/* Mobile top bar */}
         <div className="lg:hidden flex items-center justify-between px-4 py-3 border-b border-white/[0.06] bg-[#0e0e18] sticky top-0 z-20">
           <h1 className="text-lg font-bold text-gradient">Sārathi</h1>
-          <WorkspaceSwitcher />
+          <div className="flex items-center gap-2">
+            <WorkspaceSwitcher />
+            <button
+              onClick={() => setMenuOpen(true)}
+              className="text-zinc-400 hover:text-white transition-colors p-2"
+              title="Menu"
+              aria-label="Open menu"
+            >
+              <Menu size={20} />
+            </button>
+          </div>
         </div>
+
+        {/* Mobile slide-out menu */}
+        {menuOpen && (
+          <>
+            <div
+              className="fixed inset-0 bg-black/60 z-40 lg:hidden"
+              onClick={() => setMenuOpen(false)}
+            />
+            <div className="fixed top-0 right-0 h-full w-64 bg-[#0e0e18] border-l border-white/[0.06] z-50 p-6 pt-safe-top lg:hidden">
+              <button
+                onClick={() => setMenuOpen(false)}
+                className="absolute top-4 right-4 text-zinc-500 hover:text-white p-2"
+                aria-label="Close menu"
+              >
+                <X size={18} />
+              </button>
+              <nav className="mt-12 space-y-1">
+                {NAV_ITEMS.map(({ path, label, icon: Icon }) => {
+                  const active = location.pathname === path
+                  return (
+                    <button
+                      key={path}
+                      onClick={() => { navigate(path); setMenuOpen(false) }}
+                      className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm transition-colors ${
+                        active
+                          ? 'text-white bg-white/[0.06]'
+                          : 'text-zinc-300 hover:text-white hover:bg-white/[0.04]'
+                      }`}
+                    >
+                      <Icon size={18} className={active ? 'text-accent' : 'text-zinc-400'} />
+                      {label}
+                    </button>
+                  )
+                })}
+                <div className="border-t border-white/[0.06] my-3" />
+                <button
+                  onClick={() => { logout(); window.location.reload() }}
+                  className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm text-zinc-500 hover:text-red-400 hover:bg-red-400/5 transition-colors"
+                >
+                  <LogOut size={18} /> Log out
+                </button>
+              </nav>
+            </div>
+          </>
+        )}
+
         {children}
       </main>
     </div>
