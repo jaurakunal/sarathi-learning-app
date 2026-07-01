@@ -22,7 +22,7 @@ def _put_candidate_paper(table, user_id, paper_id, *,
     """Helper: write a paper in `candidate` status with Sonnet decision fields."""
     last = paper_id[-1]
     day = int(last) % 10 if last.isdigit() else 0
-    db.put_paper(table, user_id, {
+    db.put_paper(table, user_id, "", {
         "id": paper_id,
         "title": f"Title {paper_id}",
         "abstract": f"Abstract for {paper_id}",
@@ -51,7 +51,7 @@ def test_build_negative_dataset_pulls_rejected_papers(fake_table):
     _put_candidate_paper(fake_table, user_id, "p-rej-3", worth=False, score=0.25,
                          level="just_right")
     # In-flight: missing both decision fields — should be skipped
-    db.put_paper(fake_table, user_id, {
+    db.put_paper(fake_table, user_id, "", {
         "id": "p-inflight",
         "title": "In flight",
         "abstract": "abstract",

@@ -19,12 +19,12 @@ def test_clone_profile_copies_meta_areas_and_hypothesis(fake_table, sample_profi
     """Profile cloning copies META + AREA + HYPOTHESIS to the test user."""
     # Seed live user profile
     db.put_profile_meta(
-        fake_table, eval_dataset.LIVE_USER_ID, sample_profile["meta"]
+        fake_table, eval_dataset.LIVE_USER_ID, "", sample_profile["meta"]
     )
     for area in sample_profile["areas"]:
-        db.put_profile_area(fake_table, eval_dataset.LIVE_USER_ID, area)
+        db.put_profile_area(fake_table, eval_dataset.LIVE_USER_ID, "", area)
     db.put_profile_hypothesis(
-        fake_table, eval_dataset.LIVE_USER_ID, sample_profile["hypothesis"]
+        fake_table, eval_dataset.LIVE_USER_ID, "", sample_profile["hypothesis"]
     )
 
     summary = eval_dataset.clone_profile(fake_table)
@@ -34,7 +34,7 @@ def test_clone_profile_copies_meta_areas_and_hypothesis(fake_table, sample_profi
     assert summary["hypothesis_copied"] == 1
 
     # Verify items exist on test user
-    cloned = db.get_full_profile(fake_table, eval_dataset.TEST_USER_ID)
+    cloned = db.get_full_profile(fake_table, eval_dataset.TEST_USER_ID, "")
     assert cloned["meta"] is not None
     assert cloned["meta"]["paper_goal"] == "Faithful clones."
     assert len(cloned["areas"]) == 1
@@ -50,10 +50,10 @@ def test_clone_profile_handles_missing_live_profile(fake_table):
 
 def test_clone_profile_skips_areas_without_id(fake_table, sample_profile):
     """An area record with no `id` is skipped silently."""
-    db.put_profile_meta(fake_table, eval_dataset.LIVE_USER_ID, sample_profile["meta"])
+    db.put_profile_meta(fake_table, eval_dataset.LIVE_USER_ID, "", sample_profile["meta"])
     # Put two areas, only one has id
     db.put_profile_area(
-        fake_table, eval_dataset.LIVE_USER_ID, sample_profile["areas"][0]
+        fake_table, eval_dataset.LIVE_USER_ID, "", sample_profile["areas"][0]
     )
     # Manually inject a corrupt area item
     fake_table.put_item(Item={
@@ -77,7 +77,7 @@ def test_engagement_aggregates_actions(fake_table, sample_engagement_events):
     """All event types are aggregated into the right summary fields."""
     user_id = eval_dataset.LIVE_USER_ID
     for ev in sample_engagement_events:
-        db.put_engagement_event(fake_table, user_id, ev)
+        db.put_engagement_event(fake_table, user_id, "", ev)
 
     summary = eval_dataset.get_engagement_for_paper(fake_table, user_id, "paper-eval-001")
 
@@ -102,7 +102,7 @@ def test_engagement_accumulates_time_on_page(fake_table):
     """time_on_page events are summed (handles multiple recordings)."""
     user_id = eval_dataset.LIVE_USER_ID
     for ms in (1500, 2500, 1000):
-        db.put_engagement_event(fake_table, user_id, {
+        db.put_engagement_event(fake_table, user_id, "", {
             "action": "time_on_page",
             "ts": f"2026-06-08T10:0{ms}:00Z",
             "paper_id": "paper-A",
@@ -115,7 +115,7 @@ def test_engagement_accumulates_time_on_page(fake_table):
 def test_engagement_handles_invalid_time_value(fake_table):
     """Garbage time_on_page values don't crash aggregation."""
     user_id = eval_dataset.LIVE_USER_ID
-    db.put_engagement_event(fake_table, user_id, {
+    db.put_engagement_event(fake_table, user_id, "", {
         "action": "time_on_page",
         "ts": "2026-06-08T10:00:00Z",
         "paper_id": "paper-X",
@@ -136,10 +136,10 @@ def test_build_dataset_entries_round_trip(fake_table, sample_paper, sample_golde
     user_id = eval_dataset.LIVE_USER_ID
 
     # Seed a digested paper + its golden card + engagement
-    db.put_paper(fake_table, user_id, sample_paper)
-    db.put_feed_card(fake_table, user_id, sample_golden_card)
+    db.put_paper(fake_table, user_id, "", sample_paper)
+    db.put_feed_card(fake_table, user_id, "", sample_golden_card)
     for ev in sample_engagement_events:
-        db.put_engagement_event(fake_table, user_id, ev)
+        db.put_engagement_event(fake_table, user_id, "", ev)
 
     entries = eval_dataset.build_dataset_entries(fake_table)
     assert len(entries) == 1
@@ -168,8 +168,8 @@ def test_build_dataset_entries_round_trip(fake_table, sample_paper, sample_golde
 def test_persist_dataset_is_idempotent(fake_table, sample_paper, sample_golden_card):
     """Running persist twice doesn't duplicate entries."""
     user_id = eval_dataset.LIVE_USER_ID
-    db.put_paper(fake_table, user_id, sample_paper)
-    db.put_feed_card(fake_table, user_id, sample_golden_card)
+    db.put_paper(fake_table, user_id, "", sample_paper)
+    db.put_feed_card(fake_table, user_id, "", sample_golden_card)
 
     entries = eval_dataset.build_dataset_entries(fake_table)
     eval_dataset.persist_dataset(fake_table, entries)

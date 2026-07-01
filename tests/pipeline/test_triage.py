@@ -22,6 +22,7 @@ def test_happy_path_papers_scored(mock_db, mock_boto3, mock_call_llm, user_id, t
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
 
     mock_db.get_full_profile.return_value = sample_profile
     mock_db.list_papers_by_status.return_value = sample_papers[:2]
@@ -42,7 +43,7 @@ def test_happy_path_papers_scored(mock_db, mock_boto3, mock_call_llm, user_id, t
     assert mock_db.put_paper.call_count == 2
 
     # Verify the paper was updated with triage results
-    first_call_paper = mock_db.put_paper.call_args_list[0][0][2]
+    first_call_paper = mock_db.put_paper.call_args_list[0][0][3]
     assert first_call_paper["triage_score"] == 0.85
     assert first_call_paper["status"] == "surfaced"
     assert first_call_paper["worth_my_hours"] is True
@@ -61,6 +62,7 @@ def test_malformed_json_scores_zero(mock_db, mock_boto3, mock_call_llm, user_id,
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
 
     mock_db.get_full_profile.return_value = sample_profile
     mock_db.list_papers_by_status.return_value = [sample_papers[0]]
@@ -76,7 +78,7 @@ def test_malformed_json_scores_zero(mock_db, mock_boto3, mock_call_llm, user_id,
 
     # Paper was still written to DDB (with score=0)
     mock_db.put_paper.assert_called_once()
-    written_paper = mock_db.put_paper.call_args[0][2]
+    written_paper = mock_db.put_paper.call_args[0][3]
     assert written_paper["triage_score"] == 0.0
     assert written_paper["worth_my_hours"] is False
 
@@ -94,6 +96,7 @@ def test_api_error_paper_scored_zero(mock_db, mock_boto3, mock_call_llm, user_id
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
 
     mock_db.get_full_profile.return_value = sample_profile
     mock_db.list_papers_by_status.return_value = sample_papers[:2]
@@ -131,6 +134,7 @@ def test_worth_reading_promoted_to_surfaced(mock_db, mock_boto3, mock_call_llm, 
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
 
     mock_db.get_full_profile.return_value = sample_profile
     mock_db.list_papers_by_status.return_value = sample_papers[:2]
@@ -159,8 +163,8 @@ def test_worth_reading_promoted_to_surfaced(mock_db, mock_boto3, mock_call_llm, 
     assert result["worth_reading"] == 1
 
     # Check status of both written papers
-    first_paper = mock_db.put_paper.call_args_list[0][0][2]
-    second_paper = mock_db.put_paper.call_args_list[1][0][2]
+    first_paper = mock_db.put_paper.call_args_list[0][0][3]
+    second_paper = mock_db.put_paper.call_args_list[1][0][3]
 
     assert first_paper["status"] == "surfaced"
     assert second_paper["status"] == "candidate"  # Not promoted
@@ -179,6 +183,7 @@ def test_no_candidates_returns_zero(mock_db, mock_boto3, mock_call_llm, user_id,
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
 
     mock_db.get_full_profile.return_value = sample_profile
     mock_db.list_papers_by_status.return_value = []
@@ -202,6 +207,7 @@ def test_no_profile_returns_zero(mock_db, mock_boto3, mock_call_llm, user_id, ta
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
 
     mock_db.get_full_profile.return_value = {"meta": None, "areas": [], "hypothesis": None, "summaries": []}
 
@@ -224,6 +230,7 @@ def test_db_calls_correct_arguments(mock_db, mock_boto3, mock_call_llm, user_id,
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
 
     mock_db.get_full_profile.return_value = sample_profile
     mock_db.list_papers_by_status.return_value = [sample_papers[0]]
@@ -239,18 +246,18 @@ def test_db_calls_correct_arguments(mock_db, mock_boto3, mock_call_llm, user_id,
     handler({"user_id": user_id, "table_name": table_name}, None)
 
     # Verify get_full_profile
-    mock_db.get_full_profile.assert_called_once_with(mock_table, user_id)
+    mock_db.get_full_profile.assert_called_with(mock_table, user_id, "")
 
     # Verify list_papers_by_status
-    mock_db.list_papers_by_status.assert_called_once_with(mock_table, user_id, "candidate", limit=100)
+    mock_db.list_papers_by_status.assert_called_once_with(mock_table, user_id, "", "candidate", limit=100)
 
-    # Verify put_paper receives table, user_id, paper dict
+    # Verify put_paper receives table, user_id, workspace_id, paper dict
     mock_db.put_paper.assert_called_once()
     args = mock_db.put_paper.call_args[0]
     assert args[0] is mock_table
     assert args[1] == user_id
-    assert "triage_score" in args[2]
-    assert "triage_reasoning" in args[2]
+    assert "triage_score" in args[3]
+    assert "triage_reasoning" in args[3]
 
 
 # ---------------------------------------------------------------------------
@@ -266,6 +273,7 @@ def test_markdown_fenced_json_parsed(mock_db, mock_boto3, mock_call_llm, user_id
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
 
     mock_db.get_full_profile.return_value = sample_profile
     mock_db.list_papers_by_status.return_value = [sample_papers[0]]
@@ -285,7 +293,7 @@ def test_markdown_fenced_json_parsed(mock_db, mock_boto3, mock_call_llm, user_id
     assert result["papers_triaged"] == 1
     assert result["worth_reading"] == 1
 
-    written_paper = mock_db.put_paper.call_args[0][2]
+    written_paper = mock_db.put_paper.call_args[0][3]
     assert written_paper["triage_score"] == 0.75
 
 
@@ -302,6 +310,7 @@ def test_score_clamped_to_valid_range(mock_db, mock_boto3, mock_call_llm, user_i
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
 
     mock_db.get_full_profile.return_value = sample_profile
     mock_db.list_papers_by_status.return_value = [sample_papers[0]]
@@ -317,7 +326,7 @@ def test_score_clamped_to_valid_range(mock_db, mock_boto3, mock_call_llm, user_i
 
     handler({"user_id": user_id, "table_name": table_name}, None)
 
-    written_paper = mock_db.put_paper.call_args[0][2]
+    written_paper = mock_db.put_paper.call_args[0][3]
     assert written_paper["triage_score"] == 1.0
 
 
@@ -337,6 +346,7 @@ def test_uses_fallback_wrapper_with_kimi_primary(
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
 
     mock_db.get_full_profile.return_value = sample_profile
     mock_db.list_papers_by_status.return_value = [sample_papers[0]]
@@ -378,6 +388,7 @@ def test_default_model_when_event_omits_it(
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
 
     mock_db.get_full_profile.return_value = sample_profile
     mock_db.list_papers_by_status.return_value = [sample_papers[0]]

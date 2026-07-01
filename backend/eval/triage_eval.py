@@ -367,7 +367,7 @@ def run_eval(
 
     Stores results under EVAL#TRIAGE#<run_id>. Returns the run summary.
     """
-    profile = db.get_full_profile(table, user_id)
+    profile = db.get_full_profile(table, user_id, "")
     if not profile.get("meta"):
         raise RuntimeError(
             f"Test user {user_id} has no profile — run `eval_pipeline.py setup` first"

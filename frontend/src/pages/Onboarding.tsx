@@ -1,25 +1,51 @@
 import { useState, useRef, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import Markdown from 'react-markdown'
 import { Send, Check } from 'lucide-react'
 import { apiFetch } from '../api/client'
-import { LoadingSpinner } from '../components/LoadingSpinner'
+import { createWorkspace, setActiveWorkspace } from '../api/workspaces'
 
 interface OnboardingMessage {
   role: 'user' | 'assistant'
   content: string
 }
 
+type Stage = 'user' | 'workspace'
+
+interface OnboardingStatus {
+  has_user_meta: boolean
+  user_onboarding_complete: boolean
+  has_workspace_profile: boolean
+  workspace_id: string | null
+  next_stage: 'user' | 'workspace' | 'complete'
+  has_profile?: boolean
+}
+
 export function Onboarding() {
   const navigate = useNavigate()
+  const [search] = useSearchParams()
+  const isNewWorkspace = search.get('new') === 'true'
+
   const [messages, setMessages] = useState<OnboardingMessage[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [stage, setStage] = useState<Stage>('user')
+  const [stageReady, setStageReady] = useState(false)
+
+  // user-stage completion
+  const [userMetaComplete, setUserMetaComplete] = useState(false)
+  const [userMeta, setUserMeta] = useState<any>(null)
+  const [userSummary, setUserSummary] = useState('')
+
+  // workspace-stage completion
   const [profileComplete, setProfileComplete] = useState(false)
   const [profile, setProfile] = useState<any>(null)
   const [profileSummary, setProfileSummary] = useState('')
+
   const [confirming, setConfirming] = useState(false)
+  const [confirmed, setConfirmed] = useState(false)
+
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const startedRef = useRef(false)
 
@@ -27,60 +53,63 @@ export function Onboarding() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // Load existing history or start fresh on mount
+  // Bootstrap: figure out the stage on mount.
   useEffect(() => {
     if (startedRef.current) return
     startedRef.current = true
-    loadOrStart()
+    bootstrap()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   function stripJson(text: string): string {
-    // Strip fenced JSON
     let jsonStart = text.indexOf('```json')
     if (jsonStart === -1) jsonStart = text.indexOf('```')
     if (jsonStart > -1) return text.slice(0, jsonStart).trim()
-    // Strip bare JSON block
     const lines = text.split('\n')
     const braceIdx = lines.findIndex((l) => l.trim() === '{' || l.trim().startsWith('{"'))
     if (braceIdx > -1) return lines.slice(0, braceIdx).join('\n').trim()
     return text
   }
 
-  async function loadOrStart() {
+  async function bootstrap() {
     try {
-      const history = await apiFetch<{ turns: { seq: number; request: string; response: string | null }[] }>(`/chat/onboarding`)
-      if (history.turns && history.turns.length > 0) {
-        const restored: OnboardingMessage[] = []
-        for (const turn of history.turns) {
-          if (turn.request && turn.request !== 'Hi, I just signed up.' && turn.request !== 'Please confirm my profile.') {
-            restored.push({ role: 'user', content: turn.request })
+      const status = await apiFetch<OnboardingStatus>('/onboarding')
+      let nextStage: Stage = 'user'
+      if (isNewWorkspace) {
+        // User clicked "Create new workspace" — skip user-level if we already
+        // have it, and create a fresh workspace.
+        if (status.user_onboarding_complete || status.has_user_meta) {
+          // Make a new workspace and set it active before starting the chat.
+          try {
+            const ws = await createWorkspace('New workspace', '')
+            await setActiveWorkspace(ws.workspace.workspace_id)
+          } catch {
+            // If creation fails, fall through — onboarding_confirm will create
+            // a Default workspace as a fallback.
           }
-          if (turn.response) {
-            const cleaned = stripJson(turn.response)
-            if (cleaned) {
-              restored.push({ role: 'assistant', content: cleaned })
-            }
-          }
+          nextStage = 'workspace'
+        } else {
+          nextStage = 'user'
         }
-        if (restored.length > 0) {
-          setMessages(restored)
-        }
-        // Check onboarding status — if profile exists, show confirm/done state
-        try {
-          const status = await apiFetch<{ has_profile: boolean }>('/onboarding')
-          if (status.has_profile) {
-            setConfirmed(true)
-          }
-        } catch {}
+      } else if (status.next_stage === 'workspace') {
+        nextStage = 'workspace'
+      } else if (status.next_stage === 'complete') {
+        navigate('/')
         return
       }
+      setStage(nextStage)
+      setStageReady(true)
+      // Kick off the conversation
+      sendMessage('', nextStage)
     } catch {
-      // No history — start fresh
+      // If the status check fails, default to user stage
+      setStage('user')
+      setStageReady(true)
+      sendMessage('', 'user')
     }
-    sendMessage('')
   }
 
-  async function sendMessage(text: string) {
+  async function sendMessage(text: string, forcedStage?: Stage) {
+    const useStage = forcedStage ?? stage
     if (text) {
       setMessages((prev) => [...prev, { role: 'user', content: text }])
     }
@@ -89,55 +118,79 @@ export function Onboarding() {
 
     try {
       const res = await apiFetch<{
+        stage: Stage
         response: string
         turn_seq: number
         profile_complete?: boolean
         profile_summary?: string
         profile?: any
+        user_meta_complete?: boolean
+        user_meta?: any
+        summary?: string
+        workspace_id?: string
       }>('/onboarding', {
         method: 'POST',
-        body: JSON.stringify({ message: text }),
+        body: JSON.stringify({ message: text, stage: useStage }),
       })
 
-      // Strip JSON from displayed message when profile is complete
       let displayResponse = res.response
-      if (res.profile_complete) {
-        // Try fenced JSON first
-        let jsonStart = displayResponse.indexOf('```json')
-        if (jsonStart === -1) jsonStart = displayResponse.indexOf('```')
-        // Try bare JSON block (line starting with {)
-        if (jsonStart === -1) {
-          const lines = displayResponse.split('\n')
-          const braceIdx = lines.findIndex((l) => l.trim() === '{' || l.trim().startsWith('{"'))
-          if (braceIdx > -1) {
-            jsonStart = lines.slice(0, braceIdx).join('\n').length
-          }
-        }
-        if (jsonStart > -1) {
-          displayResponse = displayResponse.slice(0, jsonStart).trim()
-        }
+      if (res.profile_complete || res.user_meta_complete) {
+        displayResponse = stripJson(displayResponse)
       }
 
       setMessages((prev) => [...prev, { role: 'assistant', content: displayResponse }])
 
+      if (res.user_meta_complete && res.user_meta) {
+        setUserMetaComplete(true)
+        setUserMeta(res.user_meta)
+        setUserSummary(res.summary || '')
+      }
       if (res.profile_complete && res.profile) {
         setProfileComplete(true)
         setProfile(res.profile)
         setProfileSummary(res.profile_summary || '')
       }
-    } catch (err) {
-      setMessages((prev) => [...prev, { role: 'assistant', content: 'Something went wrong. Please try again.' }])
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        { role: 'assistant', content: 'Something went wrong. Please try again.' },
+      ])
     } finally {
       setLoading(false)
     }
   }
 
-  async function confirmProfile() {
+  async function confirmUserMeta() {
     setConfirming(true)
     try {
       await apiFetch('/onboarding/profile', {
         method: 'PUT',
-        body: JSON.stringify({ profile }),
+        body: JSON.stringify({ stage: 'user', user_meta: userMeta }),
+      })
+      // Move to workspace stage
+      setUserMetaComplete(false)
+      setUserMeta(null)
+      setUserSummary('')
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: "Great — I've got your profile. Now let's set up your first workspace. What do you want to research here?",
+        },
+      ])
+      setStage('workspace')
+      sendMessage('', 'workspace')
+    } finally {
+      setConfirming(false)
+    }
+  }
+
+  async function confirmWorkspaceProfile() {
+    setConfirming(true)
+    try {
+      await apiFetch('/onboarding/profile', {
+        method: 'PUT',
+        body: JSON.stringify({ stage: 'workspace', profile }),
       })
       setConfirmed(true)
       setTimeout(() => navigate('/'), 3000)
@@ -145,8 +198,6 @@ export function Onboarding() {
       setConfirming(false)
     }
   }
-
-  const [confirmed, setConfirmed] = useState(false)
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -159,15 +210,19 @@ export function Onboarding() {
       <div className="ambient-orb w-96 h-96 bg-accent top-[-10rem] right-[-10rem]" />
       <div className="ambient-orb w-72 h-72 bg-violet-neon bottom-[20%] left-[-8rem]" />
 
-      {/* Header */}
       <div className="glass-header sticky top-0 z-20">
         <div className="max-w-2xl mx-auto w-full px-4 py-4 text-center">
-          <h1 className="text-lg font-bold text-gradient">Welcome to Sārathi</h1>
-          <p className="text-xs text-zinc-500 mt-1">Let's understand your research interests</p>
+          <h1 className="text-lg font-bold text-gradient">
+            {stage === 'user' ? 'Welcome to Sārathi' : 'Set up this workspace'}
+          </h1>
+          <p className="text-xs text-zinc-500 mt-1">
+            {stage === 'user'
+              ? "Let's understand who you are"
+              : "Let's understand what this workspace is for"}
+          </p>
         </div>
       </div>
 
-      {/* Messages */}
       <div className="flex-1 max-w-2xl mx-auto w-full px-4 py-4 space-y-4 overflow-y-auto relative z-10">
         {messages.map((msg, i) => (
           <motion.div
@@ -176,11 +231,13 @@ export function Onboarding() {
             animate={{ opacity: 1, y: 0 }}
             className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
           >
-            <div className={`max-w-[85%] lg:max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-              msg.role === 'user'
-                ? 'bg-accent/20 border border-accent-dim text-white'
-                : 'bg-[rgba(26,26,46,0.7)] backdrop-blur-[12px] border border-[rgba(236,72,153,0.15)] text-zinc-200'
-            }`}>
+            <div
+              className={`max-w-[85%] lg:max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                msg.role === 'user'
+                  ? 'bg-accent/20 border border-accent-dim text-white'
+                  : 'bg-[rgba(26,26,46,0.7)] backdrop-blur-[12px] border border-[rgba(236,72,153,0.15)] text-zinc-200'
+              }`}
+            >
               {msg.role === 'user' ? (
                 <p className="whitespace-pre-wrap">{msg.content}</p>
               ) : (
@@ -197,14 +254,50 @@ export function Onboarding() {
             <div className="bg-[rgba(26,26,46,0.7)] rounded-2xl px-4 py-3">
               <div className="flex gap-1">
                 <div className="w-2 h-2 rounded-full bg-accent/50 animate-bounce" />
-                <div className="w-2 h-2 rounded-full bg-accent/50 animate-bounce" style={{ animationDelay: '0.1s' }} />
-                <div className="w-2 h-2 rounded-full bg-accent/50 animate-bounce" style={{ animationDelay: '0.2s' }} />
+                <div
+                  className="w-2 h-2 rounded-full bg-accent/50 animate-bounce"
+                  style={{ animationDelay: '0.1s' }}
+                />
+                <div
+                  className="w-2 h-2 rounded-full bg-accent/50 animate-bounce"
+                  style={{ animationDelay: '0.2s' }}
+                />
               </div>
             </div>
           </div>
         )}
 
-        {/* Profile confirmation */}
+        {userMetaComplete && !confirmed && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="p-4 rounded-xl border border-accent/30 bg-accent/5 space-y-3"
+          >
+            <p className="text-sm text-white font-medium">Here's what I understood about you:</p>
+            <p className="text-sm text-zinc-300">{userSummary}</p>
+            <div className="flex gap-3">
+              <button
+                onClick={confirmUserMeta}
+                disabled={confirming}
+                className="flex items-center gap-2 px-4 py-2 bg-accent text-white text-sm font-medium rounded-lg hover:bg-accent-light disabled:opacity-50 transition-all"
+              >
+                <Check size={14} />
+                {confirming ? 'Saving...' : 'Looks good — set up my workspace'}
+              </button>
+              <button
+                onClick={() => {
+                  setUserMetaComplete(false)
+                  setUserMeta(null)
+                  sendMessage("Let me correct something...")
+                }}
+                className="px-4 py-2 text-sm text-zinc-400 hover:text-white transition-colors"
+              >
+                Let me correct something
+              </button>
+            </div>
+          </motion.div>
+        )}
+
         {profileComplete && !confirmed && (
           <motion.div
             initial={{ opacity: 0, y: 10 }}
@@ -215,7 +308,7 @@ export function Onboarding() {
             <p className="text-sm text-zinc-300">{profileSummary}</p>
             <div className="flex gap-3">
               <button
-                onClick={confirmProfile}
+                onClick={confirmWorkspaceProfile}
                 disabled={confirming}
                 className="flex items-center gap-2 px-4 py-2 bg-accent text-white text-sm font-medium rounded-lg hover:bg-accent-light disabled:opacity-50 transition-all"
               >
@@ -236,7 +329,6 @@ export function Onboarding() {
           </motion.div>
         )}
 
-        {/* Success — auto-navigates in 3s */}
         {confirmed && (
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
@@ -244,7 +336,9 @@ export function Onboarding() {
             className="p-6 rounded-xl border border-accent/30 bg-accent/5 text-center space-y-3"
           >
             <p className="text-lg font-semibold text-white">You're all set!</p>
-            <p className="text-sm text-zinc-400">Your first papers are being discovered now. Taking you to your feed...</p>
+            <p className="text-sm text-zinc-400">
+              Your first papers are being discovered now. Taking you to your feed...
+            </p>
             <button
               onClick={() => navigate('/')}
               className="text-sm text-accent hover:text-accent-light transition-colors"
@@ -254,8 +348,7 @@ export function Onboarding() {
           </motion.div>
         )}
 
-        {/* Escape hatch — shows after 6+ messages if profile wasn't auto-detected */}
-        {!profileComplete && !confirmed && messages.length >= 6 && (
+        {!userMetaComplete && !profileComplete && !confirmed && messages.length >= 6 && (
           <div className="text-center pt-4">
             <button
               onClick={() => navigate('/')}
@@ -269,17 +362,25 @@ export function Onboarding() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
-      {!profileComplete && (
+      {!userMetaComplete && !profileComplete && stageReady && (
         <div className="relative z-10 border-t border-white/[0.08] bg-[#0a0a0f]/90 backdrop-blur-sm">
           <div className="max-w-2xl mx-auto w-full px-4 py-4">
             <form onSubmit={handleSubmit} className="flex gap-2 items-end">
               <textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(e) } }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault()
+                    handleSubmit(e)
+                  }
+                }}
                 disabled={loading}
-                placeholder="Tell me about yourself..."
+                placeholder={
+                  stage === 'user'
+                    ? 'Tell me about yourself...'
+                    : 'Tell me what this workspace is for...'
+                }
                 rows={1}
                 className="flex-1 resize-none bg-[rgba(26,26,46,0.7)] border border-[rgba(236,72,153,0.15)] rounded-xl px-4 py-3 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-accent/50 disabled:opacity-50"
               />

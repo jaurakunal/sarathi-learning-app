@@ -20,6 +20,7 @@ def test_happy_path_cards_annotated(mock_db, mock_boto3, mock_call_llm, user_id,
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
 
     mock_db.get_full_profile.return_value = sample_profile
 
@@ -45,7 +46,7 @@ def test_happy_path_cards_annotated(mock_db, mock_boto3, mock_call_llm, user_id,
     call_args = mock_db.put_feed_card.call_args[0]
     assert call_args[0] is mock_table
     assert call_args[1] == user_id
-    annotated_card = call_args[2]
+    annotated_card = call_args[3]
     assert annotated_card["hypothesis_relevance"] == "Supports: memory architecture is key to faithful clones."
     assert annotated_card["card_id"] == sample_feed_cards[0]["card_id"]
 
@@ -63,6 +64,7 @@ def test_already_annotated_card_skipped(mock_db, mock_boto3, mock_call_llm, user
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
 
     mock_db.get_full_profile.return_value = sample_profile
 
@@ -90,6 +92,7 @@ def test_llm_failure_skips_card(mock_db, mock_boto3, mock_call_llm, user_id, tab
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
 
     mock_db.get_full_profile.return_value = sample_profile
 
@@ -139,6 +142,7 @@ def test_no_hypothesis_returns_zero(mock_db, mock_boto3, mock_call_llm, user_id,
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
 
     # Profile without hypothesis
     mock_db.get_full_profile.return_value = {
@@ -166,6 +170,7 @@ def test_empty_hypothesis_statement_returns_zero(mock_db, mock_boto3, mock_call_
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
 
     mock_db.get_full_profile.return_value = {
         "meta": {"learning_style": {}},
@@ -192,6 +197,7 @@ def test_no_cards_needing_annotation(mock_db, mock_boto3, mock_call_llm, user_id
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
 
     mock_db.get_full_profile.return_value = sample_profile
 
@@ -227,6 +233,7 @@ def test_db_calls_correct_arguments(mock_db, mock_boto3, mock_call_llm, user_id,
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
 
     mock_db.get_full_profile.return_value = sample_profile
 
@@ -247,17 +254,17 @@ def test_db_calls_correct_arguments(mock_db, mock_boto3, mock_call_llm, user_id,
         handler({"user_id": user_id, "table_name": table_name}, None)
 
     # Verify get_full_profile
-    mock_db.get_full_profile.assert_called_once_with(mock_table, user_id)
+    mock_db.get_full_profile.assert_called_with(mock_table, user_id, "")
 
     # Verify list_feed_cards
-    mock_db.list_feed_cards.assert_called_once_with(mock_table, user_id, limit=50)
+    mock_db.list_feed_cards.assert_called_once_with(mock_table, user_id, "", limit=50)
 
     # Verify put_feed_card
     mock_db.put_feed_card.assert_called_once()
     args = mock_db.put_feed_card.call_args[0]
     assert args[0] is mock_table
     assert args[1] == user_id
-    assert args[2]["hypothesis_relevance"] == "Annotation result"
+    assert args[3]["hypothesis_relevance"] == "Annotation result"
 
 
 # ---------------------------------------------------------------------------
@@ -312,6 +319,7 @@ def test_fallback_when_no_today_cards(mock_db, mock_boto3, mock_call_llm, user_i
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
 
     mock_db.get_full_profile.return_value = sample_profile
 
@@ -353,6 +361,7 @@ def test_uses_fallback_wrapper_with_kimi_primary(
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
 
     mock_db.get_full_profile.return_value = sample_profile
 
@@ -397,6 +406,7 @@ def test_default_model_when_event_omits_it(
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
 
     mock_db.get_full_profile.return_value = sample_profile
 

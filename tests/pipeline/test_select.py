@@ -20,6 +20,7 @@ def test_happy_path_top_n_selected(mock_db, mock_boto3, user_id, table_name):
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
 
     # Generate 10 surfaced papers with decreasing scores
     papers = []
@@ -49,7 +50,7 @@ def test_happy_path_top_n_selected(mock_db, mock_boto3, user_id, table_name):
 
     # All demoted papers should have status="skipped" and skip_reason
     for call in mock_db.put_paper.call_args_list:
-        paper = call[0][2]
+        paper = call[0][3]
         assert paper["status"] == "skipped"
         assert paper["skip_reason"] == "over_time_budget"
 
@@ -66,6 +67,7 @@ def test_under_budget_all_kept(mock_db, mock_boto3, user_id, table_name, sample_
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
 
     # 3 papers, max_cards=5
     mock_db.list_papers_by_status.return_value = sample_surfaced_papers
@@ -95,6 +97,7 @@ def test_dry_week_no_surfaced_papers(mock_db, mock_boto3, user_id, table_name):
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
 
     mock_db.list_papers_by_status.return_value = []
 
@@ -121,6 +124,7 @@ def test_sorting_by_triage_score_descending(mock_db, mock_boto3, user_id, table_
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
 
     # Papers in random score order
     papers = [
@@ -139,7 +143,7 @@ def test_sorting_by_triage_score_descending(mock_db, mock_boto3, user_id, table_
     assert result["skipped_over_budget"] == 1
 
     # The demoted paper should be the lowest-scored one
-    demoted_paper = mock_db.put_paper.call_args[0][2]
+    demoted_paper = mock_db.put_paper.call_args[0][3]
     assert demoted_paper["id"] == "low"
     assert demoted_paper["status"] == "skipped"
 
@@ -156,6 +160,7 @@ def test_default_max_cards(mock_db, mock_boto3, user_id, table_name):
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
 
     # 7 papers, no max_cards in event
     papers = [
@@ -185,6 +190,7 @@ def test_db_calls_correct_arguments(mock_db, mock_boto3, user_id, table_name):
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
 
     papers = [
         {"id": "keep", "status": "surfaced", "triage_score": Decimal("0.9")},
@@ -195,14 +201,14 @@ def test_db_calls_correct_arguments(mock_db, mock_boto3, user_id, table_name):
     handler({"user_id": user_id, "table_name": table_name, "max_cards": 1}, None)
 
     # Verify list_papers_by_status
-    mock_db.list_papers_by_status.assert_called_once_with(mock_table, user_id, "surfaced")
+    mock_db.list_papers_by_status.assert_called_once_with(mock_table, user_id, "", "surfaced")
 
     # Verify put_paper for the demoted paper
     mock_db.put_paper.assert_called_once()
     args = mock_db.put_paper.call_args[0]
     assert args[0] is mock_table
     assert args[1] == user_id
-    assert args[2]["id"] == "demote"
+    assert args[3]["id"] == "demote"
 
 
 # ---------------------------------------------------------------------------
@@ -217,6 +223,7 @@ def test_handles_decimal_scores(mock_db, mock_boto3, user_id, table_name):
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
 
     papers = [
         {"id": "p1", "status": "surfaced", "triage_score": Decimal("0.85")},

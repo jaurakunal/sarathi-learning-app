@@ -136,7 +136,7 @@ def build_learn_input(table, user_id: str = eval_dataset.TEST_USER_ID) -> dict:
     the eval works whether or not engagement has been replayed onto the test
     user.
     """
-    profile = db.get_full_profile(table, user_id)
+    profile = db.get_full_profile(table, user_id, "")
     if not profile.get("meta"):
         raise RuntimeError(
             f"Test user {user_id} has no profile — run `eval_pipeline.py setup` first"
@@ -152,7 +152,7 @@ def build_learn_input(table, user_id: str = eval_dataset.TEST_USER_ID) -> dict:
     end_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     start_ts = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
-        events = db.list_engagement_events(table, user_id, start_ts, end_ts)
+        events = db.list_engagement_events(table, user_id, "", start_ts, end_ts)
     except Exception:
         events = []
 

@@ -89,6 +89,11 @@ class TestFanoutHandler:
         # No existing pipeline runs
         mock_db.get_pipeline_run.return_value = None
 
+        def _ws_side(user_id):
+            return [{"workspace_id": f"ws-{user_id}", "status": "active", "name": "Default"}]
+        mock_db.list_workspaces.side_effect = lambda _table, uid: _ws_side(uid)
+
+
         from backend.pipeline.fanout import handler
 
         result = handler({}, None)
@@ -113,6 +118,11 @@ class TestFanoutHandler:
         mock_sfn.start_execution.return_value = {"executionArn": "arn:aws:states:us-east-1:123:execution:abc"}
         mock_boto3.client.return_value = mock_sfn
         mock_db.get_pipeline_run.return_value = None
+
+        def _ws_side(user_id):
+            return [{"workspace_id": f"ws-{user_id}", "status": "active", "name": "Default"}]
+        mock_db.list_workspaces.side_effect = lambda _table, uid: _ws_side(uid)
+
 
         from backend.pipeline.fanout import handler
 
@@ -144,6 +154,11 @@ class TestFanoutHandler:
         ]
         mock_boto3.client.return_value = mock_sfn
         mock_db.get_pipeline_run.return_value = None
+
+        def _ws_side(user_id):
+            return [{"workspace_id": f"ws-{user_id}", "status": "active", "name": "Default"}]
+        mock_db.list_workspaces.side_effect = lambda _table, uid: _ws_side(uid)
+
 
         from backend.pipeline.fanout import handler
 
@@ -177,6 +192,11 @@ class TestFanoutHandler:
         mock_boto3.client.return_value = mock_sfn
         mock_db.get_pipeline_run.return_value = None
 
+        def _ws_side(user_id):
+            return [{"workspace_id": f"ws-{user_id}", "status": "active", "name": "Default"}]
+        mock_db.list_workspaces.side_effect = lambda _table, uid: _ws_side(uid)
+
+
         from backend.pipeline.fanout import handler
 
         handler({}, None)
@@ -205,6 +225,11 @@ class TestFanoutHandler:
         mock_boto3.client.return_value = mock_sfn
         mock_db.get_pipeline_run.return_value = None
 
+        def _ws_side(user_id):
+            return [{"workspace_id": f"ws-{user_id}", "status": "active", "name": "Default"}]
+        mock_db.list_workspaces.side_effect = lambda _table, uid: _ws_side(uid)
+
+
         from backend.pipeline.fanout import handler
 
         result = handler({}, None)
@@ -225,6 +250,11 @@ class TestFanoutHandler:
         mock_boto3.client.return_value = mock_sfn
         mock_db.get_pipeline_run.return_value = None
 
+        def _ws_side(user_id):
+            return [{"workspace_id": f"ws-{user_id}", "status": "active", "name": "Default"}]
+        mock_db.list_workspaces.side_effect = lambda _table, uid: _ws_side(uid)
+
+
         from backend.pipeline.fanout import handler
 
         handler({}, None)
@@ -232,6 +262,7 @@ class TestFanoutHandler:
         mock_db.put_pipeline_run.assert_called_once_with(
             mock_table,
             "user-1",
+            "ws-user-1",
             "arn:aws:states:us-east-1:123:execution:new-exec",
             "running",
         )
@@ -247,12 +278,17 @@ class TestCanTrigger:
     def test_returns_true_when_no_record(self, mock_db):
         """No pipeline run record means we can trigger."""
         mock_db.get_pipeline_run.return_value = None
+
+        def _ws_side(user_id):
+            return [{"workspace_id": f"ws-{user_id}", "status": "active", "name": "Default"}]
+        mock_db.list_workspaces.side_effect = lambda _table, uid: _ws_side(uid)
+
         mock_sfn = MagicMock()
         mock_table = MagicMock()
 
         from backend.pipeline.fanout import _can_trigger
 
-        result = _can_trigger(mock_table, mock_sfn, "user-1")
+        result = _can_trigger(mock_table, mock_sfn, "user-1", "ws-1")
 
         assert result is True
         mock_sfn.describe_execution.assert_not_called()
@@ -269,7 +305,7 @@ class TestCanTrigger:
 
         from backend.pipeline.fanout import _can_trigger
 
-        result = _can_trigger(mock_table, mock_sfn, "user-1")
+        result = _can_trigger(mock_table, mock_sfn, "user-1", "ws-1")
 
         assert result is True
         mock_sfn.describe_execution.assert_not_called()
@@ -286,7 +322,7 @@ class TestCanTrigger:
 
         from backend.pipeline.fanout import _can_trigger
 
-        result = _can_trigger(mock_table, mock_sfn, "user-1")
+        result = _can_trigger(mock_table, mock_sfn, "user-1", "ws-1")
 
         assert result is True
         mock_sfn.describe_execution.assert_not_called()
@@ -304,7 +340,7 @@ class TestCanTrigger:
 
         from backend.pipeline.fanout import _can_trigger
 
-        result = _can_trigger(mock_table, mock_sfn, "user-1")
+        result = _can_trigger(mock_table, mock_sfn, "user-1", "ws-1")
 
         assert result is False
         mock_sfn.describe_execution.assert_called_once_with(
@@ -324,11 +360,11 @@ class TestCanTrigger:
 
         from backend.pipeline.fanout import _can_trigger
 
-        result = _can_trigger(mock_table, mock_sfn, "user-1")
+        result = _can_trigger(mock_table, mock_sfn, "user-1", "ws-1")
 
         assert result is True
         # Should have updated the stale record
-        mock_db.update_pipeline_status.assert_called_once_with(mock_table, "user-1", "failed")
+        mock_db.update_pipeline_status.assert_called_once_with(mock_table, "user-1", "ws-1", "failed")
 
     @patch("backend.pipeline.fanout.db")
     def test_returns_true_when_stale_running_sf_says_succeeded(self, mock_db):
@@ -343,10 +379,10 @@ class TestCanTrigger:
 
         from backend.pipeline.fanout import _can_trigger
 
-        result = _can_trigger(mock_table, mock_sfn, "user-1")
+        result = _can_trigger(mock_table, mock_sfn, "user-1", "ws-1")
 
         assert result is True
-        mock_db.update_pipeline_status.assert_called_once_with(mock_table, "user-1", "succeeded")
+        mock_db.update_pipeline_status.assert_called_once_with(mock_table, "user-1", "ws-1", "succeeded")
 
     @patch("backend.pipeline.fanout.db")
     def test_returns_true_when_stale_running_sf_says_timed_out(self, mock_db):
@@ -361,10 +397,10 @@ class TestCanTrigger:
 
         from backend.pipeline.fanout import _can_trigger
 
-        result = _can_trigger(mock_table, mock_sfn, "user-1")
+        result = _can_trigger(mock_table, mock_sfn, "user-1", "ws-1")
 
         assert result is True
-        mock_db.update_pipeline_status.assert_called_once_with(mock_table, "user-1", "failed")
+        mock_db.update_pipeline_status.assert_called_once_with(mock_table, "user-1", "ws-1", "failed")
 
     @patch("backend.pipeline.fanout.db")
     def test_returns_true_when_sf_describe_throws(self, mock_db):
@@ -379,7 +415,7 @@ class TestCanTrigger:
 
         from backend.pipeline.fanout import _can_trigger
 
-        result = _can_trigger(mock_table, mock_sfn, "user-1")
+        result = _can_trigger(mock_table, mock_sfn, "user-1", "ws-1")
 
         assert result is True
         # Should not have tried to update — just allow trigger

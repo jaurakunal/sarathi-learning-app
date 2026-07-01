@@ -158,7 +158,7 @@ class TestOnboardingPost:
 
         handler(post_event, None)
 
-        mock_db.create_conversation.assert_called_once_with(mock_table, "user-onboard-123", "onboarding", "")
+        mock_db.create_conversation.assert_called_once_with(mock_table, "user-onboard-123", "ws-test-fixture", "onboarding", "")
 
     def test_unauthorized_returns_401(self):
         event = {

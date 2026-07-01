@@ -126,7 +126,7 @@ def test_event_written_with_correct_fields(mock_db, mock_boto3):
     handler(_make_event(VALID_BODY), None)
 
     call_args = mock_db.put_engagement_event.call_args
-    event_written = call_args[0][2]  # table, user_id, event
+    event_written = call_args[0][3]  # table, user_id, workspace_id, event
     assert event_written["paper_id"] == "2304.03442"
     assert event_written["card_id"] == "20260615_023000_abc123"
     assert event_written["action"] == "expand"

@@ -10,6 +10,9 @@ from decimal import Decimal
 import boto3
 from boto3.dynamodb.conditions import Key
 
+from backend.shared import db
+from backend.api._workspace_helper import get_user_id as _get_user_id, resolve_workspace_id
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
@@ -24,15 +27,6 @@ class DecimalEncoder(json.JSONEncoder):
         if isinstance(o, Decimal):
             return float(o) if o % 1 else int(o)
         return super().default(o)
-
-
-def _get_user_id(event: dict) -> str:
-    claims = (
-        event.get("requestContext", {})
-        .get("authorizer", {})
-        .get("claims", {})
-    )
-    return claims.get("sub", "")
 
 
 def _response(status: int, body: dict) -> dict:
@@ -83,9 +77,13 @@ def handler(event: dict, context) -> dict:
     dynamodb = boto3.resource("dynamodb")
     table = dynamodb.Table(TABLE_NAME)
 
-    # Build the key condition. Briefs are stored as PK=USER#<sub>#BRIEF, SK=WEEK#<iso>.
+    workspace_id = resolve_workspace_id(table, event, user_id)
+    if not workspace_id:
+        return _response(400, {"error": "No active workspace. Create one first."})
+
+    # Briefs are stored as PK=USER#<sub>#WS#<wid>#BRIEF, SK=WEEK#<iso>.
     # ScanIndexForward=False yields newest first.
-    key_cond = Key("PK").eq(f"USER#{user_id}#BRIEF")
+    key_cond = Key("PK").eq(db._brief_pk(user_id, workspace_id))
     if after_week:
         # Return weeks strictly less than after_week (older).
         key_cond = key_cond & Key("SK").lt(f"WEEK#{after_week}")

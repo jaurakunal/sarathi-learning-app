@@ -429,7 +429,7 @@ def run_eval(
     prefer_real_negatives: bool = True,
 ) -> dict:
     """Run relevance filter eval. Stores results under EVAL#RELEVANCE#<run_id>."""
-    profile = db.get_full_profile(table, user_id)
+    profile = db.get_full_profile(table, user_id, "")
     if not profile.get("meta"):
         raise RuntimeError(
             f"Test user {user_id} has no profile — run `eval_pipeline.py setup` first"

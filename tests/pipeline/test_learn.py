@@ -104,6 +104,7 @@ class TestHandler:
     def test_skips_when_no_profile(self, mock_db, mock_boto3):
         mock_table = MagicMock()
         mock_boto3.resource.return_value.Table.return_value = mock_table
+        mock_db.get_active_workspace.return_value = ""
         mock_db.get_full_profile.return_value = {"meta": None, "areas": [], "hypothesis": None, "summaries": []}
 
         result = handler({"user_id": "u1", "table_name": "t"}, None)
@@ -114,6 +115,7 @@ class TestHandler:
     def test_skips_when_no_activity(self, mock_db, mock_boto3):
         mock_table = MagicMock()
         mock_boto3.resource.return_value.Table.return_value = mock_table
+        mock_db.get_active_workspace.return_value = ""
         mock_db.get_full_profile.return_value = {
             "meta": {"last_learn_ts": "2026-06-18T00:00:00Z"},
             "areas": [],
@@ -133,6 +135,7 @@ class TestHandler:
     def test_successful_learn_updates_profile(self, mock_db, mock_boto3, mock_llm):
         mock_table = MagicMock()
         mock_boto3.resource.return_value.Table.return_value = mock_table
+        mock_db.get_active_workspace.return_value = ""
         mock_db.get_full_profile.return_value = {
             "meta": {"last_learn_ts": "2026-06-18T00:00:00Z"},
             "areas": [{"id": "memory", "name": "Memory", "status": "warm", "frontier": "Knows RAG"}],
@@ -168,6 +171,7 @@ class TestHandler:
     def test_handles_llm_failure(self, mock_db, mock_boto3, mock_llm):
         mock_table = MagicMock()
         mock_boto3.resource.return_value.Table.return_value = mock_table
+        mock_db.get_active_workspace.return_value = ""
         mock_db.get_full_profile.return_value = {
             "meta": {"last_learn_ts": "2026-06-18T00:00:00Z"},
             "areas": [],
@@ -188,6 +192,7 @@ class TestHandler:
     def test_handles_invalid_json_response(self, mock_db, mock_boto3, mock_llm):
         mock_table = MagicMock()
         mock_boto3.resource.return_value.Table.return_value = mock_table
+        mock_db.get_active_workspace.return_value = ""
         mock_db.get_full_profile.return_value = {
             "meta": {"last_learn_ts": "2026-06-18T00:00:00Z"},
             "areas": [],

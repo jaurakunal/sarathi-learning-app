@@ -245,10 +245,10 @@ def test_run_judge_self_validation_uses_golden_as_candidate(
 ):
     """Self-validation runs golden vs golden — engagement should align with reality."""
     # Seed test user profile + dataset
-    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, sample_profile["meta"])
+    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, "", sample_profile["meta"])
     for area in sample_profile["areas"]:
-        db.put_profile_area(fake_table, eval_dataset.TEST_USER_ID, area)
-    db.put_profile_hypothesis(fake_table, eval_dataset.TEST_USER_ID, sample_profile["hypothesis"])
+        db.put_profile_area(fake_table, eval_dataset.TEST_USER_ID, "", area)
+    db.put_profile_hypothesis(fake_table, eval_dataset.TEST_USER_ID, "", sample_profile["hypothesis"])
 
     fake_table.put_item(Item={
         "PK": eval_dataset.DATASET_PK,
@@ -281,9 +281,9 @@ def test_run_judge_marks_no_candidate_card_as_error(
 ):
     """If a candidate run has no card for a paper, it's recorded as error (no LLM call)."""
     # Seed everything except the candidate card
-    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, sample_profile["meta"])
+    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, "", sample_profile["meta"])
     for area in sample_profile["areas"]:
-        db.put_profile_area(fake_table, eval_dataset.TEST_USER_ID, area)
+        db.put_profile_area(fake_table, eval_dataset.TEST_USER_ID, "", area)
 
     fake_table.put_item(Item={
         "PK": eval_dataset.DATASET_PK,

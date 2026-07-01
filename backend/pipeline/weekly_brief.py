@@ -50,11 +50,15 @@ def _now_iso() -> str:
 def handler(event: dict, context) -> dict:
     """Generate and store a weekly brief."""
     user_id = event["user_id"]
+    workspace_id = event.get("workspace_id", "")
     table_name = event["table_name"]
     model_id = event.get("model", DEFAULT_MODEL)
 
     dynamodb = boto3.resource("dynamodb")
     table = dynamodb.Table(table_name)
+
+    if not workspace_id:
+        workspace_id = db.get_active_workspace(table, user_id) or ""
 
     # Time window: last 7 days
     now = datetime.now(timezone.utc)
@@ -62,22 +66,22 @@ def handler(event: dict, context) -> dict:
     now_ts = now.strftime("%Y-%m-%dT%H:%M:%SZ")
     week_key = now.strftime("%Y-%m-%d")
 
-    # 1. Get profile
-    profile = db.get_full_profile(table, user_id)
+    # 1. Get profile (workspace-scoped)
+    profile = db.get_full_profile(table, user_id, workspace_id)
     if not profile.get("meta"):
         return {"status": "skipped", "reason": "no_profile"}
 
     # 2. Get engagement events
-    events = db.list_engagement_events(table, user_id, since, now_ts)
+    events = db.list_engagement_events(table, user_id, workspace_id, since, now_ts)
     stats = _aggregate_engagement(events)
 
     # 3. Get conversations
-    conversations = _collect_conversations(table, user_id, since)
+    conversations = _collect_conversations(table, user_id, workspace_id, since)
 
     # 4. Get frontier snapshots from profile history (this week's learn runs)
     history_resp = table.query(
         KeyConditionExpression=(
-            Key("PK").eq(f"USER#{user_id}#PROFILE_HISTORY")
+            Key("PK").eq(db._profile_history_pk(user_id, workspace_id))
             & Key("SK").gte(f"TS#{since}")
         ),
         ScanIndexForward=True,
@@ -93,10 +97,10 @@ def handler(event: dict, context) -> dict:
                     "after": snap.get("after", {}).get("frontier", ""),
                 })
 
-    # 5. Get feed cards from this week (what was served)
+    # 5. Get feed cards from this week (what was served, workspace-scoped)
     cards_resp = table.query(
         KeyConditionExpression=(
-            Key("PK").eq(f"USER#{user_id}#FEED")
+            Key("PK").eq(db._feed_pk(user_id, workspace_id))
             & Key("SK").begins_with("CARD#")
         ),
         ScanIndexForward=False,
@@ -124,11 +128,12 @@ def handler(event: dict, context) -> dict:
         if not brief_text:
             return {"status": "error", "reason": "llm_failed"}
 
-    # 8. Store the brief
+    # 8. Store the brief (workspace-scoped)
     table.put_item(Item={
-        "PK": f"USER#{user_id}#BRIEF",
+        "PK": db._brief_pk(user_id, workspace_id),
         "SK": f"WEEK#{week_key}",
         "user_id": user_id,
+        "workspace_id": workspace_id,
         "week": week_key,
         "content": brief_text,
         "created_at": now_ts,

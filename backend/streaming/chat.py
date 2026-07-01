@@ -37,17 +37,37 @@ Rules:
 - When relevant, note whether the paper supports, refutes, or refines the user's hypothesis (if one is provided in context)."""
 
 
+def _resolve_workspace(table, event: dict, user_id: str) -> str:
+    """Resolve the active workspace for a chat request."""
+    # Body-level override (POST)
+    try:
+        body = json.loads(event.get("body") or "{}")
+        if isinstance(body, dict) and body.get("workspace_id"):
+            return str(body["workspace_id"])
+    except Exception:
+        pass
+    qs = event.get("queryStringParameters") or {}
+    if qs and qs.get("workspace_id"):
+        return str(qs["workspace_id"])
+    return db.get_active_workspace(table, user_id) or ""
+
+
 def handler(event: dict, context) -> dict:
     """Lambda handler for chat (POST = send message, GET = fetch history)."""
     user_id = _get_user_id(event)
     if not user_id:
         return _error_response(401, "Unauthorized")
 
+    dynamodb = boto3.resource("dynamodb")
+    table = dynamodb.Table(TABLE_NAME)
+    workspace_id = _resolve_workspace(table, event, user_id)
+    if not workspace_id:
+        return _error_response(400, "No active workspace. Create one first.")
+
     http_method = event.get("httpMethod", "POST")
     if http_method == "GET":
-        return _handle_get_history(event, user_id)
+        return _handle_get_history(event, user_id, workspace_id)
 
-    # POST: send a new message
     body = _parse_body(event)
     if body is None:
         return _error_response(400, "Invalid request body")
@@ -58,31 +78,28 @@ def handler(event: dict, context) -> dict:
     if not paper_id or not message:
         return _error_response(400, "paper_id and message are required")
 
-    # Set up resources
-    dynamodb = boto3.resource("dynamodb")
-    table = dynamodb.Table(TABLE_NAME)
     s3_client = boto3.client("s3")
 
     # 1. Get or create conversation for this paper
-    conv = db.get_conversation_by_paper(table, user_id, paper_id)
+    conv = db.get_conversation_by_paper(table, user_id, workspace_id, paper_id)
     if conv is None:
         full_text_s3_key = f"users/{user_id}/papers/{paper_id}/full_text.txt"
-        conv = db.create_conversation(table, user_id, paper_id, full_text_s3_key)
+        conv = db.create_conversation(
+            table, user_id, workspace_id, paper_id, full_text_s3_key
+        )
 
     conv_id = paper_id
     full_text_s3_key = conv.get("full_text_s3_key", "")
 
-    # 2. Try RAG retrieval first, fall back to full-text stuffing
     paper_text = None
     retrieved_context = None
 
     if db.is_paper_embedded(table, paper_id):
-        # RAG path: retrieve relevant chunks across user's library
         try:
             from backend.shared.embeddings import embed_text
             from backend.shared.vectors import query_vectors, get_chunk_texts
 
-            user_paper_ids = db.list_user_paper_ids(table, user_id)
+            user_paper_ids = db.list_user_paper_ids(table, user_id, workspace_id)
             query_embedding = embed_text(message)
             chunks = query_vectors(query_embedding, paper_ids=user_paper_ids, top_k=10)
 
@@ -93,43 +110,34 @@ def handler(event: dict, context) -> dict:
         except Exception:
             logger.warning("RAG retrieval failed — falling back to full text")
 
-    # Fallback: full-text stuffing (for papers not yet embedded, or if RAG fails)
     if not retrieved_context:
         paper_text = _read_s3_text(s3_client, BUCKET_NAME, full_text_s3_key)
         if not paper_text:
             return _error_response(404, "Paper full text not found in S3")
 
-    # 3. Read existing turns
-    turns = db.get_conversation_turns(table, user_id, conv_id)
+    turns = db.get_conversation_turns(table, user_id, workspace_id, conv_id)
+    profile = db.get_full_profile(table, user_id, workspace_id)
 
-    # 4. Read full profile for context
-    profile = db.get_full_profile(table, user_id)
-
-    # 5. Determine next turn sequence
     seq = len(turns) + 1
     request_ts = _now_iso()
 
-    # 6. Write turn with request (response=null)
-    db.put_turn(table, user_id, conv_id, seq, message, request_ts)
-    db.update_conversation_last_active(table, user_id, conv_id)
+    db.put_turn(table, user_id, workspace_id, conv_id, seq, message, request_ts)
+    db.update_conversation_last_active(table, user_id, workspace_id, conv_id)
 
-    # 7. Assemble LLM context + messages
     if retrieved_context:
         system_prompt = _build_system_prompt_with_retrieval(retrieved_context, profile)
     else:
         system_prompt = _build_system_prompt(paper_text, profile)
     llm_messages = _build_messages(turns, message)
 
-    # 8. Call LLM (non-streaming for API Gateway compatibility)
     llm_response = _call_llm_messages(llm_messages, MODEL_ID, system_prompt)
 
     if llm_response is None:
         return _error_response(500, "LLM call failed")
 
-    # 9. Update turn with full response
     response_ts = _now_iso()
     db.update_turn_response(
-        table, user_id, conv_id, seq,
+        table, user_id, workspace_id, conv_id, seq,
         response=llm_response,
         response_ts=response_ts,
         citations=[],
@@ -148,6 +156,7 @@ def handler(event: dict, context) -> dict:
             "conv_id": conv_id,
             "turn_seq": seq,
             "response": llm_response,
+            "workspace_id": workspace_id,
         }),
     }
 
@@ -171,31 +180,20 @@ def _parse_body(event: dict) -> Optional[dict]:
 
 
 def _get_user_id(event: dict) -> str:
-    """Extract user_id from Cognito JWT claims (passed by Function URL IAM or custom)."""
-    # Lambda Function URL with IAM auth passes identity in requestContext
+    """Extract user_id from Cognito JWT claims."""
     request_context = event.get("requestContext", {})
-
-    # Check for Cognito authorizer claims (if proxied via API GW)
     claims = request_context.get("authorizer", {}).get("claims", {})
     if claims.get("sub"):
         return claims["sub"]
-
-    # Check Authorization header for JWT (Function URL with NONE auth)
     headers = event.get("headers", {})
     auth_header = headers.get("authorization", "") or headers.get("Authorization", "")
     if auth_header:
         return _extract_sub_from_jwt(auth_header)
-
     return ""
 
 
 def _extract_sub_from_jwt(token: str) -> str:
-    """Decode JWT payload without verification (Function URL trusts Cognito).
-
-    For v0 with auth_type=NONE, we decode the sub claim from the ID token.
-    The token was issued by Cognito and validated client-side. For production,
-    add JWKS verification here.
-    """
+    """Decode JWT payload without verification."""
     import base64
 
     try:
@@ -203,7 +201,6 @@ def _extract_sub_from_jwt(token: str) -> str:
         if len(parts) != 3:
             return ""
         payload = parts[1]
-        # Fix padding
         payload += "=" * (4 - len(payload) % 4)
         decoded = base64.urlsafe_b64decode(payload)
         claims = json.loads(decoded)
@@ -239,10 +236,8 @@ def _build_system_prompt(paper_text: str, profile: dict) -> str:
     prompt = SYSTEM_PROMPT
     prompt += f"\n\n<paper>\n{paper_text}\n</paper>"
 
-    # Build user context from profile data (all from DDB, nothing hardcoded)
     context_parts = []
 
-    # Learning style
     meta = profile.get("meta")
     if meta:
         learning_style = meta.get("learning_style", {})
@@ -258,7 +253,6 @@ def _build_system_prompt(paper_text: str, profile: dict) -> str:
         if paper_goal:
             context_parts.append(f"Goal: {paper_goal}")
 
-    # Research areas with frontiers
     areas = profile.get("areas", [])
     if areas:
         area_lines = []
@@ -275,7 +269,6 @@ def _build_system_prompt(paper_text: str, profile: dict) -> str:
         if area_lines:
             context_parts.append("Research areas:\n" + "\n".join(area_lines))
 
-    # Hypothesis
     hypothesis = profile.get("hypothesis")
     if hypothesis:
         stmt = hypothesis.get("statement", "")
@@ -286,7 +279,6 @@ def _build_system_prompt(paper_text: str, profile: dict) -> str:
                 h_text += f" (status: {status})"
             context_parts.append(h_text)
 
-    # Rolling summaries (recent activity context)
     summaries = profile.get("summaries", [])
     summary_text = _format_summaries(summaries)
     if summary_text:
@@ -318,7 +310,7 @@ def _sse_event(data: dict) -> str:
     return f"data: {json.dumps(data)}\n\n"
 
 
-def _handle_get_history(event: dict, user_id: str) -> dict:
+def _handle_get_history(event: dict, user_id: str, workspace_id: str) -> dict:
     """GET /chat/{paper_id} — return conversation history."""
     path_params = event.get("pathParameters") or {}
     paper_id = path_params.get("paper_id", "")
@@ -329,7 +321,7 @@ def _handle_get_history(event: dict, user_id: str) -> dict:
     dynamodb = boto3.resource("dynamodb")
     table = dynamodb.Table(TABLE_NAME)
 
-    conv = db.get_conversation_by_paper(table, user_id, paper_id)
+    conv = db.get_conversation_by_paper(table, user_id, workspace_id, paper_id)
     if conv is None:
         return {
             "statusCode": 200,
@@ -338,10 +330,10 @@ def _handle_get_history(event: dict, user_id: str) -> dict:
                 "Access-Control-Allow-Origin": "*",
                 "Access-Control-Allow-Headers": "Authorization,Content-Type",
             },
-            "body": json.dumps({"turns": [], "conv_id": None}),
+            "body": json.dumps({"turns": [], "conv_id": None, "workspace_id": workspace_id}),
         }
 
-    turns = db.get_conversation_turns(table, user_id, paper_id)
+    turns = db.get_conversation_turns(table, user_id, workspace_id, paper_id)
     formatted = []
     for turn in turns:
         entry = {
@@ -362,7 +354,7 @@ def _handle_get_history(event: dict, user_id: str) -> dict:
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Headers": "Authorization,Content-Type",
         },
-        "body": json.dumps({"turns": formatted, "conv_id": paper_id}),
+        "body": json.dumps({"turns": formatted, "conv_id": paper_id, "workspace_id": workspace_id}),
     }
 
 

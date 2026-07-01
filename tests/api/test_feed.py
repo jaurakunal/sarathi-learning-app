@@ -93,7 +93,7 @@ def test_list_feed_with_pagination(mock_db, mock_boto3):
     body = json.loads(result["body"])
     assert body["lastKey"] == next_key
     mock_db.list_feed_cards.assert_called_once_with(
-        mock_table, "test-user-123", limit=5, last_key=None
+        mock_table, "test-user-123", "ws-test-fixture", limit=5, last_key=None
     )
 
 
@@ -109,7 +109,7 @@ def test_list_feed_limit_capped_at_50(mock_db, mock_boto3):
     handler(event, None)
 
     mock_db.list_feed_cards.assert_called_once_with(
-        mock_table, "test-user-123", limit=50, last_key=None
+        mock_table, "test-user-123", "ws-test-fixture", limit=50, last_key=None
     )
 
 

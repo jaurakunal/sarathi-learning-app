@@ -10,15 +10,11 @@ import uuid
 import boto3
 
 from backend.shared import db
+from backend.api._workspace_helper import get_user_id, resolve_workspace_id
 
 logger = logging.getLogger(__name__)
 
 TABLE_NAME = os.environ.get("TABLE_NAME", "sarathi")
-
-
-def _get_user_id(event: dict) -> str:
-    claims = event.get("requestContext", {}).get("authorizer", {}).get("claims", {})
-    return claims.get("sub", "")
 
 
 def handler(event: dict, context) -> dict:
@@ -28,7 +24,7 @@ def handler(event: dict, context) -> dict:
     PUT /conversations/{conv_id} — update conversation title
     DELETE /conversations/{conv_id} — delete a conversation
     """
-    user_id = _get_user_id(event)
+    user_id = get_user_id(event)
     if not user_id:
         return _response(401, {"error": "Unauthorized"})
 
@@ -40,28 +36,30 @@ def handler(event: dict, context) -> dict:
     if method == "OPTIONS":
         return _response(200, {})
 
+    workspace_id = resolve_workspace_id(table, event, user_id)
+    if not workspace_id:
+        return _response(400, {"error": "No active workspace. Create one first."})
+
     if method == "PUT":
         conv_id = path_params.get("conv_id", "")
         body = json.loads(event.get("body") or "{}")
-        # Fallback: also accept conv_id in body for backwards compatibility
         if not conv_id:
             conv_id = body.get("conv_id", "")
         title = body.get("title", "")
         if not conv_id or not title:
             return _response(400, {"error": "conv_id and title required"})
-        db.update_conversation_title(table, user_id, conv_id, title)
+        db.update_conversation_title(table, user_id, workspace_id, conv_id, title)
         return _response(200, {"status": "updated"})
 
     if method == "GET":
-        convs = db.list_all_conversations(table, user_id)
+        convs = db.list_all_conversations(table, user_id, workspace_id)
 
-        # For paper conversations without titles, look up the card hook
         paper_hooks = {}
         for conv in convs:
             if conv.get("scope") != "research" and not conv.get("title"):
                 pid = conv.get("paper_id") or conv.get("conv_id", "")
                 if pid and pid not in paper_hooks:
-                    card = db.get_feed_card_by_paper(table, user_id, pid)
+                    card = db.get_feed_card_by_paper(table, user_id, workspace_id, pid)
                     if card:
                         paper_hooks[pid] = card.get("hook", "")[:60]
 
@@ -79,13 +77,15 @@ def handler(event: dict, context) -> dict:
                 "last_active": conv.get("last_active", ""),
                 "turn_count": int(conv.get("turn_count", 0)),
             })
-        return _response(200, {"conversations": result})
+        return _response(200, {"conversations": result, "workspace_id": workspace_id})
 
     elif method == "POST":
         body = json.loads(event.get("body") or "{}")
         title = body.get("title", "")
         conv_id = str(uuid.uuid4())[:12]
-        conv = db.create_research_conversation(table, user_id, conv_id, title)
+        conv = db.create_research_conversation(
+            table, user_id, workspace_id, conv_id, title
+        )
         return _response(201, {
             "conv_id": conv["conv_id"],
             "title": conv["title"],
@@ -94,13 +94,12 @@ def handler(event: dict, context) -> dict:
 
     elif method == "DELETE":
         conv_id = path_params.get("conv_id", "")
-        # Fallback: also accept conv_id in body for backwards compatibility
         if not conv_id:
             body = json.loads(event.get("body") or "{}")
             conv_id = body.get("conv_id", "")
         if not conv_id:
             return _response(400, {"error": "conv_id required"})
-        db.delete_conversation(table, user_id, conv_id)
+        db.delete_conversation(table, user_id, workspace_id, conv_id)
         return _response(200, {"status": "deleted"})
 
     return _response(405, {"error": "Method not allowed"})

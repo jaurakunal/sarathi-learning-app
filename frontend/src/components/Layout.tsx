@@ -1,6 +1,7 @@
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Home, MessageCircle, Target, BookOpen, TrendingUp, Settings, LogOut } from 'lucide-react'
 import { logout } from '../auth/cognito'
+import { WorkspaceSwitcher } from './WorkspaceSwitcher'
 
 const NAV_ITEMS = [
   { path: '/', label: 'Feed', icon: Home },
@@ -24,8 +25,13 @@ export function Layout({ children }: LayoutProps) {
       {/* Desktop sidebar — hidden on mobile */}
       <aside className="hidden lg:flex lg:flex-col lg:fixed lg:inset-y-0 lg:left-0 lg:w-[240px] bg-[#0e0e18] border-r border-white/[0.06] z-30">
         {/* Logo */}
-        <div className="px-6 pt-8 pb-6">
+        <div className="px-6 pt-8 pb-3">
           <h1 className="text-xl font-bold text-gradient">Sārathi</h1>
+        </div>
+
+        {/* Workspace switcher */}
+        <div className="px-3 pb-3">
+          <WorkspaceSwitcher />
         </div>
 
         {/* Nav */}
@@ -63,6 +69,11 @@ export function Layout({ children }: LayoutProps) {
 
       {/* Main content — offset by sidebar width on desktop */}
       <main className="lg:ml-[240px] flex-1 min-h-screen">
+        {/* Mobile top bar with workspace switcher */}
+        <div className="lg:hidden flex items-center justify-between px-4 py-3 border-b border-white/[0.06] bg-[#0e0e18] sticky top-0 z-20">
+          <h1 className="text-lg font-bold text-gradient">Sārathi</h1>
+          <WorkspaceSwitcher />
+        </div>
         {children}
       </main>
     </div>

@@ -257,7 +257,7 @@ def run_eval(
     if s3_client is None:
         s3_client = boto3.client("s3")
 
-    profile = db.get_full_profile(table, user_id)
+    profile = db.get_full_profile(table, user_id, "")
     if not profile.get("meta"):
         raise RuntimeError(
             f"Test user {user_id} has no profile — run `eval_pipeline.py setup` first"

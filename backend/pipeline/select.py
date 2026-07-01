@@ -33,6 +33,7 @@ def handler(event: dict, context) -> dict:
         max_cards: int (optional) — max papers to keep per run, default 5
     """
     user_id = event["user_id"]
+    workspace_id = event.get("workspace_id", "")
     table_name = event["table_name"]
     max_cards = int(event.get("max_cards", DEFAULT_MAX_CARDS))
 
@@ -40,8 +41,11 @@ def handler(event: dict, context) -> dict:
     dynamodb = boto3.resource("dynamodb")
     table = dynamodb.Table(table_name)
 
+    if not workspace_id:
+        workspace_id = db.get_active_workspace(table, user_id) or ""
+
     # 1. Load all surfaced papers from this run
-    surfaced = db.list_papers_by_status(table, user_id, "surfaced")
+    surfaced = db.list_papers_by_status(table, user_id, workspace_id, "surfaced")
 
     # 2. Handle dry week — nothing survived triage
     if not surfaced:
@@ -59,7 +63,7 @@ def handler(event: dict, context) -> dict:
     for paper in over_budget_papers:
         paper["status"] = "skipped"
         paper["skip_reason"] = "over_time_budget"
-        db.put_paper(table, user_id, paper)
+        db.put_paper(table, user_id, workspace_id, paper)
         logger.info(
             "Demoted paper %s (score=%.2f) — over time budget.",
             paper.get("id", "unknown"),

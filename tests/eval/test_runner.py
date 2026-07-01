@@ -24,14 +24,14 @@ def test_reset_deletes_papers_feed_and_engagement_keeps_profile(
     user_id = eval_dataset.TEST_USER_ID
 
     # Seed profile (must survive)
-    db.put_profile_meta(fake_table, user_id, sample_profile["meta"])
+    db.put_profile_meta(fake_table, user_id, "", sample_profile["meta"])
     for area in sample_profile["areas"]:
-        db.put_profile_area(fake_table, user_id, area)
+        db.put_profile_area(fake_table, user_id, "", area)
 
     # Seed paper-related data (must be wiped)
-    db.put_paper(fake_table, user_id, sample_paper)
-    db.put_feed_card(fake_table, user_id, sample_golden_card)
-    db.put_engagement_event(fake_table, user_id, {
+    db.put_paper(fake_table, user_id, "", sample_paper)
+    db.put_feed_card(fake_table, user_id, "", sample_golden_card)
+    db.put_engagement_event(fake_table, user_id, "", {
         "action": "read",
         "ts": "2026-06-08T10:00:00Z",
         "paper_id": "paper-eval-001",
@@ -40,13 +40,13 @@ def test_reset_deletes_papers_feed_and_engagement_keeps_profile(
     runner_mod.reset_test_user(fake_table, user_id=user_id)
 
     # Profile is intact
-    profile = db.get_full_profile(fake_table, user_id)
+    profile = db.get_full_profile(fake_table, user_id, "")
     assert profile["meta"] is not None
     assert len(profile["areas"]) == 1
 
     # Paper data gone
-    assert db.get_paper(fake_table, user_id, "paper-eval-001") is None
-    assert db.get_feed_card(fake_table, user_id, sample_golden_card["card_id"]) is None
+    assert db.get_paper(fake_table, user_id, "", "paper-eval-001") is None
+    assert db.get_feed_card(fake_table, user_id, "", sample_golden_card["card_id"]) is None
 
 
 def test_reset_idempotent_on_empty_user(fake_table):
@@ -58,13 +58,13 @@ def test_reset_idempotent_on_empty_user(fake_table):
 def test_reset_does_not_touch_other_user(fake_table, sample_golden_card):
     """Reset only affects the target user."""
     other = "some-other-user"
-    db.put_feed_card(fake_table, other, sample_golden_card)
-    db.put_feed_card(fake_table, eval_dataset.TEST_USER_ID, sample_golden_card)
+    db.put_feed_card(fake_table, other, "", sample_golden_card)
+    db.put_feed_card(fake_table, eval_dataset.TEST_USER_ID, "", sample_golden_card)
 
     runner_mod.reset_test_user(fake_table, user_id=eval_dataset.TEST_USER_ID)
 
     # Other user's card survives
-    assert db.get_feed_card(fake_table, other, sample_golden_card["card_id"]) is not None
+    assert db.get_feed_card(fake_table, other, "", sample_golden_card["card_id"]) is not None
 
 
 # ---------------------------------------------------------------------------
@@ -199,9 +199,9 @@ def test_run_eval_persists_results_and_summary(
     mock_call.return_value = (_ok_card_text(), {"tokens_in": 100, "tokens_out": 200})
 
     # Seed test user profile
-    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, sample_profile["meta"])
+    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, "", sample_profile["meta"])
     for area in sample_profile["areas"]:
-        db.put_profile_area(fake_table, eval_dataset.TEST_USER_ID, area)
+        db.put_profile_area(fake_table, eval_dataset.TEST_USER_ID, "", area)
 
     # Seed eval dataset
     fake_table.put_item(Item={
@@ -249,7 +249,7 @@ def test_run_eval_raises_when_profile_missing(fake_table):
 
 def test_run_eval_raises_when_dataset_missing(fake_table, sample_profile):
     """Without an eval dataset, run_eval raises."""
-    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, sample_profile["meta"])
+    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, "", sample_profile["meta"])
     s3 = MagicMock()
     with pytest.raises(RuntimeError, match="dataset"):
         runner_mod.run_eval(

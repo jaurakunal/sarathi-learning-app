@@ -179,6 +179,7 @@ def handler(event: dict, context) -> dict:
         model: str (optional) — Anthropic model to use, default claude-sonnet-4-20250514
     """
     user_id = event["user_id"]
+    workspace_id = event.get("workspace_id", "")
     table_name = event["table_name"]
     model = event.get("model", DEFAULT_MODEL)
 
@@ -186,14 +187,17 @@ def handler(event: dict, context) -> dict:
     dynamodb = boto3.resource("dynamodb")
     table = dynamodb.Table(table_name)
 
+    if not workspace_id:
+        workspace_id = db.get_active_workspace(table, user_id) or ""
+
     # 1. Load user profile
-    profile = db.get_full_profile(table, user_id)
+    profile = db.get_full_profile(table, user_id, workspace_id)
     if not profile.get("areas") and not profile.get("hypothesis"):
-        logger.warning("No profile found for user %s — skipping triage.", user_id)
+        logger.warning("No profile found for user %s ws %s — skipping triage.", user_id, workspace_id)
         return {"papers_triaged": 0, "worth_reading": 0}
 
     # 2. Load candidate papers
-    candidates = db.list_papers_by_status(table, user_id, "candidate", limit=100)
+    candidates = db.list_papers_by_status(table, user_id, workspace_id, "candidate", limit=100)
     if not candidates:
         logger.info("No candidate papers to triage for user %s.", user_id)
         return {"papers_triaged": 0, "worth_reading": 0}
@@ -224,7 +228,7 @@ def handler(event: dict, context) -> dict:
             paper["status"] = "surfaced"
             worth_reading += 1
 
-        db.put_paper(table, user_id, paper)
+        db.put_paper(table, user_id, workspace_id, paper)
         papers_triaged += 1
 
     logger.info(

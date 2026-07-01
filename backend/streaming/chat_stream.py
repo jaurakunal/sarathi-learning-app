@@ -127,6 +127,7 @@ def handler(event: dict, context) -> dict:
     {user_id, paper_id, conv_id, message, turn_seq, scope?}
     """
     user_id = event["user_id"]
+    workspace_id = event.get("workspace_id", "")
     paper_id = event.get("paper_id", "")
     conv_id = event["conv_id"]
     message = event["message"]
@@ -138,11 +139,15 @@ def handler(event: dict, context) -> dict:
     table = dynamodb.Table(TABLE_NAME)
     s3_client = boto3.client("s3")
 
+    if not workspace_id:
+        # Fall back to active workspace if dispatcher didn't set one (legacy path)
+        workspace_id = db.get_active_workspace(table, user_id) or ""
+
     full_text_s3_key = ""
 
     # 1. For paper-scoped chats, get the conversation and S3 key
     if scope == "paper" and paper_id:
-        conv = db.get_conversation_by_paper(table, user_id, paper_id)
+        conv = db.get_conversation_by_paper(table, user_id, workspace_id, paper_id)
         if conv is None:
             _publish_chunk(conv_id, seq, "[Error: conversation not found]", True)
             return {"status": "error"}
@@ -158,7 +163,7 @@ def handler(event: dict, context) -> dict:
             from backend.shared.embeddings import embed_text
             from backend.shared.vectors import query_vectors, get_chunk_texts
 
-            user_paper_ids = db.list_user_paper_ids(table, user_id)
+            user_paper_ids = db.list_user_paper_ids(table, user_id, workspace_id)
             query_embedding = embed_text(message)
             chunks = query_vectors(query_embedding, paper_ids=user_paper_ids, top_k=10)
 
@@ -179,16 +184,16 @@ def handler(event: dict, context) -> dict:
             return {"status": "error"}
 
     # 3. Read existing turns (excluding the current one just created) + profile
-    turns = db.get_conversation_turns(table, user_id, conv_id)
+    turns = db.get_conversation_turns(table, user_id, workspace_id, conv_id)
     turns = [t for t in turns if int(t.get("seq", 0)) < seq]
-    profile = db.get_full_profile(table, user_id)
+    profile = db.get_full_profile(table, user_id, workspace_id)
 
     # 3b. Load card details for the current paper (glossary, digest, etc.)
-    card = db.get_feed_card_by_paper(table, user_id, paper_id)
+    card = db.get_feed_card_by_paper(table, user_id, workspace_id, paper_id) if paper_id else None
     card_context = _format_card_context(card) if card else ""
 
     # 3c. Load research context: tags + pinned insights across library
-    research_context = _build_research_context(table, user_id)
+    research_context = _build_research_context(table, user_id, workspace_id)
 
     # 4. Build LLM context
     if retrieved_context:
@@ -260,7 +265,7 @@ def handler(event: dict, context) -> dict:
     full_response = "".join(response_chunks)
     response_ts = _now_iso()
     db.update_turn_response(
-        table, user_id, conv_id, seq,
+        table, user_id, workspace_id, conv_id, seq,
         response=full_response,
         response_ts=response_ts,
         citations=[],
@@ -280,19 +285,21 @@ def handler(event: dict, context) -> dict:
                 temperature=0.3,
             )
             if title and len(title.strip()) > 0:
-                db.update_conversation_title(table, user_id, conv_id, title.strip())
+                db.update_conversation_title(
+                    table, user_id, workspace_id, conv_id, title.strip()
+                )
         except Exception:
             pass
 
     return {"conversationId": conv_id, "turnSeq": seq, "status": "ok"}
 
 
-def _build_research_context(table, user_id: str) -> str:
+def _build_research_context(table, user_id: str, workspace_id: str) -> str:
     """Build research context from tagged papers + pinned insights across library."""
-    # Get all feed cards with tags
+    # Get all feed cards with tags (workspace-scoped)
     resp = table.query(
         KeyConditionExpression=(
-            Key("PK").eq(f"USER#{user_id}#FEED")
+            Key("PK").eq(db._feed_pk(user_id, workspace_id))
             & Key("SK").begins_with("CARD#")
         ),
     )
@@ -321,10 +328,12 @@ def _build_research_context(table, user_id: str) -> str:
                 for hook in hooks[:3]:
                     parts.append(f"    - {hook}")
 
-    # Pinned insights across all conversations
+    # Pinned insights across all conversations (workspace-scoped)
     conv_resp = table.query(
         IndexName="GSI1",
-        KeyConditionExpression=Key("gsi1pk").eq(f"USER#{user_id}"),
+        KeyConditionExpression=Key("gsi1pk").eq(
+            db._gsi_user_scope(user_id, workspace_id)
+        ),
     )
     convs = conv_resp.get("Items", [])
 
@@ -333,7 +342,7 @@ def _build_research_context(table, user_id: str) -> str:
         conv_id = conv.get("conv_id", "")
         turns_resp = table.query(
             KeyConditionExpression=(
-                Key("PK").eq(f"USER#{user_id}#CONV#{conv_id}")
+                Key("PK").eq(db._conv_pk(user_id, workspace_id, conv_id))
                 & Key("SK").begins_with("TURN#")
             ),
             FilterExpression="pinned = :t",

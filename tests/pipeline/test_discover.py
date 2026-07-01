@@ -31,6 +31,7 @@ def test_happy_path_writes_new_papers(
     # Setup DDB mock
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
 
     # Profile areas returned
     mock_db.get_profile_areas.return_value = [
@@ -92,6 +93,7 @@ def test_source_failure_isolation(
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
 
     mock_db.get_profile_areas.return_value = [
         {"id": "a1", "user_id": user_id, "label": "Test", "status": "active",
@@ -140,6 +142,7 @@ def test_dedup_by_title(
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
 
     mock_db.get_profile_areas.return_value = [
         {"id": "a1", "user_id": user_id, "label": "Test", "status": "active",
@@ -207,6 +210,7 @@ def test_already_seen_paper_skipped(
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
 
     mock_db.get_profile_areas.return_value = [
         {"id": "a1", "user_id": user_id, "label": "Test", "status": "active",
@@ -257,6 +261,7 @@ def test_empty_results_all_sources(
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
 
     mock_db.get_profile_areas.return_value = [
         {"id": "a1", "user_id": user_id, "label": "Test", "status": "active",
@@ -295,6 +300,7 @@ def test_no_areas_returns_zeros(mock_db, mock_boto3, user_id, table_name):
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
 
     mock_db.get_profile_areas.return_value = []
 
@@ -326,6 +332,7 @@ def test_db_calls_receive_correct_arguments(
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
 
     mock_db.get_profile_areas.return_value = [
         {"id": "a1", "user_id": user_id, "label": "Test", "status": "active",
@@ -359,17 +366,17 @@ def test_db_calls_receive_correct_arguments(
     handler({"user_id": user_id, "table_name": table_name}, None)
 
     # Verify get_profile_areas was called with correct args
-    mock_db.get_profile_areas.assert_called_once_with(mock_table, user_id)
+    mock_db.get_profile_areas.assert_called_with(mock_table, user_id, "")
 
-    # Verify paper_exists was called with table, user_id, paper_id
-    mock_db.paper_exists.assert_called_once_with(mock_table, user_id, "paper-xyz")
+    # Verify paper_exists was called with table, user_id, workspace_id, paper_id
+    mock_db.paper_exists.assert_called_once_with(mock_table, user_id, "", "paper-xyz")
 
     # Verify put_paper was called with table, user_id, and a paper record
     mock_db.put_paper.assert_called_once()
     call_args = mock_db.put_paper.call_args
     assert call_args[0][0] is mock_table
     assert call_args[0][1] == user_id
-    paper_record = call_args[0][2]
+    paper_record = call_args[0][3]
     assert paper_record["id"] == "paper-xyz"
     assert paper_record["status"] == "candidate"
     assert paper_record["triage_score"] == 0

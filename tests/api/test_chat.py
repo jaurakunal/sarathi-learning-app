@@ -178,6 +178,8 @@ class TestHandler:
         mock_s3_read.return_value = "Full paper text here"
         mock_llm.return_value = "Reflection is the process of synthesizing observations."
 
+        mock_db.get_active_workspace.return_value = "ws-test"
+        mock_db.is_paper_embedded.return_value = False
         mock_db.get_conversation_by_paper.return_value = {
             "conv_id": "paper1",
             "full_text_s3_key": "key",

@@ -97,6 +97,7 @@ def handler(event: dict, context) -> dict:
         Summary dict with candidates_found, new_candidates_written, duplicates_skipped.
     """
     user_id = event["user_id"]
+    workspace_id = event.get("workspace_id", "")
     table_name = event["table_name"]
     since_days = event.get("since_days", 14)
 
@@ -104,8 +105,12 @@ def handler(event: dict, context) -> dict:
     dynamodb = boto3.resource("dynamodb")
     table = dynamodb.Table(table_name)
 
+    # Fall back to active workspace if not in event (defensive)
+    if not workspace_id:
+        workspace_id = db.get_active_workspace(table, user_id) or ""
+
     # Step 1: Read user's areas from DDB
-    area_items = db.get_profile_areas(table, user_id)
+    area_items = db.get_profile_areas(table, user_id, workspace_id)
     if not area_items:
         logger.warning("No areas found for user %s — nothing to discover", user_id)
         return {
@@ -187,8 +192,8 @@ def handler(event: dict, context) -> dict:
             logger.debug("Skipping paper with empty id: %s", paper.get("title", ""))
             continue
 
-        # Check if we've already seen this paper (user-scoped)
-        if db.paper_exists(table, user_id, paper_id):
+        # Check if we've already seen this paper (workspace-scoped)
+        if db.paper_exists(table, user_id, workspace_id, paper_id):
             duplicates_skipped += 1
             continue
 
@@ -205,7 +210,7 @@ def handler(event: dict, context) -> dict:
         # Write the user-scoped candidate to DDB (for pipeline state: triage, select, etc.)
         paper_record = _make_paper_record(paper, discovered_at)
         try:
-            db.put_paper(table, user_id, paper_record)
+            db.put_paper(table, user_id, workspace_id, paper_record)
             new_candidates_written += 1
         except Exception:
             logger.exception(

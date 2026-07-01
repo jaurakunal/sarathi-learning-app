@@ -57,7 +57,7 @@ def clone_profile(table, source_user_id: str = LIVE_USER_ID,
 
     Returns a summary dict {meta_copied, areas_copied, hypothesis_copied}.
     """
-    profile = db.get_full_profile(table, source_user_id)
+    profile = db.get_full_profile(table, source_user_id, "")
     summary = {"meta_copied": 0, "areas_copied": 0, "hypothesis_copied": 0}
 
     meta = profile.get("meta")
@@ -66,7 +66,7 @@ def clone_profile(table, source_user_id: str = LIVE_USER_ID,
             k: v for k, v in meta.items()
             if k not in ("PK", "SK", "user_id", "last_updated")
         }
-        db.put_profile_meta(table, target_user_id, meta_clean)
+        db.put_profile_meta(table, target_user_id, "", meta_clean)
         summary["meta_copied"] = 1
 
     for area in profile.get("areas", []) or []:
@@ -76,7 +76,7 @@ def clone_profile(table, source_user_id: str = LIVE_USER_ID,
         }
         if "id" not in area_clean:
             continue
-        db.put_profile_area(table, target_user_id, area_clean)
+        db.put_profile_area(table, target_user_id, "", area_clean)
         summary["areas_copied"] += 1
 
     hyp = profile.get("hypothesis")
@@ -85,7 +85,7 @@ def clone_profile(table, source_user_id: str = LIVE_USER_ID,
             k: v for k, v in hyp.items()
             if k not in ("PK", "SK", "user_id")
         }
-        db.put_profile_hypothesis(table, target_user_id, hyp_clean)
+        db.put_profile_hypothesis(table, target_user_id, "", hyp_clean)
         summary["hypothesis_copied"] = 1
 
     logger.info("Cloned profile %s → %s: %s", source_user_id, target_user_id, summary)
@@ -162,7 +162,7 @@ def get_engagement_for_paper(table, user_id: str, paper_id: str) -> dict:
 def get_pinned_chat_insights(table, user_id: str, paper_id: str) -> list[dict]:
     """Return all pinned conversation turns for a paper (paper-scoped conv_id == paper_id)."""
     try:
-        turns = db.get_pinned_turns(table, user_id, paper_id)
+        turns = db.get_pinned_turns(table, user_id, "", paper_id)
     except Exception:
         return []
     insights = []
@@ -183,7 +183,7 @@ def get_pinned_chat_insights(table, user_id: str, paper_id: str) -> list[dict]:
 
 def list_digested_papers(table, user_id: str, limit: int = 200) -> list[dict]:
     """Pull all digested papers from GSI2."""
-    return db.list_papers_by_status(table, user_id, "digested", limit=limit)
+    return db.list_papers_by_status(table, user_id, "", "digested", limit=limit)
 
 
 def build_dataset_entries(table, source_user_id: str = LIVE_USER_ID,
@@ -200,7 +200,7 @@ def build_dataset_entries(table, source_user_id: str = LIVE_USER_ID,
         if not paper_id:
             continue
 
-        golden_card = db.get_feed_card_by_paper(table, source_user_id, paper_id)
+        golden_card = db.get_feed_card_by_paper(table, source_user_id, "", paper_id)
         engagement = get_engagement_for_paper(table, source_user_id, paper_id)
         pinned = get_pinned_chat_insights(table, source_user_id, paper_id)
 
@@ -301,7 +301,7 @@ def list_candidate_papers(table, user_id: str, limit: int = 500) -> list[dict]:
     """Pull papers in `candidate` status — these are papers that were triaged
     but did NOT progress to digest (Sonnet rejected them).
     """
-    return db.list_papers_by_status(table, user_id, "candidate", limit=limit)
+    return db.list_papers_by_status(table, user_id, "", "candidate", limit=limit)
 
 
 def _has_triage_decision(paper: dict) -> bool:

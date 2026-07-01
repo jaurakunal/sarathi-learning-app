@@ -26,7 +26,7 @@ def _make_event(method="GET", user_id="test-user-123", qs=None):
 
 def _brief_item(week: str, content: str = "weekly content", created_at: str | None = None):
     return {
-        "PK": "USER#test-user-123#BRIEF",
+        "PK": "USER#test-user-123#WS#ws-test-fixture#BRIEF",
         "SK": f"WEEK#{week}",
         "user_id": "test-user-123",
         "week": week,
@@ -106,7 +106,7 @@ class TestGetBriefs:
         handler(_make_event(user_id="alice-sub"), None)
 
         # Reconstruct the expected key condition.
-        expected = Key("PK").eq("USER#alice-sub#BRIEF")
+        expected = Key("PK").eq("USER#alice-sub#WS#ws-test-fixture#BRIEF")
         actual = mock_table.query.call_args.kwargs["KeyConditionExpression"]
         # The boto3 ConditionBase exposes its components via get_expression().
         assert actual.get_expression() == expected.get_expression()
@@ -157,7 +157,7 @@ class TestGetBriefs:
 
         handler(_make_event(qs={"after_week": "2026-06-23"}), None)
 
-        expected = Key("PK").eq("USER#test-user-123#BRIEF") & Key("SK").lt("WEEK#2026-06-23")
+        expected = Key("PK").eq("USER#test-user-123#WS#ws-test-fixture#BRIEF") & Key("SK").lt("WEEK#2026-06-23")
         actual = mock_table.query.call_args.kwargs["KeyConditionExpression"]
         assert actual.get_expression() == expected.get_expression()
 

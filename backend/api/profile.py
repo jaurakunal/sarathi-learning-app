@@ -12,6 +12,7 @@ import boto3
 from boto3.dynamodb.conditions import Key
 
 from backend.shared import db
+from backend.api._workspace_helper import get_user_id as _get_user_id, resolve_workspace_id
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -24,15 +25,6 @@ class DecimalEncoder(json.JSONEncoder):
         if isinstance(o, Decimal):
             return float(o) if o % 1 else int(o)
         return super().default(o)
-
-
-def _get_user_id(event: dict) -> str:
-    claims = (
-        event.get("requestContext", {})
-        .get("authorizer", {})
-        .get("claims", {})
-    )
-    return claims.get("sub", "")
 
 
 def _response(status: int, body: dict) -> dict:
@@ -139,20 +131,25 @@ def handler(event: dict, context) -> dict:
     dynamodb = boto3.resource("dynamodb")
     table = dynamodb.Table(TABLE_NAME)
 
-    # 1. Full profile
-    profile = db.get_full_profile(table, user_id)
+    workspace_id = resolve_workspace_id(table, event, user_id)
+    if not workspace_id:
+        return _response(400, {"error": "No active workspace. Create one first."})
 
-    # 2. Profile history (frontier timeline)
+    # 1. Full profile (workspace-scoped) + user-level meta
+    profile = db.get_full_profile(table, user_id, workspace_id)
+    user_meta = db.get_user_meta(table, user_id) or {}
+
+    # 2. Profile history (frontier timeline) — workspace-scoped
     history_resp = table.query(
-        KeyConditionExpression=Key("PK").eq(f"USER#{user_id}#PROFILE_HISTORY"),
+        KeyConditionExpression=Key("PK").eq(db._profile_history_pk(user_id, workspace_id)),
         ScanIndexForward=False,
         Limit=20,
     )
     history = history_resp.get("Items", [])
 
-    # 2b. Latest weekly brief
+    # 2b. Latest weekly brief — workspace-scoped
     brief_resp = table.query(
-        KeyConditionExpression=Key("PK").eq(f"USER#{user_id}#BRIEF"),
+        KeyConditionExpression=Key("PK").eq(db._brief_pk(user_id, workspace_id)),
         ScanIndexForward=False,
         Limit=1,
     )
@@ -170,7 +167,7 @@ def handler(event: dict, context) -> dict:
     # 3. Engagement stats for the last 7 days
     since = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    events = db.list_engagement_events(table, user_id, since, now)
+    events = db.list_engagement_events(table, user_id, workspace_id, since, now)
 
     # Aggregate stats (unique papers, not event counts)
     read_papers: set = set()
@@ -223,11 +220,11 @@ def handler(event: dict, context) -> dict:
         "total_active_ms": total_active_ms,
     }
 
-    # 3b. Get conversation turn counts for insights
+    # 3b. Get conversation turn counts for insights (workspace-scoped)
     conv_resp = table.query(
         IndexName="GSI1",
         KeyConditionExpression=(
-            Key("gsi1pk").eq(f"USER#{user_id}")
+            Key("gsi1pk").eq(db._gsi_user_scope(user_id, workspace_id))
             & Key("gsi1sk").begins_with("CONV#")
         ),
     )
@@ -280,13 +277,27 @@ def handler(event: dict, context) -> dict:
             entry["hypothesis_evidence_added"] = h["hypothesis_evidence_added"]
         timeline.append(entry)
 
+    # Prefer user-level learning_style; fall back to workspace meta for legacy data.
+    learning_style = (
+        user_meta.get("learning_style")
+        or profile.get("meta", {}).get("learning_style")
+    )
+
     return _response(200, {
+        "workspace_id": workspace_id,
         "areas": areas,
         "hypothesis": hypothesis,
         "summaries": summaries,
         "stats_7d": stats,
         "timeline": timeline,
-        "learning_style": profile.get("meta", {}).get("learning_style"),
+        "learning_style": learning_style,
+        "user_meta": {
+            "background": user_meta.get("background", ""),
+            "learning_style": learning_style,
+            "math_comfort": user_meta.get("math_comfort", ""),
+            "time_per_week": user_meta.get("time_per_week", ""),
+            "paper_preference": user_meta.get("paper_preference", ""),
+        },
         "latest_brief": latest_brief,
         "insights": _build_insights(
             read_papers, asked_papers, source_click_papers, dismissed_papers,

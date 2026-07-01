@@ -350,10 +350,10 @@ def test_run_eval_persists_results_and_summary(
         {"tokens_in": 80, "tokens_out": 40},
     )
     # Seed test user profile
-    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, sample_profile["meta"])
+    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, "", sample_profile["meta"])
     for area in sample_profile["areas"]:
-        db.put_profile_area(fake_table, eval_dataset.TEST_USER_ID, area)
-    db.put_profile_hypothesis(fake_table, eval_dataset.TEST_USER_ID, sample_profile["hypothesis"])
+        db.put_profile_area(fake_table, eval_dataset.TEST_USER_ID, "", area)
+    db.put_profile_hypothesis(fake_table, eval_dataset.TEST_USER_ID, "", sample_profile["hypothesis"])
 
     # Seed dataset
     paper = _entry_with_golden("paper-A")["paper"]
@@ -389,7 +389,7 @@ def test_run_eval_raises_when_profile_missing(fake_table):
 
 
 def test_run_eval_raises_when_dataset_missing(fake_table, sample_profile):
-    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, sample_profile["meta"])
+    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, "", sample_profile["meta"])
     with pytest.raises(RuntimeError, match="dataset"):
         triage_eval.run_eval(fake_table, model="m", max_workers=1)
 
@@ -401,11 +401,11 @@ def test_run_eval_with_mixed_positive_and_negative(
     """End-to-end run_eval picks up positive + negative dataset entries and
     surfaces specificity / per-class metrics in the summary."""
     # Profile setup
-    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, sample_profile["meta"])
+    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, "", sample_profile["meta"])
     for area in sample_profile["areas"]:
-        db.put_profile_area(fake_table, eval_dataset.TEST_USER_ID, area)
+        db.put_profile_area(fake_table, eval_dataset.TEST_USER_ID, "", area)
     db.put_profile_hypothesis(
-        fake_table, eval_dataset.TEST_USER_ID, sample_profile["hypothesis"],
+        fake_table, eval_dataset.TEST_USER_ID, "", sample_profile["hypothesis"],
     )
 
     # 1 positive

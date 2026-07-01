@@ -476,7 +476,7 @@ def run_judge(
 
     Returns the META record for the judge run.
     """
-    profile = db.get_full_profile(table, user_id)
+    profile = db.get_full_profile(table, user_id, "")
     if not profile.get("meta"):
         raise RuntimeError(f"No profile for user {user_id} — run setup first")
 

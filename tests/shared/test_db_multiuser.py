@@ -48,7 +48,7 @@ def other_user_id():
 
 class TestCreateResearchConversation:
     def test_creates_with_all_required_fields(self, mock_table, user_id):
-        result = db.create_research_conversation(mock_table, user_id, "conv-123", "AI Safety Research")
+        result = db.create_research_conversation(mock_table, user_id, "", "conv-123", "AI Safety Research")
 
         mock_table.put_item.assert_called_once()
         item = mock_table.put_item.call_args[1]["Item"]
@@ -63,28 +63,28 @@ class TestCreateResearchConversation:
         assert "last_active" in item
 
     def test_returns_created_item(self, mock_table, user_id):
-        result = db.create_research_conversation(mock_table, user_id, "conv-x", "Title")
+        result = db.create_research_conversation(mock_table, user_id, "", "conv-x", "Title")
 
         assert result["conv_id"] == "conv-x"
         assert result["scope"] == "research"
         assert result["title"] == "Title"
 
     def test_uses_default_title_when_empty(self, mock_table, user_id):
-        result = db.create_research_conversation(mock_table, user_id, "conv-y", "")
+        result = db.create_research_conversation(mock_table, user_id, "", "conv-y", "")
 
         item = mock_table.put_item.call_args[1]["Item"]
         assert item["title"] == "New conversation"
         assert result["title"] == "New conversation"
 
     def test_writes_gsi1_attributes(self, mock_table, user_id):
-        db.create_research_conversation(mock_table, user_id, "conv-z", "Test")
+        db.create_research_conversation(mock_table, user_id, "", "conv-z", "Test")
 
         item = mock_table.put_item.call_args[1]["Item"]
         assert item["gsi1pk"] == f"USER#{user_id}"
         assert item["gsi1sk"] == "CONV#conv-z"
 
     def test_different_users_get_different_pks(self, mock_table, user_id, other_user_id):
-        db.create_research_conversation(mock_table, user_id, "shared-conv", "Title")
+        db.create_research_conversation(mock_table, user_id, "", "shared-conv", "Title")
         item1 = mock_table.put_item.call_args[1]["Item"]
 
         mock_table.reset_mock()
@@ -104,7 +104,7 @@ class TestListAllConversations:
     def test_queries_gsi1_with_user_pk(self, mock_table, user_id):
         mock_table.query.return_value = {"Items": []}
 
-        db.list_all_conversations(mock_table, user_id)
+        db.list_all_conversations(mock_table, user_id, "")
 
         call_kwargs = mock_table.query.call_args[1]
         assert call_kwargs["IndexName"] == "GSI1"
@@ -119,7 +119,7 @@ class TestListAllConversations:
             ]
         }
 
-        result = db.list_all_conversations(mock_table, user_id)
+        result = db.list_all_conversations(mock_table, user_id, "")
 
         assert len(result) == 3
         scopes = [r["scope"] for r in result]
@@ -129,7 +129,7 @@ class TestListAllConversations:
     def test_returns_empty_for_new_user(self, mock_table, user_id):
         mock_table.query.return_value = {"Items": []}
 
-        result = db.list_all_conversations(mock_table, user_id)
+        result = db.list_all_conversations(mock_table, user_id, "")
 
         assert result == []
 
@@ -154,7 +154,7 @@ class TestDeleteConversation:
         mock_table.batch_writer.return_value.__enter__ = MagicMock(return_value=mock_batch_writer)
         mock_table.batch_writer.return_value.__exit__ = MagicMock(return_value=False)
 
-        db.delete_conversation(mock_table, user_id, "conv-del")
+        db.delete_conversation(mock_table, user_id, "", "conv-del")
 
         assert mock_batch_writer.delete_item.call_count == 4
 
@@ -165,7 +165,7 @@ class TestDeleteConversation:
         mock_table.batch_writer.return_value.__enter__ = MagicMock(return_value=mock_batch_writer)
         mock_table.batch_writer.return_value.__exit__ = MagicMock(return_value=False)
 
-        db.delete_conversation(mock_table, user_id, "nonexistent")
+        db.delete_conversation(mock_table, user_id, "", "nonexistent")
 
         mock_batch_writer.delete_item.assert_not_called()
 
@@ -175,7 +175,7 @@ class TestDeleteConversation:
         mock_table.batch_writer.return_value.__enter__ = MagicMock(return_value=mock_batch_writer)
         mock_table.batch_writer.return_value.__exit__ = MagicMock(return_value=False)
 
-        db.delete_conversation(mock_table, user_id, "conv-x")
+        db.delete_conversation(mock_table, user_id, "", "conv-x")
 
         # Verify query uses ProjectionExpression for efficiency
         call_kwargs = mock_table.query.call_args[1]
@@ -189,7 +189,7 @@ class TestDeleteConversation:
 
 class TestPinTurn:
     def test_sets_pinned_true(self, mock_table, user_id):
-        db.pin_turn(mock_table, user_id, "conv-1", 5)
+        db.pin_turn(mock_table, user_id, "", "conv-1", 5)
 
         mock_table.update_item.assert_called_once()
         call_kwargs = mock_table.update_item.call_args[1]
@@ -200,14 +200,14 @@ class TestPinTurn:
         assert call_kwargs["ExpressionAttributeValues"][":t"] is True
 
     def test_includes_pinned_at_timestamp(self, mock_table, user_id):
-        db.pin_turn(mock_table, user_id, "conv-1", 1)
+        db.pin_turn(mock_table, user_id, "", "conv-1", 1)
 
         call_kwargs = mock_table.update_item.call_args[1]
         assert ":ts" in call_kwargs["ExpressionAttributeValues"]
         assert call_kwargs["ExpressionAttributeValues"][":ts"].endswith("Z")
 
     def test_adds_pin_note_when_provided(self, mock_table, user_id):
-        db.pin_turn(mock_table, user_id, "conv-1", 2, pin_note="Key finding about memory")
+        db.pin_turn(mock_table, user_id, "", "conv-1", 2, pin_note="Key finding about memory")
 
         call_kwargs = mock_table.update_item.call_args[1]
         assert ":note" in call_kwargs["ExpressionAttributeValues"]
@@ -215,7 +215,7 @@ class TestPinTurn:
         assert "pin_note" in call_kwargs["UpdateExpression"]
 
     def test_no_pin_note_when_empty(self, mock_table, user_id):
-        db.pin_turn(mock_table, user_id, "conv-1", 3)
+        db.pin_turn(mock_table, user_id, "", "conv-1", 3)
 
         call_kwargs = mock_table.update_item.call_args[1]
         assert ":note" not in call_kwargs["ExpressionAttributeValues"]
@@ -223,7 +223,7 @@ class TestPinTurn:
 
 class TestUnpinTurn:
     def test_removes_all_pin_attributes(self, mock_table, user_id):
-        db.unpin_turn(mock_table, user_id, "conv-1", 5)
+        db.unpin_turn(mock_table, user_id, "", "conv-1", 5)
 
         mock_table.update_item.assert_called_once()
         call_kwargs = mock_table.update_item.call_args[1]
@@ -246,7 +246,7 @@ class TestGetPinnedTurns:
             ]
         }
 
-        result = db.get_pinned_turns(mock_table, user_id, "conv-1")
+        result = db.get_pinned_turns(mock_table, user_id, "", "conv-1")
 
         assert len(result) == 2
         assert all(item["pinned"] is True for item in result)
@@ -254,14 +254,14 @@ class TestGetPinnedTurns:
     def test_returns_empty_when_no_pins(self, mock_table, user_id):
         mock_table.query.return_value = {"Items": []}
 
-        result = db.get_pinned_turns(mock_table, user_id, "conv-1")
+        result = db.get_pinned_turns(mock_table, user_id, "", "conv-1")
 
         assert result == []
 
     def test_queries_with_filter_expression(self, mock_table, user_id):
         mock_table.query.return_value = {"Items": []}
 
-        db.get_pinned_turns(mock_table, user_id, "conv-1")
+        db.get_pinned_turns(mock_table, user_id, "", "conv-1")
 
         call_kwargs = mock_table.query.call_args[1]
         assert "FilterExpression" in call_kwargs
@@ -274,7 +274,7 @@ class TestGetPinnedTurns:
 
 class TestTagPaper:
     def test_sets_relevance_tags_and_timestamp(self, mock_table, user_id):
-        db.tag_paper(mock_table, user_id, "card-abc", "core", ["alignment", "safety"])
+        db.tag_paper(mock_table, user_id, "", "card-abc", "core", ["alignment", "safety"])
 
         mock_table.update_item.assert_called_once()
         call_kwargs = mock_table.update_item.call_args[1]
@@ -288,7 +288,7 @@ class TestTagPaper:
         assert values[":ts"].endswith("Z")
 
     def test_empty_tags_list(self, mock_table, user_id):
-        db.tag_paper(mock_table, user_id, "card-xyz", "peripheral", [])
+        db.tag_paper(mock_table, user_id, "", "card-xyz", "peripheral", [])
 
         call_kwargs = mock_table.update_item.call_args[1]
         values = call_kwargs["ExpressionAttributeValues"]
@@ -296,7 +296,7 @@ class TestTagPaper:
         assert values[":t"] == []
 
     def test_update_expression_sets_all_fields(self, mock_table, user_id):
-        db.tag_paper(mock_table, user_id, "card-1", "core", ["tag1"])
+        db.tag_paper(mock_table, user_id, "", "card-1", "core", ["tag1"])
 
         call_kwargs = mock_table.update_item.call_args[1]
         expr = call_kwargs["UpdateExpression"]
@@ -426,7 +426,7 @@ class TestGetPipelineRun:
             }
         }
 
-        result = db.get_pipeline_run(mock_table, user_id)
+        result = db.get_pipeline_run(mock_table, user_id, "")
 
         assert result is not None
         assert result["status"] == "running"
@@ -438,14 +438,14 @@ class TestGetPipelineRun:
     def test_returns_none_when_no_record(self, mock_table, user_id):
         mock_table.get_item.return_value = {}
 
-        result = db.get_pipeline_run(mock_table, user_id)
+        result = db.get_pipeline_run(mock_table, user_id, "")
 
         assert result is None
 
     def test_uses_correct_pk_format(self, mock_table, user_id):
         mock_table.get_item.return_value = {}
 
-        db.get_pipeline_run(mock_table, user_id)
+        db.get_pipeline_run(mock_table, user_id, "")
 
         key = mock_table.get_item.call_args[1]["Key"]
         assert key["PK"] == f"USER#{user_id}#PIPELINE"
@@ -454,7 +454,7 @@ class TestGetPipelineRun:
 
 class TestPutPipelineRun:
     def test_writes_all_required_fields(self, mock_table, user_id):
-        db.put_pipeline_run(mock_table, user_id, "arn:exec:new-123", "running")
+        db.put_pipeline_run(mock_table, user_id, "", "arn:exec:new-123", "running")
 
         mock_table.put_item.assert_called_once()
         item = mock_table.put_item.call_args[1]["Item"]
@@ -470,15 +470,15 @@ class TestPutPipelineRun:
 
     def test_overwrites_existing_record(self, mock_table, user_id):
         """put_item overwrites — no conditional write."""
-        db.put_pipeline_run(mock_table, user_id, "arn:exec:first", "running")
+        db.put_pipeline_run(mock_table, user_id, "", "arn:exec:first", "running")
         mock_table.reset_mock()
-        db.put_pipeline_run(mock_table, user_id, "arn:exec:second", "running")
+        db.put_pipeline_run(mock_table, user_id, "", "arn:exec:second", "running")
 
         item = mock_table.put_item.call_args[1]["Item"]
         assert item["execution_arn"] == "arn:exec:second"
 
     def test_stores_different_statuses(self, mock_table, user_id):
-        db.put_pipeline_run(mock_table, user_id, "arn:exec:x", "succeeded")
+        db.put_pipeline_run(mock_table, user_id, "", "arn:exec:x", "succeeded")
 
         item = mock_table.put_item.call_args[1]["Item"]
         assert item["status"] == "succeeded"
@@ -486,7 +486,7 @@ class TestPutPipelineRun:
 
 class TestUpdatePipelineStatus:
     def test_updates_status_and_timestamp(self, mock_table, user_id):
-        db.update_pipeline_status(mock_table, user_id, "succeeded")
+        db.update_pipeline_status(mock_table, user_id, "", "succeeded")
 
         mock_table.update_item.assert_called_once()
         call_kwargs = mock_table.update_item.call_args[1]
@@ -499,13 +499,13 @@ class TestUpdatePipelineStatus:
         assert call_kwargs["ExpressionAttributeValues"][":ts"].endswith("Z")
 
     def test_update_to_failed(self, mock_table, user_id):
-        db.update_pipeline_status(mock_table, user_id, "failed")
+        db.update_pipeline_status(mock_table, user_id, "", "failed")
 
         call_kwargs = mock_table.update_item.call_args[1]
         assert call_kwargs["ExpressionAttributeValues"][":s"] == "failed"
 
     def test_update_expression_format(self, mock_table, user_id):
-        db.update_pipeline_status(mock_table, user_id, "running")
+        db.update_pipeline_status(mock_table, user_id, "", "running")
 
         call_kwargs = mock_table.update_item.call_args[1]
         assert "SET #s = :s, updated_at = :ts" == call_kwargs["UpdateExpression"]

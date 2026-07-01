@@ -289,13 +289,14 @@ def run(event: dict) -> dict:
     Returns: {"cards_generated": N, "papers_failed": M}
     """
     user_id = event["user_id"]
+    workspace_id = event.get("workspace_id", "")
     table_name = event["table_name"]
     s3_bucket = event["s3_bucket"]
     model = event.get("model", DEFAULT_MODEL)
 
     logger.info(
-        "Digest step starting: user=%s, table=%s, bucket=%s, model=%s",
-        user_id, table_name, s3_bucket, model,
+        "Digest step starting: user=%s, ws=%s, table=%s, bucket=%s, model=%s",
+        user_id, workspace_id, table_name, s3_bucket, model,
     )
 
     # Initialize clients
@@ -303,17 +304,21 @@ def run(event: dict) -> dict:
     table = dynamodb.Table(table_name)
     s3_client = boto3.client("s3")
 
-    # 1. Read the user's full profile
-    profile = db.get_full_profile(table, user_id)
+    if not workspace_id:
+        workspace_id = db.get_active_workspace(table, user_id) or ""
+
+    # 1. Read the user's full profile (workspace-scoped)
+    profile = db.get_full_profile(table, user_id, workspace_id)
     if not profile.get("meta"):
-        logger.error("No profile found for user %s — cannot generate digests", user_id)
+        logger.error("No profile found for user %s ws %s — cannot generate digests",
+                     user_id, workspace_id)
         return {"cards_generated": 0, "papers_failed": 0, "error": "no_profile"}
 
     profile_context = _build_profile_context(profile)
     system_prompt = _build_system_prompt(profile_context)
 
     # 2. Read all papers with status="surfaced"
-    surfaced_papers = db.list_papers_by_status(table, user_id, "surfaced", limit=50)
+    surfaced_papers = db.list_papers_by_status(table, user_id, workspace_id, "surfaced", limit=50)
     logger.info("Found %d surfaced papers to digest", len(surfaced_papers))
 
     if not surfaced_papers:
@@ -402,14 +407,14 @@ def run(event: dict) -> dict:
                 "suggested_questions": llm_result.get("suggested_questions", []),
             }
 
-            db.put_feed_card(table, user_id, feed_card)
+            db.put_feed_card(table, user_id, workspace_id, feed_card)
             logger.info(
                 "Feed card written: card_id=%s for paper=%s", card_id, paper_id
             )
 
             # Mark paper as digested so it won't be re-processed next run
             paper["status"] = "digested"
-            db.put_paper(table, user_id, paper)
+            db.put_paper(table, user_id, workspace_id, paper)
 
             cards_generated += 1
 
@@ -449,6 +454,7 @@ if __name__ == "__main__":
         # Fargate passes config via environment variables
         event = {
             "user_id": os.environ.get("USER_ID", ""),
+            "workspace_id": os.environ.get("WORKSPACE_ID", ""),
             "table_name": os.environ.get("TABLE_NAME", ""),
             "s3_bucket": os.environ.get("S3_BUCKET", os.environ.get("BUCKET_NAME", "")),
         }

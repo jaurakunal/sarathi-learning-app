@@ -338,9 +338,9 @@ def test_build_eval_paper_set_can_force_synthetic(fake_table):
 @patch("backend.eval.relevance_eval.call_llm_with_usage")
 def test_run_eval_persists_summary(mock_call, fake_table, sample_profile):
     """End-to-end: positive + negative papers, candidate keeps positives only."""
-    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, sample_profile["meta"])
+    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, "", sample_profile["meta"])
     for area in sample_profile["areas"]:
-        db.put_profile_area(fake_table, eval_dataset.TEST_USER_ID, area)
+        db.put_profile_area(fake_table, eval_dataset.TEST_USER_ID, "", area)
 
     # Seed 2 positive papers in EVAL#DATASET
     for pid in ("paper-A", "paper-B"):
@@ -377,9 +377,9 @@ def test_run_eval_persists_summary(mock_call, fake_table, sample_profile):
 @patch("backend.eval.relevance_eval.call_llm_with_usage")
 def test_run_eval_imperfect_classification(mock_call, fake_table, sample_profile):
     """Filter keeps positives + 1 negative → precision drops."""
-    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, sample_profile["meta"])
+    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, "", sample_profile["meta"])
     for area in sample_profile["areas"]:
-        db.put_profile_area(fake_table, eval_dataset.TEST_USER_ID, area)
+        db.put_profile_area(fake_table, eval_dataset.TEST_USER_ID, "", area)
 
     fake_table.put_item(Item={
         "PK": eval_dataset.DATASET_PK,
@@ -406,16 +406,16 @@ def test_run_eval_raises_when_profile_missing(fake_table):
 
 
 def test_run_eval_raises_when_no_areas(fake_table, sample_profile):
-    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, sample_profile["meta"])
+    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, "", sample_profile["meta"])
     # No areas
     with pytest.raises(RuntimeError, match="areas"):
         relevance_eval.run_eval(fake_table, model="m")
 
 
 def test_run_eval_raises_when_dataset_missing(fake_table, sample_profile):
-    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, sample_profile["meta"])
+    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, "", sample_profile["meta"])
     for area in sample_profile["areas"]:
-        db.put_profile_area(fake_table, eval_dataset.TEST_USER_ID, area)
+        db.put_profile_area(fake_table, eval_dataset.TEST_USER_ID, "", area)
     # Dataset PK still empty
     with pytest.raises(RuntimeError, match="dataset"):
         relevance_eval.run_eval(fake_table, model="m")
@@ -424,9 +424,9 @@ def test_run_eval_raises_when_dataset_missing(fake_table, sample_profile):
 @patch("backend.eval.relevance_eval.call_llm_with_usage")
 def test_run_eval_with_real_negatives(mock_call, fake_table, sample_profile):
     """run_eval picks up real near-miss negatives and reports the source."""
-    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, sample_profile["meta"])
+    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, "", sample_profile["meta"])
     for area in sample_profile["areas"]:
-        db.put_profile_area(fake_table, eval_dataset.TEST_USER_ID, area)
+        db.put_profile_area(fake_table, eval_dataset.TEST_USER_ID, "", area)
 
     # 1 positive in the dataset
     fake_table.put_item(Item={
@@ -470,9 +470,9 @@ def test_run_eval_with_real_negatives(mock_call, fake_table, sample_profile):
 def test_run_eval_records_synthetic_source_when_no_negatives(
     mock_call, fake_table, sample_profile,
 ):
-    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, sample_profile["meta"])
+    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, "", sample_profile["meta"])
     for area in sample_profile["areas"]:
-        db.put_profile_area(fake_table, eval_dataset.TEST_USER_ID, area)
+        db.put_profile_area(fake_table, eval_dataset.TEST_USER_ID, "", area)
     fake_table.put_item(Item={
         "PK": eval_dataset.DATASET_PK,
         "SK": "PAPER#pos-1",

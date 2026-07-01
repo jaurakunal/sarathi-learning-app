@@ -10,6 +10,7 @@ import boto3
 
 from backend.shared import db
 from backend.shared.llm import call_llm
+from backend.api._workspace_helper import get_user_id as _get_user_id, resolve_workspace_id
 
 logger = logging.getLogger(__name__)
 
@@ -32,11 +33,6 @@ The questions should feel like what a curious practitioner would naturally ask n
 Return ONLY a JSON array of 3 strings. No explanation, no markdown."""
 
 
-def _get_user_id(event: dict) -> str:
-    claims = event.get("requestContext", {}).get("authorizer", {}).get("claims", {})
-    return claims.get("sub", "")
-
-
 def handler(event: dict, context) -> dict:
     """POST /suggest — generate follow-up question suggestions."""
     user_id = _get_user_id(event)
@@ -55,12 +51,16 @@ def handler(event: dict, context) -> dict:
     dynamodb = boto3.resource("dynamodb")
     table = dynamodb.Table(TABLE_NAME)
 
+    workspace_id = resolve_workspace_id(table, event, user_id)
+    if not workspace_id:
+        return _response(400, {"error": "No active workspace. Create one first."})
+
     # Get last few conversation turns
-    turns = db.get_conversation_turns(table, user_id, paper_id)
+    turns = db.get_conversation_turns(table, user_id, workspace_id, paper_id)
     recent_turns = turns[-4:]  # Last 2 exchanges
 
     # Get user profile (compact)
-    profile = db.get_full_profile(table, user_id)
+    profile = db.get_full_profile(table, user_id, workspace_id)
     areas = profile.get("areas", [])
     hypothesis = profile.get("hypothesis", {})
 

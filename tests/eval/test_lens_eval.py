@@ -350,11 +350,11 @@ def test_run_eval_persists_summary(
     )
     mock_judge.return_value = "yes"
 
-    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, sample_profile["meta"])
+    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, "", sample_profile["meta"])
     for area in sample_profile["areas"]:
-        db.put_profile_area(fake_table, eval_dataset.TEST_USER_ID, area)
+        db.put_profile_area(fake_table, eval_dataset.TEST_USER_ID, "", area)
     db.put_profile_hypothesis(
-        fake_table, eval_dataset.TEST_USER_ID, sample_profile["hypothesis"],
+        fake_table, eval_dataset.TEST_USER_ID, "", sample_profile["hypothesis"],
     )
 
     fake_table.put_item(Item={
@@ -391,16 +391,16 @@ def test_run_eval_raises_when_profile_missing(fake_table):
 
 
 def test_run_eval_raises_when_no_hypothesis(fake_table, sample_profile):
-    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, sample_profile["meta"])
+    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, "", sample_profile["meta"])
     # No hypothesis written
     with pytest.raises(RuntimeError, match="hypothesis"):
         lens_eval.run_eval(fake_table, model="m")
 
 
 def test_run_eval_raises_when_dataset_missing(fake_table, sample_profile):
-    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, sample_profile["meta"])
+    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, "", sample_profile["meta"])
     db.put_profile_hypothesis(
-        fake_table, eval_dataset.TEST_USER_ID, sample_profile["hypothesis"],
+        fake_table, eval_dataset.TEST_USER_ID, "", sample_profile["hypothesis"],
     )
     with pytest.raises(RuntimeError, match="dataset"):
         lens_eval.run_eval(fake_table, model="m")
@@ -420,11 +420,11 @@ def test_run_eval_with_mixed_positive_and_negative(
         {"tokens_in": 40, "tokens_out": 20},
     )
 
-    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, sample_profile["meta"])
+    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, "", sample_profile["meta"])
     for area in sample_profile["areas"]:
-        db.put_profile_area(fake_table, eval_dataset.TEST_USER_ID, area)
+        db.put_profile_area(fake_table, eval_dataset.TEST_USER_ID, "", area)
     db.put_profile_hypothesis(
-        fake_table, eval_dataset.TEST_USER_ID, sample_profile["hypothesis"],
+        fake_table, eval_dataset.TEST_USER_ID, "", sample_profile["hypothesis"],
     )
 
     # 1 positive

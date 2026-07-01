@@ -393,6 +393,17 @@ export class SarathiStack extends cdk.Stack {
       memorySize: 512,
     });
 
+    const workspacesFn = new lambda.Function(this, 'WorkspacesApiFn', {
+      functionName: 'sarathi-api-workspaces',
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'backend.api.workspaces.handler',
+      code: lambdaCode,
+      environment: lambdaEnv,
+      role: lambdaRole,
+      timeout: cdk.Duration.seconds(15),
+      memorySize: 512,
+    });
+
     // Briefs Lambda has its own least-privilege role: dynamodb:Query only.
     // The handler scopes every query to PK=USER#<authed-cognito-sub>#BRIEF, so this role
     // cannot read engagement, profile, or other users' data.
@@ -501,6 +512,7 @@ export class SarathiStack extends cdk.Stack {
 
     const pipelinePayload = {
       'user_id.$': '$.user_id',
+      'workspace_id.$': '$.workspace_id',
       'table_name.$': '$.table_name',
       's3_bucket.$': '$.s3_bucket',
       'since_days.$': '$.since_days',
@@ -537,6 +549,7 @@ export class SarathiStack extends cdk.Stack {
         containerDefinition: digestTaskDef.defaultContainer!,
         environment: [
           { name: 'USER_ID', value: sfn.JsonPath.stringAt('$.user_id') },
+          { name: 'WORKSPACE_ID', value: sfn.JsonPath.stringAt('$.workspace_id') },
           { name: 'TABLE_NAME', value: sfn.JsonPath.stringAt('$.table_name') },
           { name: 'S3_BUCKET', value: sfn.JsonPath.stringAt('$.s3_bucket') },
         ],
@@ -747,6 +760,41 @@ export class SarathiStack extends cdk.Stack {
 
     const researchResource = api.root.addResource('research');
     researchResource.addMethod('GET', new apigw.LambdaIntegration(researchFn), {
+      authorizer,
+      authorizationType: apigw.AuthorizationType.COGNITO,
+    });
+
+    // ─── Workspaces ────────────────────────────────────────────────────
+    const workspacesResource = api.root.addResource('workspaces');
+    workspacesResource.addMethod('GET', new apigw.LambdaIntegration(workspacesFn), {
+      authorizer,
+      authorizationType: apigw.AuthorizationType.COGNITO,
+    });
+    workspacesResource.addMethod('POST', new apigw.LambdaIntegration(workspacesFn), {
+      authorizer,
+      authorizationType: apigw.AuthorizationType.COGNITO,
+    });
+
+    const activeWorkspaceResource = workspacesResource.addResource('active');
+    activeWorkspaceResource.addMethod('GET', new apigw.LambdaIntegration(workspacesFn), {
+      authorizer,
+      authorizationType: apigw.AuthorizationType.COGNITO,
+    });
+    activeWorkspaceResource.addMethod('PUT', new apigw.LambdaIntegration(workspacesFn), {
+      authorizer,
+      authorizationType: apigw.AuthorizationType.COGNITO,
+    });
+
+    const workspaceIdResource = workspacesResource.addResource('{wid}');
+    workspaceIdResource.addMethod('GET', new apigw.LambdaIntegration(workspacesFn), {
+      authorizer,
+      authorizationType: apigw.AuthorizationType.COGNITO,
+    });
+    workspaceIdResource.addMethod('PUT', new apigw.LambdaIntegration(workspacesFn), {
+      authorizer,
+      authorizationType: apigw.AuthorizationType.COGNITO,
+    });
+    workspaceIdResource.addMethod('DELETE', new apigw.LambdaIntegration(workspacesFn), {
       authorizer,
       authorizationType: apigw.AuthorizationType.COGNITO,
     });

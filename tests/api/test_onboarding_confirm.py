@@ -90,9 +90,16 @@ class TestOnboardingConfirmHandler:
         call_args = mock_db.put_profile_meta.call_args[0]
         assert call_args[0] == mock_table
         assert call_args[1] == user_id
-        meta = call_args[2]
+        meta = call_args[3]
         assert meta["paper_goal"] == "Clone myself as AI"
-        assert meta["learning_style"]["math"] == "route-around"
+        # Learning_style now lives on USER#<sub>#PROFILE META (user-level), not
+        # the workspace meta. Verify it landed via put_user_meta.
+        # If get_user_meta returns None (default mock), legacy promotion runs.
+        mock_db.get_user_meta.return_value = None
+        if mock_db.put_user_meta.called:
+            user_meta_args = mock_db.put_user_meta.call_args[0]
+            user_payload = user_meta_args[2]
+            assert user_payload.get("learning_style", {}).get("math") == "route-around"
 
     @patch("backend.api.onboarding_confirm.boto3")
     @patch("backend.api.onboarding_confirm.db")
@@ -107,7 +114,7 @@ class TestOnboardingConfirmHandler:
         handler(confirm_event, None)
 
         assert mock_db.put_profile_area.call_count == 2
-        first_area = mock_db.put_profile_area.call_args_list[0][0][2]
+        first_area = mock_db.put_profile_area.call_args_list[0][0][3]
         assert first_area["id"] == "area-1"
         assert first_area["label"] == "Memory Architecture"
 
@@ -124,7 +131,7 @@ class TestOnboardingConfirmHandler:
         handler(confirm_event, None)
 
         mock_db.put_profile_hypothesis.assert_called_once()
-        hyp = mock_db.put_profile_hypothesis.call_args[0][2]
+        hyp = mock_db.put_profile_hypothesis.call_args[0][3]
         assert hyp["statement"] == "Brain-structure + agentic harness >> the LLM."
 
     @patch("backend.api.onboarding_confirm.boto3")

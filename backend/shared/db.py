@@ -3,22 +3,43 @@
 All functions take a boto3 DynamoDB Table resource as the first parameter.
 The caller is responsible for creating the table resource and passing it in.
 
-PK/SK patterns:
-  Profile:         PK=USER#<sub>#PROFILE,           SK=META|AREA#<id>|HYPOTHESIS|SUMMARY#<tier>
-  Paper:           PK=USER#<sub>#PAPER#<paper_id>,  SK=META
-  Feed:            PK=USER#<sub>#FEED,              SK=CARD#<card_id>
-  Library:         PK=USER#<sub>#LIBRARY#<paper_id>,SK=META
-  Engagement:      PK=USER#<sub>#ENGAGEMENT,        SK=TS#<iso_ts>
-  Profile History: PK=USER#<sub>#PROFILE_HISTORY,   SK=TS#<iso_ts>
-  Conversation:    PK=USER#<sub>#CONV#<conv_id>,    SK=META|TURN#<seq>
-  Conv Archive:    PK=USER#<sub>#CONV_ARCHIVE#<conv_id>#<batch_id>, SK=TURN#<seq>
-  Push Sub:        PK=USER#<sub>#PUSH,              SK=SUB#<endpoint_hash>
+Workspaces:
+  Every workspace-scoped function REQUIRES an explicit ``workspace_id`` param.
+  - When ``workspace_id`` is a non-empty string (KSUID), the PK contains
+    ``#WS#<workspace_id>`` and that workspace's data is read/written.
+  - When ``workspace_id`` is an empty string, legacy (pre-workspace) PKs are
+    used. This is intentional and supports backward compatibility for tests
+    and read-only access to data written before the workspace migration. New
+    production code paths must always pass a real workspace_id.
 
-GSIs (sparse, using gsiNpk/gsiNsk attributes):
-  GSI1: list conversations   PK=USER#<sub>,                          SK=CONV#<conv_id>
-  GSI2: papers by status     PK=USER#<sub>#PAPER_STATUS#<status>,    SK=TS#<discovered_at>
-  GSI3: library entries      PK=USER#<sub>#LIBRARY,                  SK=TS#<read_at>
-  GSI4: engagement per paper PK=USER#<sub>#PAPER_ENGAGEMENT#<paper_id>, SK=TS#<iso_ts>
+PK/SK patterns (workspace-scoped, when workspace_id is set):
+  Profile:         PK=USER#<sub>#WS#<wid>#PROFILE,             SK=META|AREA#<id>|HYPOTHESIS|SUMMARY#<tier>
+  Paper:           PK=USER#<sub>#WS#<wid>#PAPER#<paper_id>,    SK=META
+  Feed:            PK=USER#<sub>#WS#<wid>#FEED,                SK=CARD#<card_id>
+  Library:         PK=USER#<sub>#WS#<wid>#LIBRARY#<paper_id>,  SK=META
+  Engagement:      PK=USER#<sub>#WS#<wid>#ENGAGEMENT,          SK=TS#<iso_ts>
+  Profile History: PK=USER#<sub>#WS#<wid>#PROFILE_HISTORY,     SK=TS#<iso_ts>
+  Conversation:    PK=USER#<sub>#WS#<wid>#CONV#<conv_id>,      SK=META|TURN#<seq>
+  Conv Archive:    PK=USER#<sub>#WS#<wid>#CONV_ARCHIVE#<conv_id>#<batch_id>, SK=TURN#<seq>
+  Brief:           PK=USER#<sub>#WS#<wid>#BRIEF,               SK=WEEK#<iso_date>
+  Pipeline run:    PK=USER#<sub>#WS#<wid>#PIPELINE,            SK=LATEST
+
+User-scoped (NOT workspace-scoped):
+  User META:       PK=USER#<sub>#PROFILE,                      SK=META  (background, learning_style, etc.)
+  Push Sub:        PK=USER#<sub>#PUSH,                         SK=SUB#<endpoint_hash>
+  Workspaces:      PK=USER#<sub>#WORKSPACES,                   SK=WS#<wid>
+  Settings:        PK=USER#<sub>#SETTINGS,                     SK=ACTIVE_WS|...
+  Onboarding mark: PK=USER#<sub>#ONBOARDING,                   SK=META
+
+System-scoped:
+  User registry:   PK=SYSTEM#USERS,                            SK=USER#<sub>
+  Global papers:   PK=PAPER#<paper_id>,                        SK=META
+
+GSIs (sparse, using gsiNpk/gsiNsk attributes; workspace_id is injected):
+  GSI1: list conversations   PK=USER#<sub>#WS#<wid>,                          SK=CONV#<conv_id>
+  GSI2: papers by status     PK=USER#<sub>#WS#<wid>#PAPER_STATUS#<status>,    SK=TS#<discovered_at>
+  GSI3: library entries      PK=USER#<sub>#WS#<wid>#LIBRARY,                  SK=TS#<read_at>
+  GSI4: engagement per paper PK=USER#<sub>#WS#<wid>#PAPER_ENGAGEMENT#<paper_id>, SK=TS#<iso_ts>
 """
 
 from __future__ import annotations
@@ -62,54 +83,246 @@ def _sanitize_item(item: dict) -> dict:
     return cleaned
 
 
-def _profile_pk(user_id: str) -> str:
-    return f"USER#{user_id}#PROFILE"
+def _ws_segment(workspace_id: str) -> str:
+    """Return ``#WS#<wid>`` if workspace_id is set, else empty string.
+
+    Used to inject the workspace prefix into PKs and GSI attributes. When
+    workspace_id is empty, returns an empty string so PKs remain in legacy
+    (pre-migration) shape.
+    """
+    return f"#WS#{workspace_id}" if workspace_id else ""
 
 
-def _paper_pk(user_id: str, paper_id: str) -> str:
-    return f"USER#{user_id}#PAPER#{paper_id}"
+def _profile_pk(user_id: str, workspace_id: str) -> str:
+    return f"USER#{user_id}{_ws_segment(workspace_id)}#PROFILE"
 
 
-def _feed_pk(user_id: str) -> str:
-    return f"USER#{user_id}#FEED"
+def _paper_pk(user_id: str, workspace_id: str, paper_id: str) -> str:
+    return f"USER#{user_id}{_ws_segment(workspace_id)}#PAPER#{paper_id}"
 
 
-def _library_pk(user_id: str, paper_id: str) -> str:
-    return f"USER#{user_id}#LIBRARY#{paper_id}"
+def _feed_pk(user_id: str, workspace_id: str) -> str:
+    return f"USER#{user_id}{_ws_segment(workspace_id)}#FEED"
 
 
-def _engagement_pk(user_id: str) -> str:
-    return f"USER#{user_id}#ENGAGEMENT"
+def _library_pk(user_id: str, workspace_id: str, paper_id: str) -> str:
+    return f"USER#{user_id}{_ws_segment(workspace_id)}#LIBRARY#{paper_id}"
 
 
-def _profile_history_pk(user_id: str) -> str:
-    return f"USER#{user_id}#PROFILE_HISTORY"
+def _engagement_pk(user_id: str, workspace_id: str) -> str:
+    return f"USER#{user_id}{_ws_segment(workspace_id)}#ENGAGEMENT"
 
 
-def _conv_pk(user_id: str, conv_id: str) -> str:
-    return f"USER#{user_id}#CONV#{conv_id}"
+def _profile_history_pk(user_id: str, workspace_id: str) -> str:
+    return f"USER#{user_id}{_ws_segment(workspace_id)}#PROFILE_HISTORY"
 
 
-def _conv_archive_pk(user_id: str, conv_id: str, batch_id: str) -> str:
-    return f"USER#{user_id}#CONV_ARCHIVE#{conv_id}#{batch_id}"
+def _conv_pk(user_id: str, workspace_id: str, conv_id: str) -> str:
+    return f"USER#{user_id}{_ws_segment(workspace_id)}#CONV#{conv_id}"
+
+
+def _conv_archive_pk(user_id: str, workspace_id: str, conv_id: str, batch_id: str) -> str:
+    return f"USER#{user_id}{_ws_segment(workspace_id)}#CONV_ARCHIVE#{conv_id}#{batch_id}"
+
+
+def _brief_pk(user_id: str, workspace_id: str) -> str:
+    return f"USER#{user_id}{_ws_segment(workspace_id)}#BRIEF"
+
+
+def _pipeline_pk(user_id: str, workspace_id: str) -> str:
+    return f"USER#{user_id}{_ws_segment(workspace_id)}#PIPELINE"
 
 
 def _global_paper_pk(paper_id: str) -> str:
     return f"PAPER#{paper_id}"
 
 
+def _gsi_user_scope(user_id: str, workspace_id: str) -> str:
+    """Return the workspace-scoped GSI partition prefix for a user."""
+    return f"USER#{user_id}{_ws_segment(workspace_id)}"
+
+
 # ---------------------------------------------------------------------------
-# Profile
+# User-level META (background, learning_style — not per-workspace)
 # ---------------------------------------------------------------------------
 
-def get_full_profile(table, user_id: str) -> dict:
-    """Query all items under the PROFILE PK.
+def get_user_meta(table, user_id: str) -> Optional[dict]:
+    """Get the user-level META item.
+
+    User-level fields: ``learning_style``, ``background``, ``math_comfort``,
+    ``time_per_week``, ``paper_preference``. These travel with the user, not
+    with any individual workspace.
+    """
+    resp = table.get_item(Key={"PK": f"USER#{user_id}#PROFILE", "SK": "META"})
+    return resp.get("Item")
+
+
+def put_user_meta(table, user_id: str, meta: dict) -> None:
+    """Write (or overwrite) the user-level META item."""
+    item = {
+        "PK": f"USER#{user_id}#PROFILE",
+        "SK": "META",
+        "user_id": user_id,
+        "last_updated": _now_iso(),
+        **meta,
+    }
+    table.put_item(Item=_sanitize_item(item))
+
+
+# ---------------------------------------------------------------------------
+# Onboarding marker (records whether user-level onboarding is complete)
+# ---------------------------------------------------------------------------
+
+def get_user_onboarding_status(table, user_id: str) -> Optional[dict]:
+    """Get the user-level onboarding status."""
+    resp = table.get_item(
+        Key={"PK": f"USER#{user_id}#ONBOARDING", "SK": "META"},
+    )
+    return resp.get("Item")
+
+
+def set_user_onboarding_complete(table, user_id: str) -> None:
+    """Mark user-level onboarding as complete."""
+    table.put_item(Item={
+        "PK": f"USER#{user_id}#ONBOARDING",
+        "SK": "META",
+        "user_id": user_id,
+        "user_onboarding_complete": True,
+        "completed_at": _now_iso(),
+    })
+
+
+# ---------------------------------------------------------------------------
+# Workspaces (registry + active pointer)
+# ---------------------------------------------------------------------------
+
+def list_workspaces(table, user_id: str) -> list[dict]:
+    """List all workspace metadata records for a user."""
+    resp = table.query(
+        KeyConditionExpression=(
+            Key("PK").eq(f"USER#{user_id}#WORKSPACES")
+            & Key("SK").begins_with("WS#")
+        ),
+    )
+    return resp.get("Items", [])
+
+
+def create_workspace(
+    table,
+    user_id: str,
+    workspace_id: str,
+    name: str = "Default",
+    description: str = "",
+) -> dict:
+    """Create a new workspace metadata record. Returns the item."""
+    now = _now_iso()
+    item = {
+        "PK": f"USER#{user_id}#WORKSPACES",
+        "SK": f"WS#{workspace_id}",
+        "user_id": user_id,
+        "workspace_id": workspace_id,
+        "name": name,
+        "description": description,
+        "status": "active",
+        "paused_reason": None,
+        "created_at": now,
+        "last_active_at": now,
+    }
+    table.put_item(Item=_sanitize_item(item))
+    return item
+
+
+def get_workspace(table, user_id: str, workspace_id: str) -> Optional[dict]:
+    """Get a single workspace metadata record."""
+    resp = table.get_item(
+        Key={
+            "PK": f"USER#{user_id}#WORKSPACES",
+            "SK": f"WS#{workspace_id}",
+        },
+    )
+    return resp.get("Item")
+
+
+def update_workspace(
+    table,
+    user_id: str,
+    workspace_id: str,
+    **fields: Any,
+) -> None:
+    """Update mutable fields on a workspace metadata record.
+
+    Allowed fields: name, description, status, paused_reason, last_active_at.
+    """
+    allowed = {"name", "description", "status", "paused_reason", "last_active_at"}
+    updates = {k: v for k, v in fields.items() if k in allowed}
+    if not updates:
+        return
+
+    expr_parts = []
+    attr_names = {}
+    attr_values = {}
+    for i, (key, value) in enumerate(updates.items()):
+        alias = f"#k{i}"
+        val_alias = f":v{i}"
+        expr_parts.append(f"{alias} = {val_alias}")
+        attr_names[alias] = key
+        attr_values[val_alias] = value
+
+    table.update_item(
+        Key={
+            "PK": f"USER#{user_id}#WORKSPACES",
+            "SK": f"WS#{workspace_id}",
+        },
+        UpdateExpression="SET " + ", ".join(expr_parts),
+        ExpressionAttributeNames=attr_names,
+        ExpressionAttributeValues=_sanitize_item(attr_values),
+    )
+
+
+def archive_workspace(table, user_id: str, workspace_id: str) -> None:
+    """Mark a workspace as archived (soft delete; mirrors pause pattern)."""
+    update_workspace(
+        table,
+        user_id,
+        workspace_id,
+        status="archived",
+        paused_reason="archived",
+    )
+
+
+def get_active_workspace(table, user_id: str) -> Optional[str]:
+    """Return the currently active workspace_id for a user, or None."""
+    resp = table.get_item(
+        Key={"PK": f"USER#{user_id}#SETTINGS", "SK": "ACTIVE_WS"},
+    )
+    item = resp.get("Item")
+    if not item:
+        return None
+    return item.get("workspace_id") or None
+
+
+def set_active_workspace(table, user_id: str, workspace_id: str) -> None:
+    """Set the user's active workspace pointer."""
+    table.put_item(Item={
+        "PK": f"USER#{user_id}#SETTINGS",
+        "SK": "ACTIVE_WS",
+        "user_id": user_id,
+        "workspace_id": workspace_id,
+        "updated_at": _now_iso(),
+    })
+
+
+# ---------------------------------------------------------------------------
+# Profile (workspace-scoped: areas, hypothesis, summaries, paper_goal)
+# ---------------------------------------------------------------------------
+
+def get_full_profile(table, user_id: str, workspace_id: str) -> dict:
+    """Query all items under the workspace's PROFILE PK.
 
     Returns a dict with keys: meta, areas, hypothesis, summaries.
-    Each is populated from matching SK items.
     """
     resp = table.query(
-        KeyConditionExpression=Key("PK").eq(_profile_pk(user_id)),
+        KeyConditionExpression=Key("PK").eq(_profile_pk(user_id, workspace_id)),
     )
     items = resp.get("Items", [])
 
@@ -132,32 +345,29 @@ def get_full_profile(table, user_id: str) -> dict:
     return result
 
 
-def get_profile_meta(table, user_id: str) -> Optional[dict]:
-    """GetItem for profile META."""
+def get_profile_meta(table, user_id: str, workspace_id: str) -> Optional[dict]:
+    """GetItem for workspace profile META (paper_goal, hypothesis_brief, etc.)."""
     resp = table.get_item(
-        Key={"PK": _profile_pk(user_id), "SK": "META"},
+        Key={"PK": _profile_pk(user_id, workspace_id), "SK": "META"},
     )
     return resp.get("Item")
 
 
-def get_profile_areas(table, user_id: str) -> list[dict]:
-    """Query all AREA# items under the profile PK."""
+def get_profile_areas(table, user_id: str, workspace_id: str) -> list[dict]:
+    """Query all AREA# items under the workspace's profile PK."""
     resp = table.query(
         KeyConditionExpression=(
-            Key("PK").eq(_profile_pk(user_id))
+            Key("PK").eq(_profile_pk(user_id, workspace_id))
             & Key("SK").begins_with("AREA#")
         ),
     )
     return resp.get("Items", [])
 
 
-def put_profile_meta(table, user_id: str, meta: dict) -> None:
-    """Write (or overwrite) the profile META item.
-
-    Expects meta to contain fields like learning_style, reading_speed, paper_goal.
-    """
+def put_profile_meta(table, user_id: str, workspace_id: str, meta: dict) -> None:
+    """Write (or overwrite) the workspace profile META item."""
     item = {
-        "PK": _profile_pk(user_id),
+        "PK": _profile_pk(user_id, workspace_id),
         "SK": "META",
         "user_id": user_id,
         "last_updated": _now_iso(),
@@ -166,14 +376,14 @@ def put_profile_meta(table, user_id: str, meta: dict) -> None:
     table.put_item(Item=_sanitize_item(item))
 
 
-def put_profile_area(table, user_id: str, area: dict) -> None:
+def put_profile_area(table, user_id: str, workspace_id: str, area: dict) -> None:
     """Write (or overwrite) a single AREA item.
 
     area must include 'id' (the area_id used in the SK).
     """
     area_id = area["id"]
     item = {
-        "PK": _profile_pk(user_id),
+        "PK": _profile_pk(user_id, workspace_id),
         "SK": f"AREA#{area_id}",
         "user_id": user_id,
         **area,
@@ -183,10 +393,10 @@ def put_profile_area(table, user_id: str, area: dict) -> None:
     table.put_item(Item=_sanitize_item(item))
 
 
-def put_profile_hypothesis(table, user_id: str, hypothesis: dict) -> None:
+def put_profile_hypothesis(table, user_id: str, workspace_id: str, hypothesis: dict) -> None:
     """Write (or overwrite) the HYPOTHESIS item."""
     item = {
-        "PK": _profile_pk(user_id),
+        "PK": _profile_pk(user_id, workspace_id),
         "SK": "HYPOTHESIS",
         "user_id": user_id,
         **hypothesis,
@@ -194,13 +404,10 @@ def put_profile_hypothesis(table, user_id: str, hypothesis: dict) -> None:
     table.put_item(Item=_sanitize_item(item))
 
 
-def put_profile_summary(table, user_id: str, tier: str, content: str) -> None:
-    """Write (or overwrite) a SUMMARY item for the given tier.
-
-    Tiers: yesterday, 3_day, 7_day, month, quarter.
-    """
+def put_profile_summary(table, user_id: str, workspace_id: str, tier: str, content: str) -> None:
+    """Write (or overwrite) a SUMMARY item for the given tier."""
     item = {
-        "PK": _profile_pk(user_id),
+        "PK": _profile_pk(user_id, workspace_id),
         "SK": f"SUMMARY#{tier}",
         "user_id": user_id,
         "tier": tier,
@@ -214,54 +421,50 @@ def put_profile_summary(table, user_id: str, tier: str, content: str) -> None:
 # Paper
 # ---------------------------------------------------------------------------
 
-def get_paper(table, user_id: str, paper_id: str) -> Optional[dict]:
+def get_paper(table, user_id: str, workspace_id: str, paper_id: str) -> Optional[dict]:
     """GetItem for a paper's META record."""
     resp = table.get_item(
-        Key={"PK": _paper_pk(user_id, paper_id), "SK": "META"},
+        Key={"PK": _paper_pk(user_id, workspace_id, paper_id), "SK": "META"},
     )
     return resp.get("Item")
 
 
-def put_paper(table, user_id: str, paper: dict) -> None:
-    """Write (or overwrite) a paper item.
-
-    paper must include 'id' (paper_id). Automatically writes GSI2
-    attributes for querying papers by status.
-    """
+def put_paper(table, user_id: str, workspace_id: str, paper: dict) -> None:
+    """Write (or overwrite) a paper item."""
     paper_id = paper["id"]
     status = paper.get("status", "candidate")
     discovered_at = paper.get("discovered_at") or _now_iso()
 
     item = {
         **paper,
-        "PK": _paper_pk(user_id, paper_id),
+        "PK": _paper_pk(user_id, workspace_id, paper_id),
         "SK": "META",
         "user_id": user_id,
         "discovered_at": discovered_at,
-        # GSI2: papers by status, newest first (MUST come after **paper to win)
-        "gsi2pk": f"USER#{user_id}#PAPER_STATUS#{status}",
+        # GSI2: papers by status, newest first (workspace-scoped)
+        "gsi2pk": f"{_gsi_user_scope(user_id, workspace_id)}#PAPER_STATUS#{status}",
         "gsi2sk": f"TS#{discovered_at}",
     }
     table.put_item(Item=_sanitize_item(item))
 
 
-def paper_exists(table, user_id: str, paper_id: str) -> bool:
+def paper_exists(table, user_id: str, workspace_id: str, paper_id: str) -> bool:
     """Check if a paper record already exists (for dedup in pipeline)."""
     resp = table.get_item(
-        Key={"PK": _paper_pk(user_id, paper_id), "SK": "META"},
+        Key={"PK": _paper_pk(user_id, workspace_id, paper_id), "SK": "META"},
         ProjectionExpression="PK",
     )
     return "Item" in resp
 
 
 def list_papers_by_status(
-    table, user_id: str, status: str, limit: int = 20
+    table, user_id: str, workspace_id: str, status: str, limit: int = 20
 ) -> list[dict]:
     """Query GSI2 for papers with a given status, newest first."""
     resp = table.query(
         IndexName="GSI2",
         KeyConditionExpression=Key("gsi2pk").eq(
-            f"USER#{user_id}#PAPER_STATUS#{status}"
+            f"{_gsi_user_scope(user_id, workspace_id)}#PAPER_STATUS#{status}"
         ),
         ScanIndexForward=False,
         Limit=limit,
@@ -273,15 +476,11 @@ def list_papers_by_status(
 # Feed
 # ---------------------------------------------------------------------------
 
-def put_feed_card(table, user_id: str, card: dict) -> None:
-    """Write a feed card item.
-
-    card must include 'card_id'. card_id should contain a timestamp prefix
-    for natural sort ordering (e.g., '20260615T023000Z_abc123').
-    """
+def put_feed_card(table, user_id: str, workspace_id: str, card: dict) -> None:
+    """Write a feed card item."""
     card_id = card["card_id"]
     item = {
-        "PK": _feed_pk(user_id),
+        "PK": _feed_pk(user_id, workspace_id),
         "SK": f"CARD#{card_id}",
         "user_id": user_id,
         **card,
@@ -291,7 +490,9 @@ def put_feed_card(table, user_id: str, card: dict) -> None:
     table.put_item(Item=_sanitize_item(item))
 
 
-def update_feed_card_meta(table, user_id: str, card_id: str, updates: dict) -> None:
+def update_feed_card_meta(
+    table, user_id: str, workspace_id: str, card_id: str, updates: dict
+) -> None:
     """Update specific fields on a feed card (bookmark, rating, etc.)."""
     expr_parts = []
     attr_names = {}
@@ -304,7 +505,7 @@ def update_feed_card_meta(table, user_id: str, card_id: str, updates: dict) -> N
         attr_values[val_alias] = value
 
     table.update_item(
-        Key={"PK": _feed_pk(user_id), "SK": f"CARD#{card_id}"},
+        Key={"PK": _feed_pk(user_id, workspace_id), "SK": f"CARD#{card_id}"},
         UpdateExpression="SET " + ", ".join(expr_parts),
         ExpressionAttributeNames=attr_names,
         ExpressionAttributeValues=_sanitize_item(attr_values),
@@ -312,16 +513,16 @@ def update_feed_card_meta(table, user_id: str, card_id: str, updates: dict) -> N
 
 
 def list_feed_cards(
-    table, user_id: str, limit: int = 20, last_key: Optional[dict] = None
+    table,
+    user_id: str,
+    workspace_id: str,
+    limit: int = 20,
+    last_key: Optional[dict] = None,
 ) -> tuple[list[dict], Optional[dict]]:
-    """Query feed cards, newest first (paginated).
-
-    Returns (items, next_last_key). next_last_key is None when no more pages.
-    card_id includes a timestamp prefix so descending SK order = newest first.
-    """
+    """Query feed cards, newest first (paginated)."""
     kwargs: dict[str, Any] = {
         "KeyConditionExpression": (
-            Key("PK").eq(_feed_pk(user_id))
+            Key("PK").eq(_feed_pk(user_id, workspace_id))
             & Key("SK").begins_with("CARD#")
         ),
         "ScanIndexForward": False,
@@ -336,19 +537,21 @@ def list_feed_cards(
     return items, next_key
 
 
-def get_feed_card(table, user_id: str, card_id: str) -> Optional[dict]:
+def get_feed_card(table, user_id: str, workspace_id: str, card_id: str) -> Optional[dict]:
     """GetItem for a specific feed card."""
     resp = table.get_item(
-        Key={"PK": _feed_pk(user_id), "SK": f"CARD#{card_id}"},
+        Key={"PK": _feed_pk(user_id, workspace_id), "SK": f"CARD#{card_id}"},
     )
     return resp.get("Item")
 
 
-def get_feed_card_by_paper(table, user_id: str, paper_id: str) -> Optional[dict]:
+def get_feed_card_by_paper(
+    table, user_id: str, workspace_id: str, paper_id: str
+) -> Optional[dict]:
     """Get the most recent feed card for a given paper_id."""
     resp = table.query(
         KeyConditionExpression=(
-            Key("PK").eq(_feed_pk(user_id))
+            Key("PK").eq(_feed_pk(user_id, workspace_id))
             & Key("SK").begins_with("CARD#")
         ),
         FilterExpression="paper_id = :pid",
@@ -364,21 +567,16 @@ def get_feed_card_by_paper(table, user_id: str, paper_id: str) -> Optional[dict]
 # Engagement
 # ---------------------------------------------------------------------------
 
-def put_engagement_event(table, user_id: str, event: dict) -> None:
-    """Write an engagement event.
-
-    event must include 'ts' (high-resolution ISO timestamp) and 'paper_id'.
-    Automatically writes GSI4 attributes for per-paper engagement queries.
-    """
+def put_engagement_event(table, user_id: str, workspace_id: str, event: dict) -> None:
+    """Write an engagement event."""
     ts = event["ts"]
     paper_id = event["paper_id"]
 
     item = {
-        "PK": _engagement_pk(user_id),
+        "PK": _engagement_pk(user_id, workspace_id),
         "SK": f"TS#{ts}",
         "user_id": user_id,
-        # GSI4: engagement per paper
-        "gsi4pk": f"USER#{user_id}#PAPER_ENGAGEMENT#{paper_id}",
+        "gsi4pk": f"{_gsi_user_scope(user_id, workspace_id)}#PAPER_ENGAGEMENT#{paper_id}",
         "gsi4sk": f"TS#{ts}",
         **event,
     }
@@ -386,28 +584,22 @@ def put_engagement_event(table, user_id: str, event: dict) -> None:
 
 
 def list_engagement_events(
-    table, user_id: str, start_ts: str, end_ts: str
+    table, user_id: str, workspace_id: str, start_ts: str, end_ts: str
 ) -> list[dict]:
-    """Query engagement events in a time range (inclusive).
-
-    start_ts and end_ts are ISO timestamps (e.g., '2026-06-10T00:00:00Z').
-    """
+    """Query engagement events in a time range (inclusive)."""
     resp = table.query(
         KeyConditionExpression=(
-            Key("PK").eq(_engagement_pk(user_id))
+            Key("PK").eq(_engagement_pk(user_id, workspace_id))
             & Key("SK").between(f"TS#{start_ts}", f"TS#{end_ts}")
         ),
     )
     return resp.get("Items", [])
 
 
-def get_read_paper_ids(table, user_id: str) -> set[str]:
-    """Return set of paper_ids that have a 'read' engagement event.
-
-    Scans all engagement events — acceptable for one user with low volume.
-    """
+def get_read_paper_ids(table, user_id: str, workspace_id: str) -> set[str]:
+    """Return set of paper_ids that have a 'read' engagement event."""
     resp = table.query(
-        KeyConditionExpression=Key("PK").eq(_engagement_pk(user_id)),
+        KeyConditionExpression=Key("PK").eq(_engagement_pk(user_id, workspace_id)),
     )
     read_ids: set[str] = set()
     for item in resp.get("Items", []):
@@ -420,14 +612,13 @@ def get_read_paper_ids(table, user_id: str) -> set[str]:
 # Profile History
 # ---------------------------------------------------------------------------
 
-def put_profile_history_event(table, user_id: str, event: dict) -> None:
-    """Append a profile history event.
-
-    event must include 'ts' (ISO timestamp).
-    """
+def put_profile_history_event(
+    table, user_id: str, workspace_id: str, event: dict
+) -> None:
+    """Append a profile history event."""
     ts = event.get("ts") or _now_iso()
     item = {
-        "PK": _profile_history_pk(user_id),
+        "PK": _profile_history_pk(user_id, workspace_id),
         "SK": f"TS#{ts}",
         "user_id": user_id,
         "ts": ts,
@@ -440,20 +631,22 @@ def put_profile_history_event(table, user_id: str, event: dict) -> None:
 # Conversations
 # ---------------------------------------------------------------------------
 
-def get_conversation_by_paper(table, user_id: str, paper_id: str) -> Optional[dict]:
+def get_conversation_by_paper(
+    table, user_id: str, workspace_id: str, paper_id: str
+) -> Optional[dict]:
     """Find the conversation META for a given paper (conv_id = paper_id convention)."""
     resp = table.get_item(
-        Key={"PK": _conv_pk(user_id, paper_id), "SK": "META"},
+        Key={"PK": _conv_pk(user_id, workspace_id, paper_id), "SK": "META"},
     )
     return resp.get("Item")
 
 
 def create_conversation(
-    table, user_id: str, paper_id: str, full_text_s3_key: str
+    table, user_id: str, workspace_id: str, paper_id: str, full_text_s3_key: str
 ) -> dict:
     """Create a new conversation for a paper. conv_id = paper_id."""
     item = {
-        "PK": _conv_pk(user_id, paper_id),
+        "PK": _conv_pk(user_id, workspace_id, paper_id),
         "SK": "META",
         "user_id": user_id,
         "conv_id": paper_id,
@@ -463,17 +656,19 @@ def create_conversation(
         "created_at": _now_iso(),
         "last_active": _now_iso(),
         "turn_count": 0,
-        "gsi1pk": f"USER#{user_id}",
+        "gsi1pk": _gsi_user_scope(user_id, workspace_id),
         "gsi1sk": f"CONV#{paper_id}",
     }
     table.put_item(Item=_sanitize_item(item))
     return item
 
 
-def create_research_conversation(table, user_id: str, conv_id: str, title: str = "") -> dict:
+def create_research_conversation(
+    table, user_id: str, workspace_id: str, conv_id: str, title: str = ""
+) -> dict:
     """Create a free-form research conversation (not anchored to a paper)."""
     item = {
-        "PK": _conv_pk(user_id, conv_id),
+        "PK": _conv_pk(user_id, workspace_id, conv_id),
         "SK": "META",
         "user_id": user_id,
         "conv_id": conv_id,
@@ -482,19 +677,19 @@ def create_research_conversation(table, user_id: str, conv_id: str, title: str =
         "created_at": _now_iso(),
         "last_active": _now_iso(),
         "turn_count": 0,
-        "gsi1pk": f"USER#{user_id}",
+        "gsi1pk": _gsi_user_scope(user_id, workspace_id),
         "gsi1sk": f"CONV#{conv_id}",
     }
     table.put_item(Item=_sanitize_item(item))
     return item
 
 
-def list_all_conversations(table, user_id: str) -> list[dict]:
-    """List all conversations (paper + research), newest first."""
+def list_all_conversations(table, user_id: str, workspace_id: str) -> list[dict]:
+    """List all conversations (paper + research) in this workspace, newest first."""
     resp = table.query(
         IndexName="GSI1",
         KeyConditionExpression=(
-            Key("gsi1pk").eq(f"USER#{user_id}")
+            Key("gsi1pk").eq(_gsi_user_scope(user_id, workspace_id))
             & Key("gsi1sk").begins_with("CONV#")
         ),
         ScanIndexForward=False,
@@ -502,18 +697,22 @@ def list_all_conversations(table, user_id: str) -> list[dict]:
     return resp.get("Items", [])
 
 
-def update_conversation_title(table, user_id: str, conv_id: str, title: str) -> None:
+def update_conversation_title(
+    table, user_id: str, workspace_id: str, conv_id: str, title: str
+) -> None:
     """Update the title of a conversation."""
     table.update_item(
-        Key={"PK": _conv_pk(user_id, conv_id), "SK": "META"},
+        Key={"PK": _conv_pk(user_id, workspace_id, conv_id), "SK": "META"},
         UpdateExpression="SET title = :t",
         ExpressionAttributeValues={":t": title},
     )
 
 
-def delete_conversation(table, user_id: str, conv_id: str) -> None:
+def delete_conversation(
+    table, user_id: str, workspace_id: str, conv_id: str
+) -> None:
     """Delete a conversation and all its turns."""
-    pk = _conv_pk(user_id, conv_id)
+    pk = _conv_pk(user_id, workspace_id, conv_id)
     resp = table.query(
         KeyConditionExpression=Key("PK").eq(pk),
         ProjectionExpression="PK, SK",
@@ -523,11 +722,13 @@ def delete_conversation(table, user_id: str, conv_id: str) -> None:
             batch.delete_item(Key={"PK": item["PK"], "SK": item["SK"]})
 
 
-def get_conversation_turns(table, user_id: str, conv_id: str) -> list[dict]:
+def get_conversation_turns(
+    table, user_id: str, workspace_id: str, conv_id: str
+) -> list[dict]:
     """Get all turns for a conversation, ordered by sequence."""
     resp = table.query(
         KeyConditionExpression=(
-            Key("PK").eq(_conv_pk(user_id, conv_id))
+            Key("PK").eq(_conv_pk(user_id, workspace_id, conv_id))
             & Key("SK").begins_with("TURN#")
         ),
         ScanIndexForward=True,
@@ -536,11 +737,17 @@ def get_conversation_turns(table, user_id: str, conv_id: str) -> list[dict]:
 
 
 def put_turn(
-    table, user_id: str, conv_id: str, seq: int, request: str, request_ts: str
+    table,
+    user_id: str,
+    workspace_id: str,
+    conv_id: str,
+    seq: int,
+    request: str,
+    request_ts: str,
 ) -> None:
     """Write a new turn with request only (response filled later)."""
     item = {
-        "PK": _conv_pk(user_id, conv_id),
+        "PK": _conv_pk(user_id, workspace_id, conv_id),
         "SK": f"TURN#{seq:05d}",
         "user_id": user_id,
         "conv_id": conv_id,
@@ -554,6 +761,7 @@ def put_turn(
 def update_turn_response(
     table,
     user_id: str,
+    workspace_id: str,
     conv_id: str,
     seq: int,
     response: str,
@@ -564,7 +772,7 @@ def update_turn_response(
 ) -> None:
     """Fill in the response on an existing turn item."""
     table.update_item(
-        Key={"PK": _conv_pk(user_id, conv_id), "SK": f"TURN#{seq:05d}"},
+        Key={"PK": _conv_pk(user_id, workspace_id, conv_id), "SK": f"TURN#{seq:05d}"},
         UpdateExpression=(
             "SET #resp = :resp, response_ts = :rts, citations = :cit, "
             "tokens_in = :tin, tokens_out = :tout"
@@ -580,10 +788,12 @@ def update_turn_response(
     )
 
 
-def update_conversation_last_active(table, user_id: str, conv_id: str) -> None:
+def update_conversation_last_active(
+    table, user_id: str, workspace_id: str, conv_id: str
+) -> None:
     """Bump the last_active timestamp and turn_count on conversation META."""
     table.update_item(
-        Key={"PK": _conv_pk(user_id, conv_id), "SK": "META"},
+        Key={"PK": _conv_pk(user_id, workspace_id, conv_id), "SK": "META"},
         UpdateExpression="SET last_active = :la ADD turn_count :one",
         ExpressionAttributeValues={
             ":la": _now_iso(),
@@ -592,7 +802,14 @@ def update_conversation_last_active(table, user_id: str, conv_id: str) -> None:
     )
 
 
-def pin_turn(table, user_id: str, conv_id: str, seq: int, pin_note: str = "") -> None:
+def pin_turn(
+    table,
+    user_id: str,
+    workspace_id: str,
+    conv_id: str,
+    seq: int,
+    pin_note: str = "",
+) -> None:
     """Pin a conversation turn as a key insight."""
     update_expr = "SET pinned = :t, pinned_at = :ts"
     values: dict = {":t": True, ":ts": _now_iso()}
@@ -600,25 +817,29 @@ def pin_turn(table, user_id: str, conv_id: str, seq: int, pin_note: str = "") ->
         update_expr += ", pin_note = :note"
         values[":note"] = pin_note
     table.update_item(
-        Key={"PK": _conv_pk(user_id, conv_id), "SK": f"TURN#{seq:05d}"},
+        Key={"PK": _conv_pk(user_id, workspace_id, conv_id), "SK": f"TURN#{seq:05d}"},
         UpdateExpression=update_expr,
         ExpressionAttributeValues=values,
     )
 
 
-def unpin_turn(table, user_id: str, conv_id: str, seq: int) -> None:
+def unpin_turn(
+    table, user_id: str, workspace_id: str, conv_id: str, seq: int
+) -> None:
     """Unpin a conversation turn."""
     table.update_item(
-        Key={"PK": _conv_pk(user_id, conv_id), "SK": f"TURN#{seq:05d}"},
+        Key={"PK": _conv_pk(user_id, workspace_id, conv_id), "SK": f"TURN#{seq:05d}"},
         UpdateExpression="REMOVE pinned, pinned_at, pin_note",
     )
 
 
-def get_pinned_turns(table, user_id: str, conv_id: str) -> list[dict]:
+def get_pinned_turns(
+    table, user_id: str, workspace_id: str, conv_id: str
+) -> list[dict]:
     """Get all pinned turns for a conversation."""
     resp = table.query(
         KeyConditionExpression=(
-            Key("PK").eq(_conv_pk(user_id, conv_id))
+            Key("PK").eq(_conv_pk(user_id, workspace_id, conv_id))
             & Key("SK").begins_with("TURN#")
         ),
         FilterExpression="pinned = :t",
@@ -627,10 +848,17 @@ def get_pinned_turns(table, user_id: str, conv_id: str) -> list[dict]:
     return resp.get("Items", [])
 
 
-def tag_paper(table, user_id: str, card_id: str, relevance: str, tags: list[str]) -> None:
+def tag_paper(
+    table,
+    user_id: str,
+    workspace_id: str,
+    card_id: str,
+    relevance: str,
+    tags: list[str],
+) -> None:
     """Set relevance level and tags on a feed card."""
     table.update_item(
-        Key={"PK": _feed_pk(user_id), "SK": f"CARD#{card_id}"},
+        Key={"PK": _feed_pk(user_id, workspace_id), "SK": f"CARD#{card_id}"},
         UpdateExpression="SET relevance = :r, tags = :t, tagged_at = :ts",
         ExpressionAttributeValues={
             ":r": relevance,
@@ -699,12 +927,12 @@ def is_paper_embedded(table, paper_id: str) -> bool:
     return bool(item and item.get("embedded"))
 
 
-def list_user_paper_ids(table, user_id: str) -> set[str]:
-    """Get all paper_ids the user has in their feed (for scoping vector queries)."""
+def list_user_paper_ids(table, user_id: str, workspace_id: str) -> set[str]:
+    """Get all paper_ids the user has in this workspace's feed."""
+    pk = _feed_pk(user_id, workspace_id)
     resp = table.query(
         KeyConditionExpression=(
-            Key("PK").eq(f"USER#{user_id}#FEED")
-            & Key("SK").begins_with("CARD#")
+            Key("PK").eq(pk) & Key("SK").begins_with("CARD#")
         ),
         ProjectionExpression="paper_id",
     )
@@ -713,12 +941,10 @@ def list_user_paper_ids(table, user_id: str) -> set[str]:
         pid = item.get("paper_id", "")
         if pid:
             paper_ids.add(pid)
-    # Handle pagination
     while resp.get("LastEvaluatedKey"):
         resp = table.query(
             KeyConditionExpression=(
-                Key("PK").eq(f"USER#{user_id}#FEED")
-                & Key("SK").begins_with("CARD#")
+                Key("PK").eq(pk) & Key("SK").begins_with("CARD#")
             ),
             ProjectionExpression="paper_id",
             ExclusiveStartKey=resp["LastEvaluatedKey"],
@@ -731,27 +957,27 @@ def list_user_paper_ids(table, user_id: str) -> set[str]:
 
 
 # ---------------------------------------------------------------------------
-# Push Subscriptions
+# Pipeline Run (deduplication, per workspace)
 # ---------------------------------------------------------------------------
 
 
-# ---------------------------------------------------------------------------
-# Pipeline Run (deduplication)
-# ---------------------------------------------------------------------------
-
-
-def get_pipeline_run(table, user_id: str) -> Optional[dict]:
+def get_pipeline_run(table, user_id: str, workspace_id: str) -> Optional[dict]:
     """Get the latest pipeline run record for dedup checks."""
-    resp = table.get_item(Key={"PK": f"USER#{user_id}#PIPELINE", "SK": "LATEST"})
+    resp = table.get_item(
+        Key={"PK": _pipeline_pk(user_id, workspace_id), "SK": "LATEST"},
+    )
     return resp.get("Item")
 
 
-def put_pipeline_run(table, user_id: str, execution_arn: str, status: str) -> None:
+def put_pipeline_run(
+    table, user_id: str, workspace_id: str, execution_arn: str, status: str
+) -> None:
     """Write/update the pipeline run record after starting a new execution."""
     table.put_item(Item={
-        "PK": f"USER#{user_id}#PIPELINE",
+        "PK": _pipeline_pk(user_id, workspace_id),
         "SK": "LATEST",
         "user_id": user_id,
+        "workspace_id": workspace_id,
         "execution_arn": execution_arn,
         "status": status,
         "started_at": _now_iso(),
@@ -759,10 +985,12 @@ def put_pipeline_run(table, user_id: str, execution_arn: str, status: str) -> No
     })
 
 
-def update_pipeline_status(table, user_id: str, status: str) -> None:
+def update_pipeline_status(
+    table, user_id: str, workspace_id: str, status: str
+) -> None:
     """Update just the status + updated_at on an existing pipeline run record."""
     table.update_item(
-        Key={"PK": f"USER#{user_id}#PIPELINE", "SK": "LATEST"},
+        Key={"PK": _pipeline_pk(user_id, workspace_id), "SK": "LATEST"},
         UpdateExpression="SET #s = :s, updated_at = :ts",
         ExpressionAttributeNames={"#s": "status"},
         ExpressionAttributeValues={":s": status, ":ts": _now_iso()},
@@ -770,7 +998,7 @@ def update_pipeline_status(table, user_id: str, status: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Push Subscriptions
+# Push Subscriptions (user-level, NOT workspace-scoped)
 # ---------------------------------------------------------------------------
 
 

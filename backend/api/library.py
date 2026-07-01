@@ -12,6 +12,7 @@ import boto3
 from boto3.dynamodb.conditions import Key
 
 from backend.shared import db
+from backend.api._workspace_helper import get_user_id, resolve_workspace_id
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -24,15 +25,6 @@ class DecimalEncoder(json.JSONEncoder):
         if isinstance(o, Decimal):
             return float(o) if o % 1 else int(o)
         return super().default(o)
-
-
-def _get_user_id(event: dict) -> str:
-    claims = (
-        event.get("requestContext", {})
-        .get("authorizer", {})
-        .get("claims", {})
-    )
-    return claims.get("sub", "")
 
 
 def _response(status: int, body: dict) -> dict:
@@ -70,23 +62,27 @@ def _compute_engagement_score(actions: dict) -> int:
 def handler(event: dict, context) -> dict:
     """Lambda handler for library API.
 
-    GET /library — all papers the user has engaged with, sorted by depth
+    GET /library — all papers the user has engaged with in the active workspace,
+    sorted by depth.
     """
-    user_id = _get_user_id(event)
+    user_id = get_user_id(event)
     if not user_id:
         return _response(401, {"error": "Unauthorized"})
 
     dynamodb = boto3.resource("dynamodb")
     table = dynamodb.Table(TABLE_NAME)
 
-    # 1. Get all engagement events for this user
-    resp = table.query(
-        KeyConditionExpression=Key("PK").eq(f"USER#{user_id}#ENGAGEMENT"),
-    )
+    workspace_id = resolve_workspace_id(table, event, user_id)
+    if not workspace_id:
+        return _response(400, {"error": "No active workspace. Create one first."})
+
+    # 1. Get all engagement events for this workspace
+    engagement_pk = db._engagement_pk(user_id, workspace_id)
+    resp = table.query(KeyConditionExpression=Key("PK").eq(engagement_pk))
     events = resp.get("Items", [])
     while resp.get("LastEvaluatedKey"):
         resp = table.query(
-            KeyConditionExpression=Key("PK").eq(f"USER#{user_id}#ENGAGEMENT"),
+            KeyConditionExpression=Key("PK").eq(engagement_pk),
             ExclusiveStartKey=resp["LastEvaluatedKey"],
         )
         events.extend(resp.get("Items", []))
@@ -142,10 +138,10 @@ def handler(event: dict, context) -> dict:
                 actions["last_engaged"] = ts
 
     # 3. Get feed cards to enrich with title/hook
+    feed_pk = db._feed_pk(user_id, workspace_id)
     cards_resp = table.query(
         KeyConditionExpression=(
-            Key("PK").eq(f"USER#{user_id}#FEED")
-            & Key("SK").begins_with("CARD#")
+            Key("PK").eq(feed_pk) & Key("SK").begins_with("CARD#")
         ),
     )
     cards = cards_resp.get("Items", [])
@@ -156,11 +152,11 @@ def handler(event: dict, context) -> dict:
         if pid and pid not in card_by_paper:
             card_by_paper[pid] = card
 
-    # 4. Get conversation turn counts
+    # 4. Get conversation turn counts (workspace-scoped)
     conv_resp = table.query(
         IndexName="GSI1",
         KeyConditionExpression=(
-            Key("gsi1pk").eq(f"USER#{user_id}")
+            Key("gsi1pk").eq(db._gsi_user_scope(user_id, workspace_id))
             & Key("gsi1sk").begins_with("CONV#")
         ),
     )
@@ -178,7 +174,6 @@ def handler(event: dict, context) -> dict:
         card = card_by_paper.get(paper_id, {})
         score = _compute_engagement_score(actions)
 
-        # Skip papers with only impressions (never actually engaged)
         if not actions["read"] and actions["view_count"] == 0 and not actions["ask"]:
             continue
 
@@ -204,4 +199,8 @@ def handler(event: dict, context) -> dict:
 
     library.sort(key=lambda x: x["engagement_score"], reverse=True)
 
-    return _response(200, {"papers": library, "total": len(library)})
+    return _response(200, {
+        "workspace_id": workspace_id,
+        "papers": library,
+        "total": len(library),
+    })

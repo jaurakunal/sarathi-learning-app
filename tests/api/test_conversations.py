@@ -125,7 +125,7 @@ class TestPutConversation:
 
         assert result["statusCode"] == 200
         mock_db.update_conversation_title.assert_called_once_with(
-            mock_table, "test-user-123", "conv-1", "Updated Title"
+            mock_table, "test-user-123", "ws-test-fixture", "conv-1", "Updated Title"
         )
 
     @patch("backend.api.conversations.boto3")
@@ -156,7 +156,7 @@ class TestDeleteConversation:
 
         assert result["statusCode"] == 200
         mock_db.delete_conversation.assert_called_once_with(
-            mock_table, "test-user-123", "conv-1"
+            mock_table, "test-user-123", "ws-test-fixture", "conv-1"
         )
 
     @patch("backend.api.conversations.boto3")

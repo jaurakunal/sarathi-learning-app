@@ -14,7 +14,7 @@ type ChatResponse {
 }
 
 type Mutation {
-  sendMessage(paperId: String!, message: String!): ChatResponse!
+  sendMessage(paperId: String!, message: String!, workspaceId: String): ChatResponse!
   publishChunk(conversationId: String!, turnSeq: Int!, chunk: String!, done: Boolean!, tokensIn: Int, tokensOut: Int): ChatChunk!
     @aws_iam
 }

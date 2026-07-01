@@ -11,6 +11,7 @@ from decimal import Decimal
 import boto3
 
 from backend.shared import db
+from backend.api._workspace_helper import get_user_id, resolve_workspace_id
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -25,18 +26,8 @@ class DecimalEncoder(json.JSONEncoder):
         return super().default(o)
 
 
-def _get_user_id(event: dict) -> str:
-    """Extract Cognito user sub from API Gateway authorizer claims."""
-    claims = (
-        event.get("requestContext", {})
-        .get("authorizer", {})
-        .get("claims", {})
-    )
-    return claims.get("sub", "")
-
-
-def _touch_last_active(table, user_id: str) -> None:
-    """Update last_active_at on the user's SYSTEM#USERS record (fire-and-forget)."""
+def _touch_last_active(table, user_id: str, workspace_id: str) -> None:
+    """Update last_active_at on the user's SYSTEM#USERS record + the workspace."""
     try:
         now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
         table.update_item(
@@ -44,6 +35,8 @@ def _touch_last_active(table, user_id: str) -> None:
             UpdateExpression="SET last_active_at = :ts",
             ExpressionAttributeValues={":ts": now},
         )
+        if workspace_id:
+            db.update_workspace(table, user_id, workspace_id, last_active_at=now)
     except Exception:
         pass
 
@@ -74,35 +67,38 @@ def handler(event: dict, context) -> dict:
     GET /feed — paginated feed cards, newest first
     GET /feed/{card_id} — single card detail
     """
-    user_id = _get_user_id(event)
+    user_id = get_user_id(event)
     if not user_id:
         return _response(401, {"error": "Unauthorized"})
 
     dynamodb = boto3.resource("dynamodb")
     table = dynamodb.Table(TABLE_NAME)
 
-    # Track last activity (fire-and-forget, non-blocking)
-    _touch_last_active(table, user_id)
+    workspace_id = resolve_workspace_id(table, event, user_id)
+    if not workspace_id:
+        return _response(400, {"error": "No active workspace. Create one first."})
+
+    _touch_last_active(table, user_id, workspace_id)
 
     path_params = event.get("pathParameters") or {}
     card_id = path_params.get("card_id")
 
     if card_id:
-        return _get_single_card(table, user_id, card_id)
+        return _get_single_card(table, user_id, workspace_id, card_id)
     else:
-        return _list_feed(table, user_id, event)
+        return _list_feed(table, user_id, workspace_id, event)
 
 
-def _get_single_card(table, user_id: str, card_id: str) -> dict:
+def _get_single_card(table, user_id: str, workspace_id: str, card_id: str) -> dict:
     """GET /feed/{card_id} — full card detail."""
-    card = db.get_feed_card(table, user_id, card_id)
+    card = db.get_feed_card(table, user_id, workspace_id, card_id)
     if not card:
         return _response(404, {"error": "Card not found"})
 
     return _response(200, _strip_internal_keys(card))
 
 
-def _list_feed(table, user_id: str, event: dict) -> dict:
+def _list_feed(table, user_id: str, workspace_id: str, event: dict) -> dict:
     """GET /feed — paginated card listing, newest first."""
     query_params = event.get("queryStringParameters") or {}
     limit = min(int(query_params.get("limit", "20")), 50)
@@ -115,17 +111,16 @@ def _list_feed(table, user_id: str, event: dict) -> dict:
         except (json.JSONDecodeError, TypeError):
             return _response(400, {"error": "Invalid lastKey parameter"})
 
-    cards, next_key = db.list_feed_cards(table, user_id, limit=limit, last_key=last_key)
+    cards, next_key = db.list_feed_cards(
+        table, user_id, workspace_id, limit=limit, last_key=last_key
+    )
 
-    # Filter dismissed cards unless explicitly requested
     show_dismissed = query_params.get("show_dismissed") == "true"
     if not show_dismissed:
         cards = [c for c in cards if not c.get("dismissed")]
 
-    # Get set of read paper IDs for marking cards
-    read_paper_ids = db.get_read_paper_ids(table, user_id)
+    read_paper_ids = db.get_read_paper_ids(table, user_id, workspace_id)
 
-    # Return compact card summaries for the list view
     response_cards = []
     for card in cards:
         response_cards.append({
@@ -143,5 +138,5 @@ def _list_feed(table, user_id: str, event: dict) -> dict:
             "dismissed": bool(card.get("dismissed", False)),
         })
 
-    body = {"cards": response_cards, "lastKey": next_key}
+    body = {"cards": response_cards, "lastKey": next_key, "workspace_id": workspace_id}
     return _response(200, body)

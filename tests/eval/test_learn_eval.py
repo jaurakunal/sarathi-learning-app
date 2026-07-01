@@ -111,7 +111,7 @@ def test_conversations_skips_entries_with_empty_qa():
 
 
 def test_build_learn_input_falls_back_to_dataset_engagement(fake_table, sample_profile):
-    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, sample_profile["meta"])
+    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, "", sample_profile["meta"])
     fake_table.put_item(Item={
         "PK": eval_dataset.DATASET_PK,
         "SK": "PAPER#paper-1",
@@ -134,7 +134,7 @@ def test_build_learn_input_raises_when_profile_missing(fake_table):
 
 
 def test_build_learn_input_raises_when_dataset_missing(fake_table, sample_profile):
-    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, sample_profile["meta"])
+    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, "", sample_profile["meta"])
     with pytest.raises(RuntimeError, match="dataset"):
         learn_eval.build_learn_input(fake_table)
 
@@ -285,11 +285,11 @@ def test_run_eval_persists_summary(
     mock_call.return_value = (_ok_learn_text(), {"tokens_in": 500, "tokens_out": 200})
     mock_judge.return_value = _alignment_response(overall=4)
 
-    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, sample_profile["meta"])
+    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, "", sample_profile["meta"])
     for area in sample_profile["areas"]:
-        db.put_profile_area(fake_table, eval_dataset.TEST_USER_ID, area)
+        db.put_profile_area(fake_table, eval_dataset.TEST_USER_ID, "", area)
     db.put_profile_hypothesis(
-        fake_table, eval_dataset.TEST_USER_ID, sample_profile["hypothesis"],
+        fake_table, eval_dataset.TEST_USER_ID, "", sample_profile["hypothesis"],
     )
 
     fake_table.put_item(Item={
@@ -324,7 +324,7 @@ def test_run_eval_skips_double_call_when_baseline_equals_model(
     mock_call.return_value = (_ok_learn_text(), {"tokens_in": 500, "tokens_out": 200})
     mock_judge.return_value = _alignment_response(overall=5)
 
-    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, sample_profile["meta"])
+    db.put_profile_meta(fake_table, eval_dataset.TEST_USER_ID, "", sample_profile["meta"])
     fake_table.put_item(Item={
         "PK": eval_dataset.DATASET_PK,
         "SK": "PAPER#p1",

@@ -23,6 +23,7 @@ def test_happy_path_card_generated(mock_db, mock_boto3, mock_call_llm, mock_sour
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
     mock_s3 = MagicMock()
     mock_boto3.client.return_value = mock_s3
 
@@ -73,7 +74,7 @@ def test_happy_path_card_generated(mock_db, mock_boto3, mock_call_llm, mock_sour
     call_args = mock_db.put_feed_card.call_args[0]
     assert call_args[0] is mock_table
     assert call_args[1] == user_id
-    card = call_args[2]
+    card = call_args[3]
     assert card["hook"] == "What if your agent could remember last Tuesday?"
     assert card["paper_id"] == "paper-001"
 
@@ -92,6 +93,7 @@ def test_full_text_fetch_fails_skips_paper(mock_db, mock_boto3, mock_call_llm, m
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
     mock_s3 = MagicMock()
     mock_boto3.client.return_value = mock_s3
 
@@ -141,6 +143,7 @@ def test_llm_malformed_json_skips_paper(mock_db, mock_boto3, mock_call_llm, mock
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
     mock_s3 = MagicMock()
     mock_boto3.client.return_value = mock_s3
 
@@ -212,6 +215,7 @@ def test_s3_key_user_scoped(mock_db, mock_boto3, mock_call_llm, mock_sources, us
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
     mock_s3 = MagicMock()
     mock_boto3.client.return_value = mock_s3
 
@@ -257,6 +261,7 @@ def test_no_profile_returns_error(mock_db, mock_boto3, mock_call_llm, user_id, t
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
     mock_boto3.client.return_value = MagicMock()
 
     mock_db.get_full_profile.return_value = {"meta": None, "areas": [], "hypothesis": None, "summaries": []}
@@ -284,6 +289,7 @@ def test_no_surfaced_papers_returns_zeros(mock_db, mock_boto3, mock_call_llm, us
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
     mock_boto3.client.return_value = MagicMock()
 
     mock_db.get_full_profile.return_value = sample_profile
@@ -313,6 +319,7 @@ def test_unknown_source_skips_paper(mock_db, mock_boto3, mock_call_llm, mock_sou
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
     mock_boto3.client.return_value = MagicMock()
 
     mock_db.get_full_profile.return_value = sample_profile
@@ -350,6 +357,7 @@ def test_feed_card_structure(mock_db, mock_boto3, mock_call_llm, mock_sources, u
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
     mock_s3 = MagicMock()
     mock_boto3.client.return_value = mock_s3
 
@@ -378,7 +386,7 @@ def test_feed_card_structure(mock_db, mock_boto3, mock_call_llm, mock_sources, u
         "s3_bucket": "bucket",
     })
 
-    card = mock_db.put_feed_card.call_args[0][2]
+    card = mock_db.put_feed_card.call_args[0][3]
 
     # Verify all required keys
     required_keys = [
@@ -414,6 +422,7 @@ def test_uses_fallback_wrapper_with_kimi_primary(
 
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
     mock_boto3.client.return_value = MagicMock()
 
     mock_db.get_full_profile.return_value = sample_profile

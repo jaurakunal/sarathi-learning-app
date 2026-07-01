@@ -36,6 +36,7 @@ class TestDispatchHandler:
     def test_creates_conversation_if_not_exists(self, mock_db, mock_boto3):
         mock_table = MagicMock()
         mock_boto3.resource.return_value.Table.return_value = mock_table
+        mock_db.get_active_workspace.return_value = "ws-test"
         mock_boto3.client.return_value = MagicMock()
         mock_db.get_conversation_by_paper.return_value = None
         mock_db.create_conversation.return_value = {"conv_id": "paper1"}
@@ -51,6 +52,7 @@ class TestDispatchHandler:
     def test_returns_correct_turn_seq(self, mock_db, mock_boto3):
         mock_table = MagicMock()
         mock_boto3.resource.return_value.Table.return_value = mock_table
+        mock_db.get_active_workspace.return_value = "ws-test"
         mock_boto3.client.return_value = MagicMock()
         mock_db.get_conversation_by_paper.return_value = {"conv_id": "paper1"}
         # 3 existing turns → next seq = 4
@@ -68,6 +70,7 @@ class TestDispatchHandler:
     def test_invokes_stream_lambda_async(self, mock_db, mock_boto3):
         mock_table = MagicMock()
         mock_boto3.resource.return_value.Table.return_value = mock_table
+        mock_db.get_active_workspace.return_value = "ws-test"
         mock_lambda = MagicMock()
         mock_boto3.client.return_value = mock_lambda
         mock_db.get_conversation_by_paper.return_value = {"conv_id": "paper1"}
@@ -89,6 +92,7 @@ class TestDispatchHandler:
     def test_writes_turn_to_ddb(self, mock_db, mock_boto3):
         mock_table = MagicMock()
         mock_boto3.resource.return_value.Table.return_value = mock_table
+        mock_db.get_active_workspace.return_value = "ws-test"
         mock_boto3.client.return_value = MagicMock()
         mock_db.get_conversation_by_paper.return_value = {"conv_id": "paper1"}
         mock_db.get_conversation_turns.return_value = []
@@ -103,6 +107,7 @@ class TestDispatchHandler:
     def test_extracts_user_from_claims_fallback(self, mock_db, mock_boto3):
         mock_table = MagicMock()
         mock_boto3.resource.return_value.Table.return_value = mock_table
+        mock_db.get_active_workspace.return_value = "ws-test"
         mock_boto3.client.return_value = MagicMock()
         mock_db.get_conversation_by_paper.return_value = {"conv_id": "paper1"}
         mock_db.get_conversation_turns.return_value = []

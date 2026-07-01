@@ -168,13 +168,12 @@ def _aggregate_engagement(events: list[dict]) -> dict:
     return stats
 
 
-def _collect_conversations(table, user_id: str, since_ts: str) -> list[dict]:
-    """Collect conversation turns since the given timestamp."""
-    # Query all conversations via GSI1
+def _collect_conversations(table, user_id: str, workspace_id: str, since_ts: str) -> list[dict]:
+    """Collect conversation turns since the given timestamp (workspace-scoped)."""
     resp = table.query(
         IndexName="GSI1",
         KeyConditionExpression=(
-            Key("gsi1pk").eq(f"USER#{user_id}")
+            Key("gsi1pk").eq(db._gsi_user_scope(user_id, workspace_id))
             & Key("gsi1sk").begins_with("CONV#")
         ),
     )
@@ -185,7 +184,7 @@ def _collect_conversations(table, user_id: str, since_ts: str) -> list[dict]:
         if not conv_id:
             continue
 
-        turns = db.get_conversation_turns(table, user_id, conv_id)
+        turns = db.get_conversation_turns(table, user_id, workspace_id, conv_id)
         # Filter to turns since last learn
         new_turns = [
             t for t in turns
@@ -290,16 +289,21 @@ def _build_learn_prompt(
 def handler(event: dict, context) -> dict:
     """Lambda handler for the Learn step."""
     user_id = event["user_id"]
+    workspace_id = event.get("workspace_id", "")
     table_name = event["table_name"]
     model_id = event.get("model", DEFAULT_MODEL)
 
     dynamodb = boto3.resource("dynamodb")
     table = dynamodb.Table(table_name)
 
-    # 1. Get current profile
-    profile = db.get_full_profile(table, user_id)
+    if not workspace_id:
+        workspace_id = db.get_active_workspace(table, user_id) or ""
+
+    # 1. Get current profile (workspace-scoped)
+    profile = db.get_full_profile(table, user_id, workspace_id)
     if not profile.get("meta"):
-        logger.warning("No profile found for user %s — skipping learn step", user_id)
+        logger.warning("No profile found for user %s ws %s — skipping learn step",
+                       user_id, workspace_id)
         return {"status": "skipped", "reason": "no_profile"}
 
     # 2. Determine time window (since last learn, or last 7 days)
@@ -313,7 +317,7 @@ def handler(event: dict, context) -> dict:
     # 3. Read engagement events since last run
     now = datetime.now(timezone.utc)
     now_ts = _now_iso()
-    events = db.list_engagement_events(table, user_id, since, now_ts)
+    events = db.list_engagement_events(table, user_id, workspace_id, since, now_ts)
     logger.info("Found %d engagement events since %s", len(events), since)
 
     # 4. Aggregate engagement stats (since last run — drives area/frontier updates)
@@ -330,20 +334,21 @@ def handler(event: dict, context) -> dict:
     tier_stats = {}
     for tier, since_dt in tier_windows.items():
         tier_since = since_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-        tier_events = db.list_engagement_events(table, user_id, tier_since, now_ts)
+        tier_events = db.list_engagement_events(table, user_id, workspace_id, tier_since, now_ts)
         tier_stats[tier] = _aggregate_engagement(tier_events)
 
     # 5. Collect new conversation turns
-    conversations = _collect_conversations(table, user_id, since)
+    conversations = _collect_conversations(table, user_id, workspace_id, since)
     logger.info("Found %d conversations with new turns", len(conversations))
 
     # 6. Check if there's enough signal to justify an LLM call
     if engagement_stats["total_events"] == 0 and not conversations:
         logger.info("No engagement or conversations since last run — skipping")
-        # Still update last_learn_ts so we don't re-scan
-        db.put_profile_meta(table, user_id, {**profile["meta"], "last_learn_ts": now_ts})
-        # Mark pipeline as succeeded (learn is the last step)
-        db.update_pipeline_status(table, user_id, "succeeded")
+        db.put_profile_meta(
+            table, user_id, workspace_id,
+            {**profile["meta"], "last_learn_ts": now_ts},
+        )
+        db.update_pipeline_status(table, user_id, workspace_id, "succeeded")
         return {"status": "skipped", "reason": "no_activity"}
 
     # 7. Build prompt and call LLM
@@ -404,7 +409,7 @@ def handler(event: dict, context) -> dict:
             if area_update.get("status"):
                 existing["status"] = area_update["status"]
             existing["last_engaged"] = now_ts
-            db.put_profile_area(table, user_id, existing)
+            db.put_profile_area(table, user_id, workspace_id, existing)
             changes_made.append(f"area:{area_id}")
             frontier_snapshots[area_id] = {
                 "before": {"frontier": before_frontier, "status": before_status},
@@ -420,7 +425,7 @@ def handler(event: dict, context) -> dict:
             if new_items:
                 existing_list = existing_hyp.get(key, [])
                 existing_hyp[key] = existing_list + new_items
-        db.put_profile_hypothesis(table, user_id, existing_hyp)
+        db.put_profile_hypothesis(table, user_id, workspace_id, existing_hyp)
         changes_made.append("hypothesis")
 
     # Update learning style + reading speed on META
@@ -431,7 +436,7 @@ def handler(event: dict, context) -> dict:
     if updates.get("reading_speed_wpm"):
         meta_updates["reading_speed"] = updates["reading_speed_wpm"]
         changes_made.append("reading_speed")
-    db.put_profile_meta(table, user_id, meta_updates)
+    db.put_profile_meta(table, user_id, workspace_id, meta_updates)
 
     # Update summaries
     summaries = updates.get("summaries", {})
@@ -445,7 +450,7 @@ def handler(event: dict, context) -> dict:
     for key, tier in tier_map.items():
         content = summaries.get(key, "")
         if content:
-            db.put_profile_summary(table, user_id, tier, content)
+            db.put_profile_summary(table, user_id, workspace_id, tier, content)
     if summaries:
         changes_made.append("summaries")
 
@@ -461,10 +466,10 @@ def handler(event: dict, context) -> dict:
         history_event["frontier_snapshots"] = frontier_snapshots
     if hyp_evidence and any(hyp_evidence.get(k) for k in ("supporting", "refuting", "refining")):
         history_event["hypothesis_evidence_added"] = hyp_evidence
-    db.put_profile_history_event(table, user_id, history_event)
+    db.put_profile_history_event(table, user_id, workspace_id, history_event)
 
     # Mark pipeline as succeeded (learn is the last step in the pipeline)
-    db.update_pipeline_status(table, user_id, "succeeded")
+    db.update_pipeline_status(table, user_id, workspace_id, "succeeded")
 
     logger.info("Learn step complete: %s", changes_made)
     return {

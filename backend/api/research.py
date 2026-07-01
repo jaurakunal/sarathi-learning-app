@@ -10,31 +10,32 @@ import boto3
 from boto3.dynamodb.conditions import Key
 
 from backend.shared import db
+from backend.api._workspace_helper import get_user_id, resolve_workspace_id
 
 logger = logging.getLogger(__name__)
 
 TABLE_NAME = os.environ.get("TABLE_NAME", "sarathi")
 
 
-def _get_user_id(event: dict) -> str:
-    claims = event.get("requestContext", {}).get("authorizer", {}).get("claims", {})
-    return claims.get("sub", "")
-
-
 def handler(event: dict, context) -> dict:
     """GET /research — returns structured research data grouped by tags."""
-    user_id = _get_user_id(event)
+    user_id = get_user_id(event)
     if not user_id:
         return _response(401, {"error": "Unauthorized"})
 
     dynamodb = boto3.resource("dynamodb")
     table = dynamodb.Table(TABLE_NAME)
 
+    workspace_id = resolve_workspace_id(table, event, user_id)
+    if not workspace_id:
+        return _response(400, {"error": "No active workspace. Create one first."})
+
+    feed_pk = db._feed_pk(user_id, workspace_id)
+
     # 1. Get all feed cards
     resp = table.query(
         KeyConditionExpression=(
-            Key("PK").eq(f"USER#{user_id}#FEED")
-            & Key("SK").begins_with("CARD#")
+            Key("PK").eq(feed_pk) & Key("SK").begins_with("CARD#")
         ),
     )
     cards = resp.get("Items", [])
@@ -58,11 +59,13 @@ def handler(event: dict, context) -> dict:
                 tag_groups[tag] = []
             tag_groups[tag].append(_card_summary(card))
 
-    # 4. Get all pinned turns across conversations
+    # 4. Get all pinned turns across conversations (workspace-scoped)
     pinned_by_paper: dict[str, list] = {}
     conv_resp = table.query(
         IndexName="GSI1",
-        KeyConditionExpression=Key("gsi1pk").eq(f"USER#{user_id}"),
+        KeyConditionExpression=Key("gsi1pk").eq(
+            db._gsi_user_scope(user_id, workspace_id)
+        ),
     )
     convs = conv_resp.get("Items", [])
 
@@ -70,7 +73,7 @@ def handler(event: dict, context) -> dict:
         conv_id = conv.get("conv_id", "")
         turns_resp = table.query(
             KeyConditionExpression=(
-                Key("PK").eq(f"USER#{user_id}#CONV#{conv_id}")
+                Key("PK").eq(db._conv_pk(user_id, workspace_id, conv_id))
                 & Key("SK").begins_with("TURN#")
             ),
             FilterExpression="pinned = :t",
@@ -89,6 +92,7 @@ def handler(event: dict, context) -> dict:
 
     # 5. Build response
     response = {
+        "workspace_id": workspace_id,
         "tag_groups": tag_groups,
         "untagged_engaged": [_card_summary(c) for c in untagged],
         "pinned_insights": pinned_by_paper,

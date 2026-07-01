@@ -29,6 +29,11 @@ def user_id():
 
 
 @pytest.fixture
+def workspace_id():
+    return "ws-test-001"
+
+
+@pytest.fixture
 def paper_id():
     return "arxiv-2406-12345"
 
@@ -89,28 +94,28 @@ def sample_engagement_event():
 
 class TestHelpers:
     def test_profile_pk(self, user_id):
-        assert db._profile_pk(user_id) == f"USER#{user_id}#PROFILE"
+        assert db._profile_pk(user_id, "") == f"USER#{user_id}#PROFILE"
 
     def test_paper_pk(self, user_id, paper_id):
-        assert db._paper_pk(user_id, paper_id) == f"USER#{user_id}#PAPER#{paper_id}"
+        assert db._paper_pk(user_id, "", paper_id) == f"USER#{user_id}#PAPER#{paper_id}"
 
     def test_feed_pk(self, user_id):
-        assert db._feed_pk(user_id) == f"USER#{user_id}#FEED"
+        assert db._feed_pk(user_id, "") == f"USER#{user_id}#FEED"
 
     def test_library_pk(self, user_id, paper_id):
-        assert db._library_pk(user_id, paper_id) == f"USER#{user_id}#LIBRARY#{paper_id}"
+        assert db._library_pk(user_id, "", paper_id) == f"USER#{user_id}#LIBRARY#{paper_id}"
 
     def test_engagement_pk(self, user_id):
-        assert db._engagement_pk(user_id) == f"USER#{user_id}#ENGAGEMENT"
+        assert db._engagement_pk(user_id, "") == f"USER#{user_id}#ENGAGEMENT"
 
     def test_profile_history_pk(self, user_id):
-        assert db._profile_history_pk(user_id) == f"USER#{user_id}#PROFILE_HISTORY"
+        assert db._profile_history_pk(user_id, "") == f"USER#{user_id}#PROFILE_HISTORY"
 
     def test_conv_pk(self, user_id):
-        assert db._conv_pk(user_id, "conv1") == f"USER#{user_id}#CONV#conv1"
+        assert db._conv_pk(user_id, "", "conv1") == f"USER#{user_id}#CONV#conv1"
 
     def test_conv_archive_pk(self, user_id):
-        assert db._conv_archive_pk(user_id, "conv1", "b1") == (
+        assert db._conv_archive_pk(user_id, "", "conv1", "b1") == (
             f"USER#{user_id}#CONV_ARCHIVE#conv1#b1"
         )
 
@@ -141,7 +146,7 @@ class TestGetFullProfile:
             ],
         }
 
-        result = db.get_full_profile(mock_table, user_id)
+        result = db.get_full_profile(mock_table, user_id, "")
 
         assert result["meta"]["paper_goal"] == "my goal"
         assert len(result["areas"]) == 2
@@ -151,7 +156,7 @@ class TestGetFullProfile:
     def test_empty_profile_returns_none_and_empty_lists(self, mock_table, user_id):
         mock_table.query.return_value = {"Items": []}
 
-        result = db.get_full_profile(mock_table, user_id)
+        result = db.get_full_profile(mock_table, user_id, "")
 
         assert result["meta"] is None
         assert result["areas"] == []
@@ -160,7 +165,7 @@ class TestGetFullProfile:
 
     def test_queries_correct_pk(self, mock_table, user_id):
         mock_table.query.return_value = {"Items": []}
-        db.get_full_profile(mock_table, user_id)
+        db.get_full_profile(mock_table, user_id, "")
 
         call_kwargs = mock_table.query.call_args[1]
         assert "KeyConditionExpression" in call_kwargs
@@ -172,7 +177,7 @@ class TestGetProfileMeta:
             "Item": {"PK": "...", "SK": "META", "paper_goal": "goal"},
         }
 
-        result = db.get_profile_meta(mock_table, user_id)
+        result = db.get_profile_meta(mock_table, user_id, "")
 
         assert result is not None
         assert result["paper_goal"] == "goal"
@@ -180,13 +185,13 @@ class TestGetProfileMeta:
     def test_returns_none_when_not_found(self, mock_table, user_id):
         mock_table.get_item.return_value = {}
 
-        result = db.get_profile_meta(mock_table, user_id)
+        result = db.get_profile_meta(mock_table, user_id, "")
 
         assert result is None
 
     def test_passes_correct_key(self, mock_table, user_id):
         mock_table.get_item.return_value = {}
-        db.get_profile_meta(mock_table, user_id)
+        db.get_profile_meta(mock_table, user_id, "")
 
         call_kwargs = mock_table.get_item.call_args[1]
         assert call_kwargs["Key"] == {
@@ -204,7 +209,7 @@ class TestGetProfileAreas:
             ],
         }
 
-        result = db.get_profile_areas(mock_table, user_id)
+        result = db.get_profile_areas(mock_table, user_id, "")
 
         assert len(result) == 2
         assert result[0]["label"] == "A1"
@@ -212,14 +217,14 @@ class TestGetProfileAreas:
     def test_returns_empty_list_when_no_areas(self, mock_table, user_id):
         mock_table.query.return_value = {"Items": []}
 
-        result = db.get_profile_areas(mock_table, user_id)
+        result = db.get_profile_areas(mock_table, user_id, "")
 
         assert result == []
 
 
 class TestPutProfileMeta:
     def test_writes_correct_item(self, mock_table, user_id, sample_meta):
-        db.put_profile_meta(mock_table, user_id, sample_meta)
+        db.put_profile_meta(mock_table, user_id, "", sample_meta)
 
         mock_table.put_item.assert_called_once()
         item = mock_table.put_item.call_args[1]["Item"]
@@ -230,7 +235,7 @@ class TestPutProfileMeta:
         assert "last_updated" in item
 
     def test_includes_timestamp(self, mock_table, user_id, sample_meta):
-        db.put_profile_meta(mock_table, user_id, sample_meta)
+        db.put_profile_meta(mock_table, user_id, "", sample_meta)
 
         item = mock_table.put_item.call_args[1]["Item"]
         assert item["last_updated"].endswith("Z")
@@ -238,7 +243,7 @@ class TestPutProfileMeta:
 
 class TestPutProfileArea:
     def test_writes_correct_item(self, mock_table, user_id, sample_area):
-        db.put_profile_area(mock_table, user_id, sample_area)
+        db.put_profile_area(mock_table, user_id, "", sample_area)
 
         mock_table.put_item.assert_called_once()
         item = mock_table.put_item.call_args[1]["Item"]
@@ -248,21 +253,21 @@ class TestPutProfileArea:
         assert item["label"] == "Person cloning"
 
     def test_sets_added_at_when_missing(self, mock_table, user_id, sample_area):
-        db.put_profile_area(mock_table, user_id, sample_area)
+        db.put_profile_area(mock_table, user_id, "", sample_area)
 
         item = mock_table.put_item.call_args[1]["Item"]
         assert item["added_at"].endswith("Z")
 
     def test_preserves_existing_added_at(self, mock_table, user_id, sample_area):
         sample_area["added_at"] = "2026-01-01T00:00:00.000Z"
-        db.put_profile_area(mock_table, user_id, sample_area)
+        db.put_profile_area(mock_table, user_id, "", sample_area)
 
         item = mock_table.put_item.call_args[1]["Item"]
         assert item["added_at"] == "2026-01-01T00:00:00.000Z"
 
     def test_sets_added_at_when_none(self, mock_table, user_id, sample_area):
         sample_area["added_at"] = None
-        db.put_profile_area(mock_table, user_id, sample_area)
+        db.put_profile_area(mock_table, user_id, "", sample_area)
 
         item = mock_table.put_item.call_args[1]["Item"]
         # Should be set to a timestamp (not None)
@@ -272,7 +277,7 @@ class TestPutProfileArea:
 class TestPutProfileHypothesis:
     def test_writes_correct_item(self, mock_table, user_id):
         hypothesis = {"statement": "My hypothesis", "status": "untested"}
-        db.put_profile_hypothesis(mock_table, user_id, hypothesis)
+        db.put_profile_hypothesis(mock_table, user_id, "", hypothesis)
 
         mock_table.put_item.assert_called_once()
         item = mock_table.put_item.call_args[1]["Item"]
@@ -284,7 +289,7 @@ class TestPutProfileHypothesis:
 
 class TestPutProfileSummary:
     def test_writes_correct_item(self, mock_table, user_id):
-        db.put_profile_summary(mock_table, user_id, "yesterday", "Summary content")
+        db.put_profile_summary(mock_table, user_id, "", "yesterday", "Summary content")
 
         mock_table.put_item.assert_called_once()
         item = mock_table.put_item.call_args[1]["Item"]
@@ -298,7 +303,7 @@ class TestPutProfileSummary:
     def test_different_tiers(self, mock_table, user_id):
         for tier in ["yesterday", "3_day", "7_day", "month", "quarter"]:
             mock_table.reset_mock()
-            db.put_profile_summary(mock_table, user_id, tier, "content")
+            db.put_profile_summary(mock_table, user_id, "", tier, "content")
 
             item = mock_table.put_item.call_args[1]["Item"]
             assert item["SK"] == f"SUMMARY#{tier}"
@@ -315,7 +320,7 @@ class TestGetPaper:
             "Item": {"PK": "...", "SK": "META", "title": "Paper Title"},
         }
 
-        result = db.get_paper(mock_table, user_id, paper_id)
+        result = db.get_paper(mock_table, user_id, "", paper_id)
 
         assert result is not None
         assert result["title"] == "Paper Title"
@@ -323,13 +328,13 @@ class TestGetPaper:
     def test_returns_none_when_not_found(self, mock_table, user_id, paper_id):
         mock_table.get_item.return_value = {}
 
-        result = db.get_paper(mock_table, user_id, paper_id)
+        result = db.get_paper(mock_table, user_id, "", paper_id)
 
         assert result is None
 
     def test_passes_correct_key(self, mock_table, user_id, paper_id):
         mock_table.get_item.return_value = {}
-        db.get_paper(mock_table, user_id, paper_id)
+        db.get_paper(mock_table, user_id, "", paper_id)
 
         call_kwargs = mock_table.get_item.call_args[1]
         assert call_kwargs["Key"] == {
@@ -340,7 +345,7 @@ class TestGetPaper:
 
 class TestPutPaper:
     def test_writes_correct_item(self, mock_table, user_id, sample_paper):
-        db.put_paper(mock_table, user_id, sample_paper)
+        db.put_paper(mock_table, user_id, "", sample_paper)
 
         mock_table.put_item.assert_called_once()
         item = mock_table.put_item.call_args[1]["Item"]
@@ -350,7 +355,7 @@ class TestPutPaper:
         assert item["title"] == "Test Paper"
 
     def test_writes_gsi2_attributes(self, mock_table, user_id, sample_paper):
-        db.put_paper(mock_table, user_id, sample_paper)
+        db.put_paper(mock_table, user_id, "", sample_paper)
 
         item = mock_table.put_item.call_args[1]["Item"]
         assert item["gsi2pk"] == f"USER#{user_id}#PAPER_STATUS#candidate"
@@ -358,14 +363,14 @@ class TestPutPaper:
 
     def test_sets_discovered_at_when_missing(self, mock_table, user_id):
         paper = {"id": "p1", "title": "T", "status": "surfaced"}
-        db.put_paper(mock_table, user_id, paper)
+        db.put_paper(mock_table, user_id, "", paper)
 
         item = mock_table.put_item.call_args[1]["Item"]
         assert item["discovered_at"].endswith("Z")
 
     def test_defaults_status_to_candidate(self, mock_table, user_id):
         paper = {"id": "p1", "title": "T"}
-        db.put_paper(mock_table, user_id, paper)
+        db.put_paper(mock_table, user_id, "", paper)
 
         item = mock_table.put_item.call_args[1]["Item"]
         assert item["gsi2pk"] == f"USER#{user_id}#PAPER_STATUS#candidate"
@@ -375,16 +380,16 @@ class TestPaperExists:
     def test_returns_true_when_exists(self, mock_table, user_id, paper_id):
         mock_table.get_item.return_value = {"Item": {"PK": "..."}}
 
-        assert db.paper_exists(mock_table, user_id, paper_id) is True
+        assert db.paper_exists(mock_table, user_id, "", paper_id) is True
 
     def test_returns_false_when_not_exists(self, mock_table, user_id, paper_id):
         mock_table.get_item.return_value = {}
 
-        assert db.paper_exists(mock_table, user_id, paper_id) is False
+        assert db.paper_exists(mock_table, user_id, "", paper_id) is False
 
     def test_uses_projection_expression(self, mock_table, user_id, paper_id):
         mock_table.get_item.return_value = {}
-        db.paper_exists(mock_table, user_id, paper_id)
+        db.paper_exists(mock_table, user_id, "", paper_id)
 
         call_kwargs = mock_table.get_item.call_args[1]
         assert call_kwargs["ProjectionExpression"] == "PK"
@@ -396,20 +401,20 @@ class TestListPapersByStatus:
             "Items": [{"title": "P1"}, {"title": "P2"}],
         }
 
-        result = db.list_papers_by_status(mock_table, user_id, "candidate")
+        result = db.list_papers_by_status(mock_table, user_id, "", "candidate")
 
         assert len(result) == 2
 
     def test_returns_empty_list_when_none(self, mock_table, user_id):
         mock_table.query.return_value = {"Items": []}
 
-        result = db.list_papers_by_status(mock_table, user_id, "surfaced")
+        result = db.list_papers_by_status(mock_table, user_id, "", "surfaced")
 
         assert result == []
 
     def test_queries_gsi2_with_correct_params(self, mock_table, user_id):
         mock_table.query.return_value = {"Items": []}
-        db.list_papers_by_status(mock_table, user_id, "candidate", limit=10)
+        db.list_papers_by_status(mock_table, user_id, "", "candidate", limit=10)
 
         call_kwargs = mock_table.query.call_args[1]
         assert call_kwargs["IndexName"] == "GSI2"
@@ -418,7 +423,7 @@ class TestListPapersByStatus:
 
     def test_default_limit_is_20(self, mock_table, user_id):
         mock_table.query.return_value = {"Items": []}
-        db.list_papers_by_status(mock_table, user_id, "candidate")
+        db.list_papers_by_status(mock_table, user_id, "", "candidate")
 
         call_kwargs = mock_table.query.call_args[1]
         assert call_kwargs["Limit"] == 20
@@ -431,7 +436,7 @@ class TestListPapersByStatus:
 
 class TestPutFeedCard:
     def test_writes_correct_item(self, mock_table, user_id, sample_card):
-        db.put_feed_card(mock_table, user_id, sample_card)
+        db.put_feed_card(mock_table, user_id, "", sample_card)
 
         mock_table.put_item.assert_called_once()
         item = mock_table.put_item.call_args[1]["Item"]
@@ -440,21 +445,21 @@ class TestPutFeedCard:
         assert item["user_id"] == user_id
 
     def test_sets_created_at_when_missing(self, mock_table, user_id, sample_card):
-        db.put_feed_card(mock_table, user_id, sample_card)
+        db.put_feed_card(mock_table, user_id, "", sample_card)
 
         item = mock_table.put_item.call_args[1]["Item"]
         assert item["created_at"].endswith("Z")
 
     def test_preserves_existing_created_at(self, mock_table, user_id, sample_card):
         sample_card["created_at"] = "2026-01-01T00:00:00.000Z"
-        db.put_feed_card(mock_table, user_id, sample_card)
+        db.put_feed_card(mock_table, user_id, "", sample_card)
 
         item = mock_table.put_item.call_args[1]["Item"]
         assert item["created_at"] == "2026-01-01T00:00:00.000Z"
 
     def test_sets_created_at_when_none(self, mock_table, user_id, sample_card):
         sample_card["created_at"] = None
-        db.put_feed_card(mock_table, user_id, sample_card)
+        db.put_feed_card(mock_table, user_id, "", sample_card)
 
         item = mock_table.put_item.call_args[1]["Item"]
         assert item["created_at"].endswith("Z")
@@ -466,7 +471,7 @@ class TestListFeedCards:
             "Items": [{"card_id": "c1"}, {"card_id": "c2"}],
         }
 
-        items, next_key = db.list_feed_cards(mock_table, user_id)
+        items, next_key = db.list_feed_cards(mock_table, user_id, "")
 
         assert len(items) == 2
         assert next_key is None
@@ -478,7 +483,7 @@ class TestListFeedCards:
             "LastEvaluatedKey": last_key,
         }
 
-        items, next_key = db.list_feed_cards(mock_table, user_id)
+        items, next_key = db.list_feed_cards(mock_table, user_id, "")
 
         assert next_key == last_key
 
@@ -486,7 +491,7 @@ class TestListFeedCards:
         last_key = {"PK": "...", "SK": "CARD#prev"}
         mock_table.query.return_value = {"Items": []}
 
-        db.list_feed_cards(mock_table, user_id, last_key=last_key)
+        db.list_feed_cards(mock_table, user_id, "", last_key=last_key)
 
         call_kwargs = mock_table.query.call_args[1]
         assert call_kwargs["ExclusiveStartKey"] == last_key
@@ -494,7 +499,7 @@ class TestListFeedCards:
     def test_does_not_pass_last_key_when_none(self, mock_table, user_id):
         mock_table.query.return_value = {"Items": []}
 
-        db.list_feed_cards(mock_table, user_id)
+        db.list_feed_cards(mock_table, user_id, "")
 
         call_kwargs = mock_table.query.call_args[1]
         assert "ExclusiveStartKey" not in call_kwargs
@@ -502,7 +507,7 @@ class TestListFeedCards:
     def test_respects_limit(self, mock_table, user_id):
         mock_table.query.return_value = {"Items": []}
 
-        db.list_feed_cards(mock_table, user_id, limit=5)
+        db.list_feed_cards(mock_table, user_id, "", limit=5)
 
         call_kwargs = mock_table.query.call_args[1]
         assert call_kwargs["Limit"] == 5
@@ -510,7 +515,7 @@ class TestListFeedCards:
     def test_queries_descending(self, mock_table, user_id):
         mock_table.query.return_value = {"Items": []}
 
-        db.list_feed_cards(mock_table, user_id)
+        db.list_feed_cards(mock_table, user_id, "")
 
         call_kwargs = mock_table.query.call_args[1]
         assert call_kwargs["ScanIndexForward"] is False
@@ -522,7 +527,7 @@ class TestGetFeedCard:
             "Item": {"card_id": "c1", "hook": "Interesting paper"},
         }
 
-        result = db.get_feed_card(mock_table, user_id, "c1")
+        result = db.get_feed_card(mock_table, user_id, "", "c1")
 
         assert result is not None
         assert result["hook"] == "Interesting paper"
@@ -530,13 +535,13 @@ class TestGetFeedCard:
     def test_returns_none_when_not_found(self, mock_table, user_id):
         mock_table.get_item.return_value = {}
 
-        result = db.get_feed_card(mock_table, user_id, "nonexistent")
+        result = db.get_feed_card(mock_table, user_id, "", "nonexistent")
 
         assert result is None
 
     def test_passes_correct_key(self, mock_table, user_id):
         mock_table.get_item.return_value = {}
-        db.get_feed_card(mock_table, user_id, "c1")
+        db.get_feed_card(mock_table, user_id, "", "c1")
 
         call_kwargs = mock_table.get_item.call_args[1]
         assert call_kwargs["Key"] == {
@@ -552,7 +557,7 @@ class TestGetFeedCard:
 
 class TestPutEngagementEvent:
     def test_writes_correct_item(self, mock_table, user_id, sample_engagement_event):
-        db.put_engagement_event(mock_table, user_id, sample_engagement_event)
+        db.put_engagement_event(mock_table, user_id, "", sample_engagement_event)
 
         mock_table.put_item.assert_called_once()
         item = mock_table.put_item.call_args[1]["Item"]
@@ -563,7 +568,7 @@ class TestPutEngagementEvent:
         assert item["active_ms"] == 5000
 
     def test_writes_gsi4_attributes(self, mock_table, user_id, sample_engagement_event):
-        db.put_engagement_event(mock_table, user_id, sample_engagement_event)
+        db.put_engagement_event(mock_table, user_id, "", sample_engagement_event)
 
         item = mock_table.put_item.call_args[1]["Item"]
         ts = sample_engagement_event["ts"]
@@ -579,7 +584,7 @@ class TestListEngagementEvents:
         }
 
         result = db.list_engagement_events(
-            mock_table, user_id,
+            mock_table, user_id, "",
             "2026-06-01T00:00:00Z", "2026-06-10T23:59:59Z",
         )
 
@@ -589,7 +594,7 @@ class TestListEngagementEvents:
         mock_table.query.return_value = {"Items": []}
 
         result = db.list_engagement_events(
-            mock_table, user_id,
+            mock_table, user_id, "",
             "2026-06-01T00:00:00Z", "2026-06-02T00:00:00Z",
         )
 
@@ -600,7 +605,7 @@ class TestListEngagementEvents:
         start = "2026-06-01T00:00:00Z"
         end = "2026-06-10T23:59:59Z"
 
-        db.list_engagement_events(mock_table, user_id, start, end)
+        db.list_engagement_events(mock_table, user_id, "", start, end)
 
         mock_table.query.assert_called_once()
 
@@ -613,7 +618,7 @@ class TestListEngagementEvents:
 class TestPutProfileHistoryEvent:
     def test_writes_correct_item_with_ts(self, mock_table, user_id):
         event = {"ts": "2026-06-10T01:00:00Z", "type": "area_added", "area_id": "a1"}
-        db.put_profile_history_event(mock_table, user_id, event)
+        db.put_profile_history_event(mock_table, user_id, "", event)
 
         mock_table.put_item.assert_called_once()
         item = mock_table.put_item.call_args[1]["Item"]
@@ -626,7 +631,7 @@ class TestPutProfileHistoryEvent:
 
     def test_generates_ts_when_missing(self, mock_table, user_id):
         event = {"type": "hypothesis_added"}
-        db.put_profile_history_event(mock_table, user_id, event)
+        db.put_profile_history_event(mock_table, user_id, "", event)
 
         item = mock_table.put_item.call_args[1]["Item"]
         assert item["ts"].endswith("Z")
@@ -640,7 +645,7 @@ class TestPutProfileHistoryEvent:
         The SK is still correct (built from the generated ts variable).
         """
         event = {"ts": None, "type": "frontier_moved"}
-        db.put_profile_history_event(mock_table, user_id, event)
+        db.put_profile_history_event(mock_table, user_id, "", event)
 
         item = mock_table.put_item.call_args[1]["Item"]
         # SK is built from the local ts variable (generated), so it's correct
@@ -726,7 +731,7 @@ class TestListPushSubscriptions:
 
 class TestPinTurn:
     def test_sets_pinned_true_with_timestamp(self, mock_table, user_id):
-        db.pin_turn(mock_table, user_id, "conv-1", 3)
+        db.pin_turn(mock_table, user_id, "", "conv-1", 3)
 
         mock_table.update_item.assert_called_once()
         call_kwargs = mock_table.update_item.call_args[1]
@@ -738,7 +743,7 @@ class TestPinTurn:
         assert call_kwargs["ExpressionAttributeValues"][":t"] is True
 
     def test_includes_pin_note_when_provided(self, mock_table, user_id):
-        db.pin_turn(mock_table, user_id, "conv-1", 5, pin_note="Key insight")
+        db.pin_turn(mock_table, user_id, "", "conv-1", 5, pin_note="Key insight")
 
         call_kwargs = mock_table.update_item.call_args[1]
         assert ":note" in call_kwargs["ExpressionAttributeValues"]
@@ -748,7 +753,7 @@ class TestPinTurn:
 
 class TestUnpinTurn:
     def test_removes_pinned_attributes(self, mock_table, user_id):
-        db.unpin_turn(mock_table, user_id, "conv-1", 3)
+        db.unpin_turn(mock_table, user_id, "", "conv-1", 3)
 
         mock_table.update_item.assert_called_once()
         call_kwargs = mock_table.update_item.call_args[1]
@@ -767,7 +772,7 @@ class TestGetPinnedTurns:
             ]
         }
 
-        result = db.get_pinned_turns(mock_table, user_id, "conv-1")
+        result = db.get_pinned_turns(mock_table, user_id, "", "conv-1")
 
         assert len(result) == 1
         assert result[0]["pinned"] is True
@@ -775,7 +780,7 @@ class TestGetPinnedTurns:
     def test_returns_empty_when_none_pinned(self, mock_table, user_id):
         mock_table.query.return_value = {"Items": []}
 
-        result = db.get_pinned_turns(mock_table, user_id, "conv-1")
+        result = db.get_pinned_turns(mock_table, user_id, "", "conv-1")
 
         assert result == []
 
@@ -787,7 +792,7 @@ class TestGetPinnedTurns:
 
 class TestTagPaper:
     def test_sets_relevance_and_tags(self, mock_table, user_id):
-        db.tag_paper(mock_table, user_id, "card-123", "core", ["alignment", "safety"])
+        db.tag_paper(mock_table, user_id, "", "card-123", "core", ["alignment", "safety"])
 
         mock_table.update_item.assert_called_once()
         call_kwargs = mock_table.update_item.call_args[1]
@@ -808,7 +813,7 @@ class TestTagPaper:
 
 class TestCreateResearchConversation:
     def test_writes_correct_item(self, mock_table, user_id):
-        result = db.create_research_conversation(mock_table, user_id, "conv-abc", "My Research")
+        result = db.create_research_conversation(mock_table, user_id, "", "conv-abc", "My Research")
 
         mock_table.put_item.assert_called_once()
         item = mock_table.put_item.call_args[1]["Item"]
@@ -822,7 +827,7 @@ class TestCreateResearchConversation:
         assert result["conv_id"] == "conv-abc"
 
     def test_default_title(self, mock_table, user_id):
-        result = db.create_research_conversation(mock_table, user_id, "conv-abc", "")
+        result = db.create_research_conversation(mock_table, user_id, "", "conv-abc", "")
 
         item = mock_table.put_item.call_args[1]["Item"]
         assert item["title"] == "New conversation"
@@ -837,7 +842,7 @@ class TestListAllConversations:
             ]
         }
 
-        result = db.list_all_conversations(mock_table, user_id)
+        result = db.list_all_conversations(mock_table, user_id, "")
 
         assert len(result) == 2
         mock_table.query.assert_called_once()
@@ -848,14 +853,14 @@ class TestListAllConversations:
     def test_returns_empty_when_none(self, mock_table, user_id):
         mock_table.query.return_value = {"Items": []}
 
-        result = db.list_all_conversations(mock_table, user_id)
+        result = db.list_all_conversations(mock_table, user_id, "")
 
         assert result == []
 
 
 class TestUpdateConversationTitle:
     def test_updates_with_correct_params(self, mock_table, user_id):
-        db.update_conversation_title(mock_table, user_id, "conv-1", "New Title")
+        db.update_conversation_title(mock_table, user_id, "", "conv-1", "New Title")
 
         mock_table.update_item.assert_called_once()
         call_kwargs = mock_table.update_item.call_args[1]
@@ -879,7 +884,7 @@ class TestDeleteConversation:
         mock_table.batch_writer.return_value.__enter__ = MagicMock(return_value=mock_batch_writer)
         mock_table.batch_writer.return_value.__exit__ = MagicMock(return_value=False)
 
-        db.delete_conversation(mock_table, user_id, "conv-1")
+        db.delete_conversation(mock_table, user_id, "", "conv-1")
 
         assert mock_batch_writer.delete_item.call_count == 3
 
@@ -897,7 +902,7 @@ class TestGetFeedCardByPaper:
             ]
         }
 
-        result = db.get_feed_card_by_paper(mock_table, user_id, "p1")
+        result = db.get_feed_card_by_paper(mock_table, user_id, "", "p1")
 
         assert result is not None
         assert result["card_id"] == "c1"
@@ -905,6 +910,6 @@ class TestGetFeedCardByPaper:
     def test_returns_none_when_no_match(self, mock_table, user_id):
         mock_table.query.return_value = {"Items": []}
 
-        result = db.get_feed_card_by_paper(mock_table, user_id, "p-nonexistent")
+        result = db.get_feed_card_by_paper(mock_table, user_id, "", "p-nonexistent")
 
         assert result is None
