@@ -570,16 +570,19 @@ def get_feed_card_by_paper(
 def put_engagement_event(table, user_id: str, workspace_id: str, event: dict) -> None:
     """Write an engagement event."""
     ts = event["ts"]
-    paper_id = event["paper_id"]
+    paper_id = event.get("paper_id")
 
     item = {
         "PK": _engagement_pk(user_id, workspace_id),
         "SK": f"TS#{ts}",
         "user_id": user_id,
-        "gsi4pk": f"{_gsi_user_scope(user_id, workspace_id)}#PAPER_ENGAGEMENT#{paper_id}",
-        "gsi4sk": f"TS#{ts}",
         **event,
     }
+    # Only add GSI4 keys if we have a paper_id (some events like impressions
+    # aren't scoped to a specific paper).
+    if paper_id:
+        item["gsi4pk"] = f"{_gsi_user_scope(user_id, workspace_id)}#PAPER_ENGAGEMENT#{paper_id}"
+        item["gsi4sk"] = f"TS#{ts}"
     table.put_item(Item=_sanitize_item(item))
 
 
