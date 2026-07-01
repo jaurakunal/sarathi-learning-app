@@ -1,11 +1,11 @@
 import { useEffect, useState, ReactNode } from 'react'
-import { getSession, login, signUp, confirmSignUp, forgotPassword, confirmNewPassword, getOIDCLoginUrl } from './cognito'
+import { getSession, login, forgotPassword, confirmNewPassword, getOIDCLoginUrl } from './cognito'
 
 interface AuthGateProps {
   children: ReactNode
 }
 
-type AuthView = 'login' | 'signup' | 'verify' | 'forgot' | 'reset'
+type AuthView = 'login' | 'forgot' | 'reset'
 
 export function AuthGate({ children }: AuthGateProps) {
   const [authed, setAuthed] = useState<boolean | null>(null)
@@ -44,51 +44,6 @@ export function AuthGate({ children }: AuthGateProps) {
       setAuthed(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleSignUp = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError('')
-    setLoading(true)
-    try {
-      await signUp(email, password)
-      // Auto-confirmed by pre-signup trigger — sign in immediately
-      // Small delay to allow Cognito propagation
-      await new Promise((r) => setTimeout(r, 1000))
-      try {
-        await login(email, password)
-        setAuthed(true)
-      } catch {
-        // Retry once after another second
-        await new Promise((r) => setTimeout(r, 1500))
-        await login(email, password)
-        setAuthed(true)
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Sign up failed'
-      if (msg.includes('not confirmed') || msg.includes('UserNotConfirmedException')) {
-        setView('verify')
-      } else {
-        setError(msg)
-      }
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleVerify = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError('')
-    setLoading(true)
-    try {
-      await confirmSignUp(email, verifyCode)
-      await login(email, password)
-      setAuthed(true)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Verification failed')
     } finally {
       setLoading(false)
     }
@@ -181,72 +136,14 @@ export function AuthGate({ children }: AuthGateProps) {
             >
               {loading ? 'Signing in...' : 'Sign in'}
             </button>
-            <p className="text-center text-sm text-zinc-500">
-              Don't have an account?{' '}
-              <button type="button" onClick={() => { setView('signup'); setError('') }} className="text-accent hover:text-accent-light">
-                Sign up
-              </button>
-            </p>
             <p className="text-center text-sm">
               <button type="button" onClick={() => { setView('forgot'); setError('') }} className="text-zinc-500 hover:text-zinc-300">
                 Forgot password?
               </button>
             </p>
-          </form>
-        )}
-
-        {view === 'signup' && (
-          <form onSubmit={handleSignUp} className="space-y-4">
-            <input
-              type="email"
-              placeholder="Email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-4 py-3 glass-card rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:border-accent/50"
-              autoComplete="email"
-            />
-            <input
-              type="password"
-              placeholder="Password (min 8 chars)"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-3 glass-card rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:border-accent/50"
-              autoComplete="new-password"
-            />
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-3 bg-accent hover:bg-accent-light text-white font-medium rounded-xl disabled:opacity-50 transition-all shadow-glow"
-            >
-              {loading ? 'Creating account...' : 'Create account'}
-            </button>
-            <p className="text-center text-sm text-zinc-500">
-              Already have an account?{' '}
-              <button type="button" onClick={() => { setView('login'); setError('') }} className="text-accent hover:text-accent-light">
-                Sign in
-              </button>
+            <p className="text-center text-xs text-zinc-600">
+              New to Sārathi? Sign in with SSO above.
             </p>
-          </form>
-        )}
-
-        {view === 'verify' && (
-          <form onSubmit={handleVerify} className="space-y-4">
-            <p className="text-sm text-zinc-400 text-center">Check your email for a verification code.</p>
-            <input
-              type="text"
-              placeholder="Verification code"
-              value={verifyCode}
-              onChange={(e) => setVerifyCode(e.target.value)}
-              className="w-full px-4 py-3 glass-card rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:border-accent/50 text-center tracking-widest"
-              autoComplete="one-time-code"
-            />
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-3 bg-accent hover:bg-accent-light text-white font-medium rounded-xl disabled:opacity-50 transition-all shadow-glow"
-            >
-              {loading ? 'Verifying...' : 'Verify & continue'}
-            </button>
           </form>
         )}
 
