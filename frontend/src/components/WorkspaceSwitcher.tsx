@@ -48,7 +48,7 @@ export function WorkspaceSwitcher() {
       {open && (
         <div
           role="menu"
-          className="absolute right-0 mt-2 w-[260px] bg-[#11111d] border border-white/[0.08] rounded-lg shadow-xl z-50 py-1"
+          className="absolute left-0 mt-2 w-[210px] max-w-[calc(100vw-2rem)] bg-[#11111d] border border-white/[0.08] rounded-lg shadow-xl z-50 py-1"
         >
           {workspaces.length === 0 && (
             <div className="px-4 py-3 text-xs text-zinc-500">No workspaces yet</div>
