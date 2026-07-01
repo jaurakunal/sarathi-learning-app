@@ -138,7 +138,13 @@ def handler(event: dict, context) -> dict:
 
 def _list_workspaces(table, user_id: str) -> dict:
     items = db.list_workspaces(table, user_id)
-    workspaces = [_strip_internal_keys(it) for it in items]
+    # Filter out archived workspaces from the switcher — they still exist in DDB
+    # for audit but shouldn't appear in the UI.
+    workspaces = [
+        _strip_internal_keys(it)
+        for it in items
+        if it.get("status") != "archived"
+    ]
     return _response(200, {"workspaces": workspaces})
 
 
