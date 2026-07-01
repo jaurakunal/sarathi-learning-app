@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { LogOut, TrendingUp, BookOpen, Search, X, Target, Menu, MessageCircle, Inbox, Settings, Pause } from 'lucide-react'
+import { Search, X, Inbox, Pause } from 'lucide-react'
 import { getFeed } from '../api/feed'
 import { postEngagement } from '../api/engagement'
 import { apiFetch } from '../api/client'
@@ -10,7 +10,6 @@ import { FeedCard } from '../components/FeedCard'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import { PushBanner } from '../components/PushBanner'
 import { Layout } from '../components/Layout'
-import { logout } from '../auth/cognito'
 import type { FeedResponse } from '../types/feed'
 
 type TabFilter = 'all' | 'unread' | 'dismissed'
@@ -33,7 +32,6 @@ export function Feed() {
       setSearchParams({}, { replace: true })
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
-  const [menuOpen, setMenuOpen] = useState(false)
 
   const {
     data,
@@ -98,60 +96,19 @@ export function Feed() {
       <div className="ambient-orb w-72 h-72 bg-violet-neon bottom-[20%] left-[-8rem]" />
 
       <div className="max-w-lg lg:max-w-2xl xl:max-w-3xl mx-auto px-4 pt-safe-top pb-safe-bottom relative z-10">
-        {/* Header */}
+        {/* Header — mobile shows only the search icon (title is in Layout's top bar);
+            desktop shows the "Feed" heading */}
         <div className="glass-header sticky top-0 z-20 -mx-4 px-4 py-4 flex items-center justify-between">
-          <h1 className="text-xl font-bold text-gradient lg:hidden">Sārathi</h1>
           <h1 className="text-xl font-bold text-gradient hidden lg:block">Feed</h1>
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => { setSearchOpen(!searchOpen); if (searchOpen) setSearchQuery('') }}
-              className={`p-2 transition-colors ${searchOpen ? 'text-accent' : 'text-zinc-500 hover:text-accent'}`}
-              title="Search"
-            >
-              <Search size={18} />
-            </button>
-            <button
-              onClick={() => setMenuOpen(true)}
-              className="text-zinc-500 hover:text-accent transition-colors p-2 lg:hidden"
-              title="Menu"
-            >
-              <Menu size={18} />
-            </button>
-          </div>
+          <div className="flex-1 lg:hidden" />
+          <button
+            onClick={() => { setSearchOpen(!searchOpen); if (searchOpen) setSearchQuery('') }}
+            className={`p-2 transition-colors ${searchOpen ? 'text-accent' : 'text-zinc-500 hover:text-accent'}`}
+            title="Search"
+          >
+            <Search size={18} />
+          </button>
         </div>
-
-        {/* Slide-out menu (mobile only) */}
-        {menuOpen && (
-          <>
-            <div className="fixed inset-0 bg-black/60 z-40 lg:hidden" onClick={() => setMenuOpen(false)} />
-            <div className="fixed top-0 right-0 h-full w-64 bg-[#0e0e18] border-l border-white/[0.06] z-50 p-6 pt-safe-top lg:hidden">
-              <button onClick={() => setMenuOpen(false)} className="absolute top-4 right-4 text-zinc-500 hover:text-white p-2">
-                <X size={18} />
-              </button>
-              <nav className="mt-12 space-y-1">
-                <button onClick={() => { navigate('/conversations'); setMenuOpen(false) }} className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm text-zinc-300 hover:text-white hover:bg-white/[0.04] transition-colors">
-                  <MessageCircle size={18} className="text-accent" /> Conversations
-                </button>
-                <button onClick={() => { navigate('/research'); setMenuOpen(false) }} className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm text-zinc-300 hover:text-white hover:bg-white/[0.04] transition-colors">
-                  <Target size={18} className="text-zinc-400" /> Research
-                </button>
-                <button onClick={() => { navigate('/library'); setMenuOpen(false) }} className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm text-zinc-300 hover:text-white hover:bg-white/[0.04] transition-colors">
-                  <BookOpen size={18} className="text-zinc-400" /> Library
-                </button>
-                <button onClick={() => { navigate('/profile'); setMenuOpen(false) }} className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm text-zinc-300 hover:text-white hover:bg-white/[0.04] transition-colors">
-                  <TrendingUp size={18} className="text-zinc-400" /> Progress
-                </button>
-                <button onClick={() => { navigate('/settings'); setMenuOpen(false) }} className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm text-zinc-300 hover:text-white hover:bg-white/[0.04] transition-colors">
-                  <Settings size={18} className="text-zinc-400" /> Settings
-                </button>
-                <div className="border-t border-white/[0.06] my-3" />
-                <button onClick={() => { logout(); window.location.reload() }} className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm text-zinc-500 hover:text-red-400 hover:bg-red-400/5 transition-colors">
-                  <LogOut size={18} /> Log out
-                </button>
-              </nav>
-            </div>
-          </>
-        )}
 
         {/* Search bar */}
         {searchOpen && (
