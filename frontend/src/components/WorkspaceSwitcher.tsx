@@ -48,7 +48,7 @@ export function WorkspaceSwitcher() {
       {open && (
         <div
           role="menu"
-          className="absolute left-0 mt-2 w-[210px] max-w-[calc(100vw-2rem)] bg-[#11111d] border border-white/[0.08] rounded-lg shadow-xl z-50 py-1"
+          className="absolute right-0 lg:right-auto lg:left-0 mt-2 w-[210px] max-w-[calc(100vw-2rem)] bg-[#11111d] border border-white/[0.08] rounded-lg shadow-xl z-50 py-1"
         >
           {workspaces.length === 0 && (
             <div className="px-4 py-3 text-xs text-zinc-500">No workspaces yet</div>
@@ -89,7 +89,7 @@ export function WorkspaceSwitcher() {
               className="w-full text-left px-4 py-2 flex items-center gap-2 text-sm text-accent hover:bg-white/[0.04]"
             >
               <Plus size={14} />
-              Create new workspace
+              New workspace
             </button>
           </div>
         </div>
