@@ -420,3 +420,149 @@ class TestCanTrigger:
         assert result is True
         # Should not have tried to update — just allow trigger
         mock_db.update_pipeline_status.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Tests — Per-workspace auto-pause
+# ---------------------------------------------------------------------------
+
+
+class TestAutoPauseInactiveWorkspaces:
+    """Workspaces idle > INACTIVE_DAYS should be auto-paused and not triggered."""
+
+    def _setup(self, mock_boto3, mock_db, workspaces, users=None):
+        """Common wiring: 1 active user, given workspaces list."""
+        users = users or [{"PK": "SYSTEM#USERS", "SK": "USER#user-1", "user_id": "user-1", "status": "active"}]
+        mock_table = MagicMock()
+        mock_table.query.return_value = {"Items": users}
+        mock_boto3.resource.return_value.Table.return_value = mock_table
+        mock_sfn = MagicMock()
+        mock_sfn.start_execution.return_value = {"executionArn": "arn:exec:new"}
+        mock_boto3.client.return_value = mock_sfn
+        mock_db.get_pipeline_run.return_value = None
+        mock_db.list_workspaces.return_value = workspaces
+        return mock_table, mock_sfn
+
+    @patch.dict("os.environ", {"TABLE_NAME": "sarathi-test", "STATE_MACHINE_ARN": "arn:aws:states:us-east-1:123:stateMachine:pipeline", "BUCKET_NAME": "sarathi-bucket"})
+    @patch("backend.pipeline.fanout.db")
+    @patch("backend.pipeline.fanout.boto3")
+    def test_auto_pauses_workspace_idle_over_cutoff(self, mock_boto3, mock_db):
+        """A workspace with last_active_at older than INACTIVE_DAYS is auto-paused."""
+        from datetime import datetime, timezone, timedelta
+        from backend.pipeline.fanout import INACTIVE_DAYS
+
+        old_ts = (datetime.now(timezone.utc) - timedelta(days=INACTIVE_DAYS + 1)).isoformat()
+        workspaces = [
+            {"workspace_id": "ws-old", "status": "active", "last_active_at": old_ts},
+        ]
+        _, mock_sfn = self._setup(mock_boto3, mock_db, workspaces)
+
+        from backend.pipeline.fanout import handler
+        result = handler({}, None)
+
+        # Not triggered
+        mock_sfn.start_execution.assert_not_called()
+        # Paused via db.update_workspace
+        mock_db.update_workspace.assert_called_once_with(
+            mock_boto3.resource.return_value.Table.return_value,
+            "user-1", "ws-old",
+            status="paused", paused_reason="inactive",
+        )
+        assert result["users_paused"] == 1
+
+    @patch.dict("os.environ", {"TABLE_NAME": "sarathi-test", "STATE_MACHINE_ARN": "arn:aws:states:us-east-1:123:stateMachine:pipeline", "BUCKET_NAME": "sarathi-bucket"})
+    @patch("backend.pipeline.fanout.db")
+    @patch("backend.pipeline.fanout.boto3")
+    def test_active_workspace_within_cutoff_is_triggered(self, mock_boto3, mock_db):
+        """A workspace with recent last_active_at is triggered normally."""
+        from datetime import datetime, timezone, timedelta
+
+        recent = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        workspaces = [
+            {"workspace_id": "ws-fresh", "status": "active", "last_active_at": recent},
+        ]
+        _, mock_sfn = self._setup(mock_boto3, mock_db, workspaces)
+
+        from backend.pipeline.fanout import handler
+        result = handler({}, None)
+
+        # Triggered, NOT paused
+        assert mock_sfn.start_execution.call_count == 1
+        mock_db.update_workspace.assert_not_called()
+        assert result["users_paused"] == 0
+        assert result["users_triggered"] == 1
+
+    @patch.dict("os.environ", {"TABLE_NAME": "sarathi-test", "STATE_MACHINE_ARN": "arn:aws:states:us-east-1:123:stateMachine:pipeline", "BUCKET_NAME": "sarathi-bucket"})
+    @patch("backend.pipeline.fanout.db")
+    @patch("backend.pipeline.fanout.boto3")
+    def test_workspace_with_no_last_active_is_triggered(self, mock_boto3, mock_db):
+        """A workspace with no last_active_at (never touched) is NOT auto-paused."""
+        workspaces = [
+            {"workspace_id": "ws-new", "status": "active"},  # no last_active_at
+        ]
+        _, mock_sfn = self._setup(mock_boto3, mock_db, workspaces)
+
+        from backend.pipeline.fanout import handler
+        result = handler({}, None)
+
+        # Should be triggered, not paused
+        assert mock_sfn.start_execution.call_count == 1
+        mock_db.update_workspace.assert_not_called()
+
+    @patch.dict("os.environ", {"TABLE_NAME": "sarathi-test", "STATE_MACHINE_ARN": "arn:aws:states:us-east-1:123:stateMachine:pipeline", "BUCKET_NAME": "sarathi-bucket"})
+    @patch("backend.pipeline.fanout.db")
+    @patch("backend.pipeline.fanout.boto3")
+    def test_mixed_workspaces_pauses_only_stale_ones(self, mock_boto3, mock_db):
+        """One stale workspace paused, one fresh workspace triggered — same user."""
+        from datetime import datetime, timezone, timedelta
+        from backend.pipeline.fanout import INACTIVE_DAYS
+
+        now = datetime.now(timezone.utc)
+        old = (now - timedelta(days=INACTIVE_DAYS + 5)).isoformat()
+        fresh = now.isoformat()
+        workspaces = [
+            {"workspace_id": "ws-stale", "status": "active", "last_active_at": old},
+            {"workspace_id": "ws-fresh", "status": "active", "last_active_at": fresh},
+        ]
+        _, mock_sfn = self._setup(mock_boto3, mock_db, workspaces)
+
+        from backend.pipeline.fanout import handler
+        result = handler({}, None)
+
+        # Only the fresh workspace triggered
+        assert mock_sfn.start_execution.call_count == 1
+        started = json.loads(mock_sfn.start_execution.call_args_list[0][1]["input"])
+        assert started["workspace_id"] == "ws-fresh"
+
+        # Only the stale workspace paused
+        assert mock_db.update_workspace.call_count == 1
+        pause_call = mock_db.update_workspace.call_args
+        assert pause_call[0][2] == "ws-stale"  # third positional arg
+        assert pause_call[1]["status"] == "paused"
+
+        assert result["users_triggered"] == 1
+        assert result["users_paused"] == 1
+
+    @patch.dict("os.environ", {"TABLE_NAME": "sarathi-test", "STATE_MACHINE_ARN": "arn:aws:states:us-east-1:123:stateMachine:pipeline", "BUCKET_NAME": "sarathi-bucket"})
+    @patch("backend.pipeline.fanout.db")
+    @patch("backend.pipeline.fanout.boto3")
+    def test_already_paused_workspace_is_skipped(self, mock_boto3, mock_db):
+        """A workspace that's already paused (any reason) is not touched."""
+        from datetime import datetime, timezone, timedelta
+        from backend.pipeline.fanout import INACTIVE_DAYS
+
+        old_ts = (datetime.now(timezone.utc) - timedelta(days=INACTIVE_DAYS + 1)).isoformat()
+        workspaces = [
+            {"workspace_id": "ws-paused", "status": "paused", "last_active_at": old_ts,
+             "paused_reason": "manual"},
+        ]
+        _, mock_sfn = self._setup(mock_boto3, mock_db, workspaces)
+
+        from backend.pipeline.fanout import handler
+        result = handler({}, None)
+
+        # Not triggered, not re-paused
+        mock_sfn.start_execution.assert_not_called()
+        mock_db.update_workspace.assert_not_called()
+        assert result["users_paused"] == 0
+        assert result["users_triggered"] == 0
