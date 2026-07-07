@@ -80,22 +80,6 @@ def handler(event: dict, context) -> dict:
         if not user_id:
             continue
 
-        # Auto-pause inactive users globally
-        last_active = user.get("last_active_at", "")
-        if last_active and last_active < cutoff:
-            table.update_item(
-                Key={"PK": "SYSTEM#USERS", "SK": f"USER#{user_id}"},
-                UpdateExpression="SET #s = :s, paused_reason = :r",
-                ExpressionAttributeNames={"#s": "status"},
-                ExpressionAttributeValues={
-                    ":s": "paused",
-                    ":r": "inactive",
-                },
-            )
-            paused += 1
-            logger.info("Auto-paused inactive user %s (last active: %s)", user_id, last_active)
-            continue
-
         # Iterate over the user's workspaces
         workspaces = db.list_workspaces(table, user_id)
         if not workspaces:
@@ -111,6 +95,21 @@ def handler(event: dict, context) -> dict:
                 logger.info(
                     "Skipping workspace %s/%s (status=%s)",
                     user_id, wid, ws.get("status"),
+                )
+                continue
+
+            # Auto-pause inactive workspaces (per-workspace, not per-user)
+            ws_last_active = ws.get("last_active_at", "")
+            if ws_last_active and ws_last_active < cutoff:
+                db.update_workspace(
+                    table, user_id, wid,
+                    status="paused",
+                    paused_reason="inactive",
+                )
+                paused += 1
+                logger.info(
+                    "Auto-paused inactive workspace %s/%s (last active: %s)",
+                    user_id, wid, ws_last_active,
                 )
                 continue
 
@@ -138,7 +137,7 @@ def handler(event: dict, context) -> dict:
                 logger.exception("Failed to trigger pipeline for %s/%s", user_id, wid)
 
     logger.info(
-        "Fan-out complete: %d workspaces triggered, %d users paused, %d workspaces skipped, %d users without workspaces",
+        "Fan-out complete: %d workspaces triggered, %d workspaces auto-paused, %d workspaces skipped, %d users without workspaces",
         triggered, paused, skipped, no_workspace,
     )
     return {
