@@ -2,6 +2,8 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthGate } from './auth/AuthGate'
 import { OnboardingGate } from './auth/OnboardingGate'
+import { Landing } from './pages/Landing'
+import { Login } from './pages/Login'
 import { Feed } from './pages/Feed'
 import { CardDetail } from './pages/CardDetail'
 import { Chat } from './pages/Chat'
@@ -29,29 +31,30 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/callback" element={<Callback />} />
+          <Route path="/login" element={<Login />} />
           <Route path="/*" element={
-            <AuthGate>
+            <AuthGate fallback={<Landing />}>
               <Routes>
                 <Route path="/onboarding" element={<Onboarding />} />
-            <Route path="/*" element={
-              <OnboardingGate>
-                <Routes>
-                  <Route path="/" element={<Feed />} />
-                  <Route path="/card/:id" element={<CardDetail />} />
-                  <Route path="/card/:id/chat" element={<Chat />} />
-                  <Route path="/profile" element={<Profile />} />
-                  <Route path="/library" element={<Library />} />
-                  <Route path="/research" element={<Research />} />
-                  <Route path="/conversations" element={<Conversations />} />
-                  <Route path="/chat/research/:convId" element={<ResearchChat />} />
-                  <Route path="/settings" element={<Settings />} />
-                </Routes>
-              </OnboardingGate>
-            } />
-          </Routes>
-        </AuthGate>
-      } />
-      </Routes>
+                <Route path="/*" element={
+                  <OnboardingGate>
+                    <Routes>
+                      <Route path="/" element={<Feed />} />
+                      <Route path="/card/:id" element={<CardDetail />} />
+                      <Route path="/card/:id/chat" element={<Chat />} />
+                      <Route path="/profile" element={<Profile />} />
+                      <Route path="/library" element={<Library />} />
+                      <Route path="/research" element={<Research />} />
+                      <Route path="/conversations" element={<Conversations />} />
+                      <Route path="/chat/research/:convId" element={<ResearchChat />} />
+                      <Route path="/settings" element={<Settings />} />
+                    </Routes>
+                  </OnboardingGate>
+                } />
+              </Routes>
+            </AuthGate>
+          } />
+        </Routes>
       </BrowserRouter>
     </QueryClientProvider>
   )
