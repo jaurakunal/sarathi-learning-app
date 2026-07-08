@@ -17,17 +17,17 @@ describe('ChatMessage', () => {
     expect(bubble?.className).toContain('glass-card')
   })
 
-  it('shows streaming cursor when streaming', () => {
-    const { container } = render(
+  it('shows streaming indicator when streaming', () => {
+    render(
       <ChatMessage message={{ role: 'assistant', content: 'typing', streaming: true }} />,
     )
-    expect(container.querySelector('.animate-pulse')).toBeInTheDocument()
+    expect(screen.getByTestId('streaming-indicator')).toBeInTheDocument()
   })
 
-  it('hides streaming cursor when not streaming', () => {
-    const { container } = render(
+  it('hides streaming indicator when not streaming', () => {
+    render(
       <ChatMessage message={{ role: 'assistant', content: 'done' }} />,
     )
-    expect(container.querySelector('.animate-pulse')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('streaming-indicator')).not.toBeInTheDocument()
   })
 })

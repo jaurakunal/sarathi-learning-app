@@ -163,8 +163,7 @@ describe('Chat page', () => {
     fireEvent.click(screen.getByRole('button', { name: '' }))
 
     await waitFor(() => {
-      // ChatLoading uses animated spans — look for the container
-      expect(screen.getByText('∞')).toBeInTheDocument()
+      expect(screen.getByRole('status', { name: /thinking/i })).toBeInTheDocument()
     })
   })
 

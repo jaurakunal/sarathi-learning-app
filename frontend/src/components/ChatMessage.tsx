@@ -83,7 +83,21 @@ export function ChatMessage({ message, seq, onPin }: ChatMessageProps) {
           </div>
         )}
         {message.streaming && (
-          <span className="inline-block w-1.5 h-4 bg-accent animate-pulse ml-0.5 align-text-bottom rounded-sm" />
+          <span data-testid="streaming-indicator" className="inline-flex items-center gap-1 ml-1 align-text-bottom">
+            {[0, 1, 2].map((i) => (
+              <motion.span
+                key={i}
+                className="w-1 h-1 rounded-full bg-accent"
+                animate={{ y: [0, -3, 0] }}
+                transition={{
+                  duration: 1,
+                  repeat: Infinity,
+                  delay: i * 0.15,
+                  ease: 'easeInOut',
+                }}
+              />
+            ))}
+          </span>
         )}
         {!isUser && !message.streaming && seq && onPin && (
           <div className="flex justify-end mt-2 pt-1.5 border-t border-white/[0.04]">
