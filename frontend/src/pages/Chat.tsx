@@ -267,6 +267,7 @@ export function Chat({ embedded, paperId: propPaperId, cardId: propCardId, resea
         )}
 
         {messages.map((msg, i) => (
+          msg.role === 'assistant' && msg.streaming && !msg.content ? null : (
           <ChatMessage
             key={i}
             message={msg}
@@ -281,6 +282,7 @@ export function Chat({ embedded, paperId: propPaperId, cardId: propCardId, resea
               }).catch(() => {})
             } : undefined}
           />
+          )
         ))}
 
         {loading && messages[messages.length - 1]?.content === '' && <ChatLoading />}
