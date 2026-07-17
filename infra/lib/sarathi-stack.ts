@@ -393,6 +393,17 @@ export class SarathiStack extends cdk.Stack {
       memorySize: 512,
     });
 
+    const proposalFn = new lambda.Function(this, 'ProposalApiFn', {
+      functionName: 'sarathi-api-proposal',
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'backend.api.proposal.handler',
+      code: lambdaCode,
+      environment: { ...lambdaEnv, PROPOSAL_MODEL: 'moonshotai.kimi-k2.5' },
+      role: lambdaRole,
+      timeout: cdk.Duration.seconds(60),
+      memorySize: 512,
+    });
+
     const workspacesFn = new lambda.Function(this, 'WorkspacesApiFn', {
       functionName: 'sarathi-api-workspaces',
       runtime: lambda.Runtime.PYTHON_3_12,
@@ -760,6 +771,12 @@ export class SarathiStack extends cdk.Stack {
 
     const researchResource = api.root.addResource('research');
     researchResource.addMethod('GET', new apigw.LambdaIntegration(researchFn), {
+      authorizer,
+      authorizationType: apigw.AuthorizationType.COGNITO,
+    });
+
+    const proposalResource = researchResource.addResource('proposal');
+    proposalResource.addMethod('POST', new apigw.LambdaIntegration(proposalFn), {
       authorizer,
       authorizationType: apigw.AuthorizationType.COGNITO,
     });

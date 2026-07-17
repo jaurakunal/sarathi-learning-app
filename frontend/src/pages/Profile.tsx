@@ -2,12 +2,13 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ArrowLeft, BookOpen, MessageCircle, ExternalLink, Flame, Snowflake, ChevronDown } from 'lucide-react'
+import { ArrowLeft, BookOpen, MessageCircle, ExternalLink, Flame, Snowflake, ChevronDown, FileText } from 'lucide-react'
 import Markdown from 'react-markdown'
 import { getProfile } from '../api/profile'
 import { getBriefs } from '../api/briefs'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import { Layout } from '../components/Layout'
+import { ProposalExportModal } from '../components/ProposalExportModal'
 import type { TimelineEntry } from '../api/profile'
 import type { BriefSummary } from '../api/briefs'
 
@@ -209,6 +210,7 @@ function TimelineNode({ entry, isLast }: { entry: TimelineEntry; isLast: boolean
 export function Profile() {
   const navigate = useNavigate()
   const [tab, setTab] = useState<'overview' | 'insights' | 'timeline' | 'activity'>('overview')
+  const [exportOpen, setExportOpen] = useState(false)
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['profile'],
@@ -249,6 +251,13 @@ export function Profile() {
               <ArrowLeft size={18} /> Feed
             </button>
             <h1 className="text-sm font-semibold text-zinc-300 lg:text-xl lg:font-bold lg:text-gradient">Progress</h1>
+            <button
+              onClick={() => setExportOpen(true)}
+              className="text-xs lg:text-sm text-zinc-300 hover:text-white transition-colors flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-white/[0.08] hover:border-accent-dim bg-white/[0.02]"
+              title="Export research proposal"
+            >
+              <FileText size={14} className="text-accent" /> Export
+            </button>
           </div>
 
           {/* Tabs */}
@@ -460,6 +469,11 @@ export function Profile() {
 
       </div>
     </div>
+    <ProposalExportModal
+      open={exportOpen}
+      onClose={() => setExportOpen(false)}
+      areas={areas || []}
+    />
     </Layout>
   )
 }
