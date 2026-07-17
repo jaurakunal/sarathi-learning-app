@@ -160,6 +160,74 @@ class TestOnboardingPost:
 
         mock_db.create_conversation.assert_called_once_with(mock_table, "user-onboard-123", "ws-test-fixture", "onboarding", "")
 
+    @patch("backend.api.onboarding.call_llm_multi")
+    @patch("backend.api.onboarding.boto3")
+    @patch("backend.api.onboarding.db")
+    def test_workspace_stage_hydration_returns_last_assistant_response(
+        self, mock_db, mock_boto3, mock_call_llm, user_id,
+    ):
+        """Empty message + existing turns must NOT call the LLM (would crash Bedrock).
+
+        Instead the handler returns the last assistant response so the frontend
+        can rehydrate the chat.
+        """
+        mock_table = MagicMock()
+        mock_boto3.resource.return_value.Table.return_value = mock_table
+        mock_db.get_user_meta.return_value = {"background": "SDE"}  # → workspace stage
+        mock_db.get_conversation_by_paper.return_value = {"conv_id": "onboarding"}
+        mock_db.get_conversation_turns.return_value = [
+            {"seq": 1, "request": "hi", "response": "What's your goal?"},
+        ]
+
+        event = {
+            "httpMethod": "POST",
+            "requestContext": {"authorizer": {"claims": {"sub": user_id}}},
+            "body": json.dumps({"message": "", "stage": "workspace"}),
+        }
+        from backend.api.onboarding import handler
+
+        result = handler(event, None)
+        assert result["statusCode"] == 200
+        body = json.loads(result["body"])
+        assert body["stage"] == "workspace"
+        assert body["response"] == "What's your goal?"
+        assert body["turn_seq"] == 1
+        mock_call_llm.assert_not_called()
+
+    @patch("backend.api.onboarding.call_llm_multi")
+    @patch("backend.api.onboarding.boto3")
+    @patch("backend.api.onboarding.db")
+    def test_user_stage_hydration_returns_last_assistant_response(
+        self, mock_db, mock_boto3, mock_call_llm, user_id,
+    ):
+        """Same hydration behavior for user stage."""
+        mock_table = MagicMock()
+        mock_boto3.resource.return_value.Table.return_value = mock_table
+        mock_db.get_user_meta.return_value = None  # → user stage
+        mock_db.get_user_onboarding_status.return_value = None
+
+        # Simulate the pre-workspace user-stage turns partition.
+        mock_table.query.return_value = {
+            "Items": [
+                {"seq": 1, "request": "hi", "response": "Tell me about your background."},
+            ]
+        }
+
+        event = {
+            "httpMethod": "POST",
+            "requestContext": {"authorizer": {"claims": {"sub": user_id}}},
+            "body": json.dumps({"message": "", "stage": "user"}),
+        }
+        from backend.api.onboarding import handler
+
+        result = handler(event, None)
+        assert result["statusCode"] == 200
+        body = json.loads(result["body"])
+        assert body["stage"] == "user"
+        assert body["response"] == "Tell me about your background."
+        assert body["turn_seq"] == 1
+        mock_call_llm.assert_not_called()
+
     def test_unauthorized_returns_401(self):
         event = {
             "httpMethod": "GET",

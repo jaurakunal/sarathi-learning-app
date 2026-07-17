@@ -233,6 +233,30 @@ def _handle_user_stage(table, user_id: str, message: str) -> dict:
     )
     turns = turns_resp.get("Items", [])
 
+    # Hydration case: no new user message but turns already exist. Return the
+    # last assistant response so the frontend can rehydrate the chat without
+    # calling the LLM (which would fail — Bedrock rejects a history that
+    # ends with an assistant message).
+    if not message and turns:
+        last_response = turns[-1].get("response", "")
+        last_seq = turns[-1].get("seq", len(turns))
+        user_meta_data = _extract_user_meta(last_response)
+        if not user_meta_data:
+            for turn in reversed(turns):
+                user_meta_data = _extract_user_meta(turn.get("response", ""))
+                if user_meta_data:
+                    break
+        result: dict = {
+            "stage": "user",
+            "response": last_response,
+            "turn_seq": last_seq,
+        }
+        if user_meta_data:
+            result["user_meta_complete"] = True
+            result["summary"] = user_meta_data.get("summary", "")
+            result["user_meta"] = user_meta_data.get("user_meta", {})
+        return _response(200, result)
+
     llm_messages = []
     for turn in turns:
         if turn.get("request"):
@@ -306,6 +330,31 @@ def _handle_workspace_stage(table, user_id: str, event: dict, message: str) -> d
         db.create_conversation(table, user_id, workspace_id, conv_id, "")
 
     turns = db.get_conversation_turns(table, user_id, workspace_id, conv_id)
+
+    # Hydration case: no new user message but turns already exist. Return the
+    # last assistant response so the frontend can rehydrate the chat without
+    # calling the LLM (which would fail — Bedrock rejects a history that
+    # ends with an assistant message).
+    if not message and turns:
+        last_response = turns[-1].get("response", "")
+        last_seq = turns[-1].get("seq", len(turns))
+        profile_data = _extract_profile(last_response)
+        if not profile_data:
+            for turn in reversed(turns):
+                profile_data = _extract_profile(turn.get("response", ""))
+                if profile_data:
+                    break
+        result: dict = {
+            "stage": "workspace",
+            "response": last_response,
+            "turn_seq": last_seq,
+            "workspace_id": workspace_id,
+        }
+        if profile_data:
+            result["profile_complete"] = True
+            result["profile_summary"] = profile_data.get("summary", "")
+            result["profile"] = profile_data.get("profile", {})
+        return _response(200, result)
 
     llm_messages = []
     for turn in turns:
