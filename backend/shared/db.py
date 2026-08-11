@@ -617,6 +617,14 @@ def list_engagement_events(
     return resp.get("Items", [])
 
 
+def list_all_engagement_events(table, user_id: str, workspace_id: str) -> list[dict]:
+    """Return all engagement events for a workspace (no time bound)."""
+    resp = table.query(
+        KeyConditionExpression=Key("PK").eq(_engagement_pk(user_id, workspace_id)),
+    )
+    return resp.get("Items", [])
+
+
 def get_read_paper_ids(table, user_id: str, workspace_id: str) -> set[str]:
     """Return set of paper_ids that have a 'read' engagement event."""
     resp = table.query(

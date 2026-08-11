@@ -97,6 +97,11 @@ def _extract_digest_gist(digest: dict) -> tuple[str, list[str]]:
     return str(gist).strip(), [str(k).strip() for k in key_ideas if k]
 
 
+def _conv_id_of(conv: dict) -> str:
+    """Extract a conversation id from a conversation record (or its SK)."""
+    return conv.get("conv_id") or conv.get("SK", "").replace("CONV#", "")
+
+
 def _paper_matches_area(card: dict, area_name: str) -> bool:
     """Does this card's areas_matched list include the given area?"""
     if not area_name:
@@ -203,7 +208,7 @@ def assemble_context(
     conversations = db.list_all_conversations(table, user_id, workspace_id) or []
     pinned_count_total = 0
     for conv in conversations:
-        conv_id = conv.get("conv_id") or (conv.get("SK", "").replace("CONV#", ""))
+        conv_id = _conv_id_of(conv)
         if not conv_id:
             continue
         pinned = db.get_pinned_turns(table, user_id, workspace_id, conv_id) or []
@@ -231,7 +236,7 @@ def assemble_context(
             break
         # research convs have paper_id empty and a distinct type marker; be
         # lenient about the schema and just include any conv turns.
-        conv_id = conv.get("conv_id") or (conv.get("SK", "").replace("CONV#", ""))
+        conv_id = _conv_id_of(conv)
         if not conv_id:
             continue
         turns = db.get_conversation_turns(table, user_id, workspace_id, conv_id) or []
@@ -246,13 +251,7 @@ def assemble_context(
                 break
 
     # 5. Engagement counts — one paragraph's worth.
-    # Query engagement PK directly (list_engagement_events requires a time
-    # range; here we just want workspace-wide totals).
-    from boto3.dynamodb.conditions import Key as _Key
-    resp = table.query(
-        KeyConditionExpression=_Key("PK").eq(db._engagement_pk(user_id, workspace_id)),
-    )
-    events = resp.get("Items", []) or []
+    events = db.list_all_engagement_events(table, user_id, workspace_id) or []
     for e in events:
         action = (e.get("action") or "").lower()
         if action == "dismiss":

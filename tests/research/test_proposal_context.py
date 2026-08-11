@@ -37,7 +37,7 @@ def test_assembles_hypothesis_and_papers(mock_db):
     mock_db.get_user_meta.return_value = {"background": "SDE", "learning_style": "reads-to-build"}
     mock_db.list_feed_cards.return_value = ([_mk_card("p1", "Paper One")], None)
     mock_db.list_all_conversations.return_value = []
-    mock_db._engagement_pk.return_value = "USER#u1#WS#w1#ENGAGEMENT"
+    mock_db.list_all_engagement_events.return_value = []
 
     table = MagicMock()
     table.query.return_value = {"Items": []}
@@ -72,7 +72,7 @@ def test_area_filter_limits_papers(mock_db):
         None,
     )
     mock_db.list_all_conversations.return_value = []
-    mock_db._engagement_pk.return_value = "USER#u1#WS#w1#ENGAGEMENT"
+    mock_db.list_all_engagement_events.return_value = []
 
     table = MagicMock()
     table.query.return_value = {"Items": []}
@@ -97,7 +97,7 @@ def test_paper_cap_and_truncation_note(mock_db):
         None,
     )
     mock_db.list_all_conversations.return_value = []
-    mock_db._engagement_pk.return_value = "PK"
+    mock_db.list_all_engagement_events.return_value = []
 
     table = MagicMock()
     table.query.return_value = {"Items": []}
@@ -121,7 +121,7 @@ def test_pinned_insight_cap(mock_db):
         {"request": f"q from {cid}", "response": f"a from {cid}"} for _ in range(10)
     ]
     mock_db.get_conversation_turns.return_value = []
-    mock_db._engagement_pk.return_value = "PK"
+    mock_db.list_all_engagement_events.return_value = []
 
     table = MagicMock()
     table.query.return_value = {"Items": []}
@@ -139,18 +139,15 @@ def test_engagement_counts(mock_db):
     mock_db.get_user_meta.return_value = {}
     mock_db.list_feed_cards.return_value = ([], None)
     mock_db.list_all_conversations.return_value = []
-    mock_db._engagement_pk.return_value = "PK"
+    mock_db.list_all_engagement_events.return_value = [
+        {"action": "dismiss"}, {"action": "dismiss"},
+        {"action": "bookmark"},
+        {"action": "source_click"}, {"action": "source_click"}, {"action": "source_click"},
+        {"action": "read_fully"},
+        {"action": "bounce"},
+    ]
 
     table = MagicMock()
-    table.query.return_value = {
-        "Items": [
-            {"action": "dismiss"}, {"action": "dismiss"},
-            {"action": "bookmark"},
-            {"action": "source_click"}, {"action": "source_click"}, {"action": "source_click"},
-            {"action": "read_fully"},
-            {"action": "bounce"},
-        ]
-    }
     ctx = assemble_context(table, "u1", "w1")
     e = ctx.engagement
     assert e.dismissed == 2
@@ -167,7 +164,7 @@ def test_empty_workspace_still_returns_context(mock_db):
     mock_db.get_user_meta.return_value = None
     mock_db.list_feed_cards.return_value = ([], None)
     mock_db.list_all_conversations.return_value = []
-    mock_db._engagement_pk.return_value = "PK"
+    mock_db.list_all_engagement_events.return_value = []
 
     table = MagicMock()
     table.query.return_value = {"Items": []}
