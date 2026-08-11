@@ -126,6 +126,33 @@ class TestWorkspaceRegistry:
         # The disallowed field shouldn't appear
         assert "random_field" not in str(update_kwargs)
 
+    def test_update_workspace_none_field_uses_remove_not_dangling_value(self, mock_table, user_id):
+        """Resume passes paused_reason=None. It must REMOVE the attribute, and
+        must NOT leave a :vN reference with no matching ExpressionAttributeValues
+        entry (that caused a Bedrock-style ValidationException -> 502)."""
+        db.update_workspace(
+            mock_table, user_id, "ws-1", status="active", paused_reason=None,
+        )
+        kwargs = mock_table.update_item.call_args[1]
+        expr = kwargs["UpdateExpression"]
+        values = kwargs.get("ExpressionAttributeValues", {})
+
+        # status is SET, paused_reason is REMOVEd
+        assert "SET" in expr and "REMOVE" in expr
+        # Every :vN token referenced in the expression must be defined.
+        import re
+        referenced = set(re.findall(r":v\d+", expr))
+        assert referenced == set(values.keys())
+        assert "active" in values.values()
+
+    def test_update_workspace_all_none_still_removes(self, mock_table, user_id):
+        """If every provided field is None, we still issue a REMOVE-only update
+        with no ExpressionAttributeValues key."""
+        db.update_workspace(mock_table, user_id, "ws-1", paused_reason=None)
+        kwargs = mock_table.update_item.call_args[1]
+        assert kwargs["UpdateExpression"].startswith("REMOVE")
+        assert "ExpressionAttributeValues" not in kwargs
+
     def test_archive_workspace_sets_status(self, mock_table, user_id):
         db.archive_workspace(mock_table, user_id, "ws-1")
         update_kwargs = mock_table.update_item.call_args[1]

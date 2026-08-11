@@ -258,25 +258,43 @@ def update_workspace(
     if not updates:
         return
 
-    expr_parts = []
+    # None means "clear this attribute" -> REMOVE, not SET to null. Sanitizing a
+    # null value drops it from ExpressionAttributeValues, which would otherwise
+    # leave a dangling :vN reference in the expression (ValidationException).
+    set_parts = []
+    remove_parts = []
     attr_names = {}
     attr_values = {}
     for i, (key, value) in enumerate(updates.items()):
         alias = f"#k{i}"
-        val_alias = f":v{i}"
-        expr_parts.append(f"{alias} = {val_alias}")
         attr_names[alias] = key
-        attr_values[val_alias] = value
+        if value is None:
+            remove_parts.append(alias)
+        else:
+            val_alias = f":v{i}"
+            set_parts.append(f"{alias} = {val_alias}")
+            attr_values[val_alias] = value
 
-    table.update_item(
-        Key={
+    clauses = []
+    if set_parts:
+        clauses.append("SET " + ", ".join(set_parts))
+    if remove_parts:
+        clauses.append("REMOVE " + ", ".join(remove_parts))
+    if not clauses:
+        return
+
+    kwargs: dict[str, Any] = {
+        "Key": {
             "PK": f"USER#{user_id}#WORKSPACES",
             "SK": f"WS#{workspace_id}",
         },
-        UpdateExpression="SET " + ", ".join(expr_parts),
-        ExpressionAttributeNames=attr_names,
-        ExpressionAttributeValues=_sanitize_item(attr_values),
-    )
+        "UpdateExpression": " ".join(clauses),
+        "ExpressionAttributeNames": attr_names,
+    }
+    if attr_values:
+        kwargs["ExpressionAttributeValues"] = _sanitize_item(attr_values)
+
+    table.update_item(**kwargs)
 
 
 def archive_workspace(table, user_id: str, workspace_id: str) -> None:
