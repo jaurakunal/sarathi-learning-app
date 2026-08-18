@@ -1035,7 +1035,10 @@ export class SarathiStack extends cdk.Stack {
     // Runs 04:00 UTC (2h after the nightly pipeline trigger) and counts feed
     // cards created in the last 24h across active workspaces.
     const freshnessCanaryFn = new lambda.Function(this, 'FreshnessCanaryFn', {
-      functionName: 'sarathi-freshness-canary',
+      // Distinct name so the managed log group is a fresh path (an orphaned
+      // /aws/lambda/sarathi-freshness-canary from an earlier rolled-back deploy
+      // blocks reuse of that exact name; the empty orphan auto-expires).
+      functionName: 'sarathi-canary-freshness',
       runtime: lambda.Runtime.PYTHON_3_12,
       handler: 'backend.monitoring.freshness_canary.handler',
       code: lambdaCode,
