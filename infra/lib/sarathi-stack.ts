@@ -216,6 +216,7 @@ export class SarathiStack extends cdk.Stack {
       VECTOR_BUCKET_NAME: `sarathi-vectors-${this.account}-${this.region}`,
       VECTOR_INDEX_NAME: 'paper-sections',
       USER_POOL_ID: userPool.userPoolId,
+      APP_VERSION: this.node.tryGetContext('appVersion') || 'dev',
     };
 
     const lambdaCode = lambda.Code.fromAsset(REPO_ROOT, {
@@ -408,6 +409,24 @@ export class SarathiStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(60),
       memorySize: 512,
     });
+
+    // In-app feedback → Slack (dedicated topic so it can route to its own
+    // channel; Chatbot config wired in the monitoring section below).
+    const feedbackTopic = new sns.Topic(this, 'FeedbackTopic', {
+      topicName: 'sarathi-feedback',
+      displayName: 'Sarathi Feedback',
+    });
+    const feedbackFn = new lambda.Function(this, 'FeedbackApiFn', {
+      functionName: 'sarathi-api-feedback',
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'backend.api.feedback.handler',
+      code: lambdaCode,
+      environment: { ...lambdaEnv, FEEDBACK_TOPIC_ARN: feedbackTopic.topicArn },
+      role: lambdaRole,
+      timeout: cdk.Duration.seconds(15),
+      memorySize: 256,
+    });
+    feedbackTopic.grantPublish(feedbackFn);
 
     const workspacesFn = new lambda.Function(this, 'WorkspacesApiFn', {
       functionName: 'sarathi-api-workspaces',
@@ -807,6 +826,12 @@ export class SarathiStack extends cdk.Stack {
       authorizationType: apigw.AuthorizationType.COGNITO,
     });
 
+    const feedbackResource = api.root.addResource('feedback');
+    feedbackResource.addMethod('POST', new apigw.LambdaIntegration(feedbackFn), {
+      authorizer,
+      authorizationType: apigw.AuthorizationType.COGNITO,
+    });
+
     const proposalResource = researchResource.addResource('proposal');
     proposalResource.addMethod('POST', new apigw.LambdaIntegration(proposalFn), {
       authorizer,
@@ -1046,6 +1071,20 @@ export class SarathiStack extends cdk.Stack {
         notificationTopics: [metricsTopic],
       });
       digestTopic = metricsTopic;
+    }
+
+    // Feedback → its own channel (-c slackFeedbackChannelId=C...), else the
+    // alarm channel so reports are never lost. The feedback Lambda always
+    // publishes to feedbackTopic; this just points a channel at it.
+    const slackFeedbackChannelId = this.node.tryGetContext('slackFeedbackChannelId');
+    const feedbackChannel = slackFeedbackChannelId || slackChannelId;
+    if (slackWorkspaceId && feedbackChannel) {
+      new chatbot.SlackChannelConfiguration(this, 'SlackFeedback', {
+        slackChannelConfigurationName: 'sarathi-feedback',
+        slackWorkspaceId,
+        slackChannelId: feedbackChannel,
+        notificationTopics: [feedbackTopic],
+      });
     }
 
     const alarmAction = new cwActions.SnsAction(alarmTopic);

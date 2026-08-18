@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Home, MessageCircle, Target, BookOpen, TrendingUp, Settings, LogOut, Menu, X } from 'lucide-react'
+import { Home, MessageCircle, Target, BookOpen, TrendingUp, Settings, LogOut, Menu, X, MessageSquarePlus } from 'lucide-react'
 import { logout } from '../auth/cognito'
 import { WorkspaceSwitcher } from './WorkspaceSwitcher'
+import { FeedbackModal } from './FeedbackModal'
 
 const NAV_ITEMS = [
   { path: '/', label: 'Feed', icon: Home },
@@ -21,6 +22,7 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation()
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
 
   return (
     <div className="min-h-screen bg-[#0a0a0f] lg:flex">
@@ -57,8 +59,15 @@ export function Layout({ children }: LayoutProps) {
           })}
         </nav>
 
-        {/* Logout */}
-        <div className="px-3 pb-6 border-t border-white/[0.06] pt-4">
+        {/* Feedback + Logout */}
+        <div className="px-3 pb-6 border-t border-white/[0.06] pt-4 space-y-1">
+          <button
+            onClick={() => setFeedbackOpen(true)}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-zinc-400 hover:text-white hover:bg-white/[0.04] transition-colors"
+          >
+            <MessageSquarePlus size={18} />
+            Feedback
+          </button>
           <button
             onClick={() => { logout(); window.location.reload() }}
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-zinc-500 hover:text-red-400 hover:bg-red-400/5 transition-colors"
@@ -122,6 +131,12 @@ export function Layout({ children }: LayoutProps) {
                 })}
                 <div className="border-t border-white/[0.06] my-3" />
                 <button
+                  onClick={() => { setFeedbackOpen(true); setMenuOpen(false) }}
+                  className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm text-zinc-300 hover:text-white hover:bg-white/[0.04] transition-colors"
+                >
+                  <MessageSquarePlus size={18} className="text-zinc-400" /> Feedback
+                </button>
+                <button
                   onClick={() => { logout(); window.location.reload() }}
                   className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm text-zinc-500 hover:text-red-400 hover:bg-red-400/5 transition-colors"
                 >
@@ -131,6 +146,8 @@ export function Layout({ children }: LayoutProps) {
             </div>
           </>
         )}
+
+        <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
 
         {children}
       </main>
