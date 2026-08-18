@@ -5,6 +5,7 @@ import Markdown from 'react-markdown'
 import { Send, Check } from 'lucide-react'
 import { apiFetch } from '../api/client'
 import { createWorkspace, setActiveWorkspace } from '../api/workspaces'
+import { writeWorkspaceFallback } from '../hooks/useActiveWorkspace'
 
 interface OnboardingMessage {
   role: 'user' | 'assistant'
@@ -82,6 +83,14 @@ export function Onboarding() {
           try {
             const ws = await createWorkspace('New workspace', '')
             await setActiveWorkspace(ws.workspace.workspace_id)
+            // CRITICAL: update the localStorage fallback too. client.ts stamps
+            // ?workspace_id from this fallback on every request; if we only set
+            // the server pointer, onboarding messages carry the OLD workspace_id
+            // and get written to the previously-active workspace's conversation.
+            writeWorkspaceFallback({
+              workspace_id: ws.workspace.workspace_id,
+              name: ws.workspace.name,
+            })
           } catch {
             // If creation fails, fall through — onboarding_confirm will create
             // a Default workspace as a fallback.

@@ -288,6 +288,78 @@ Does this look right?'''
         assert result["confidence"] == 0.92
         assert result["profile"]["areas"][0]["label"] == "Agents"
 
+    def test_boolean_flag_with_nested_user_payload(self):
+        """Regression: kunaljaura@gmail.com 2026-08-18. Model emitted a boolean
+        profile_complete flag with the payload nested under 'user', focus_areas
+        instead of areas, and a string hypothesis. Previously returned None ->
+        raw JSON + Skip button, nothing saved."""
+        from backend.api.onboarding import _extract_profile
+
+        response = '''Great, I have a clear picture.
+
+```json
+{
+  "profile_complete": true,
+  "user": {
+    "role": "engineer_transitioning_to_researcher",
+    "domain": "backend_software_and_ai_agents",
+    "focus_areas": ["long_running_agent_reliability", "agentic_evaluation"],
+    "hypothesis": "persistent_memory_plus_disciplined_harness_improves_faithfulness",
+    "summary": "An engineer moving into agent-reliability research."
+  }
+}
+```
+'''
+        result = _extract_profile(response)
+        assert result is not None
+        assert result["type"] == "profile_complete"
+        labels = [a["label"] for a in result["profile"]["areas"]]
+        assert any("long_running_agent_reliability" in l for l in labels)
+        assert result["profile"]["hypothesis"]["statement"].startswith("persistent_memory")
+
+    def test_boolean_flag_with_profile_wrapper(self):
+        from backend.api.onboarding import _extract_profile
+
+        response = '''```json
+{
+  "profile_complete": true,
+  "summary": "top-level summary",
+  "profile": {
+    "areas": [{"id": "a1", "label": "Evals"}],
+    "hypothesis": {"statement": "x"}
+  }
+}
+```'''
+        result = _extract_profile(response)
+        assert result is not None
+        assert result["profile"]["areas"][0]["label"] == "Evals"
+        assert result["summary"] == "top-level summary"
+
+    def test_user_meta_boolean_flag_with_flat_fields(self):
+        from backend.api.onboarding import _extract_user_meta
+
+        response = '''```json
+{
+  "user_meta_complete": true,
+  "background": "SDE",
+  "learning_style": "reads-to-build",
+  "math_comfort": "low"
+}
+```'''
+        result = _extract_user_meta(response)
+        assert result is not None
+        assert result["type"] == "user_meta_complete"
+        assert result["user_meta"]["background"] == "SDE"
+
+    def test_explicit_wrong_type_still_rejected(self):
+        """Guard: an explicit non-completion type must NOT be coerced."""
+        from backend.api.onboarding import _extract_profile
+
+        response = '''```json
+{"type": "clarifying_question", "profile": {"areas": []}}
+```'''
+        assert _extract_profile(response) is None
+
     def test_returns_none_when_no_profile_complete_keyword(self):
         from backend.api.onboarding import _extract_profile
 

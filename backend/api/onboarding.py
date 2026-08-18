@@ -466,6 +466,34 @@ def _extract_json_block(response: str) -> str | None:
     return json_str
 
 
+def _is_complete_flag(data: dict, flag: str) -> bool:
+    """A completion is signalled either by type=="<flag>" or "<flag>": true.
+
+    Models drift between {"type": "profile_complete", ...} and
+    {"profile_complete": true, ...} — accept both.
+    """
+    if data.get("type") == flag:
+        return True
+    val = data.get(flag)
+    return val is True or (isinstance(val, str) and val.lower() == "true")
+
+
+def _unwrap_payload(data: dict, keys: tuple[str, ...]) -> dict:
+    """If the meaningful fields are nested under a wrapper key, descend into it.
+
+    Handles {"profile_complete": true, "user": {...}} and
+    {"type": "profile_complete", "profile": {...}} uniformly.
+    """
+    for k in keys:
+        inner = data.get(k)
+        if isinstance(inner, dict) and inner:
+            # Preserve a top-level summary if the wrapper doesn't carry one.
+            if "summary" not in inner and "summary" in data:
+                inner = {**inner, "summary": data["summary"]}
+            return inner
+    return data
+
+
 def _extract_user_meta(response: str) -> dict | None:
     """Look for {type: 'user_meta_complete', user_meta: {...}}"""
     json_str = _extract_json_block(response)
@@ -476,19 +504,32 @@ def _extract_user_meta(response: str) -> dict | None:
     except json.JSONDecodeError:
         return None
 
-    if data.get("type") == "user_meta_complete" and data.get("user_meta"):
+    explicit_type = data.get("type")
+    if isinstance(explicit_type, str) and explicit_type and explicit_type != "user_meta_complete":
+        return None
+
+    is_complete = _is_complete_flag(data, "user_meta_complete")
+    payload = _unwrap_payload(data, ("user_meta", "user"))
+
+    if is_complete and data.get("user_meta"):
         return data
-    # Fallback: any of the user-meta fields directly present
-    if any(k in data for k in ("background", "learning_style", "math_comfort", "paper_preference", "time_per_week")):
+    # Fallback: any of the user-meta fields present (top-level or unwrapped)
+    if is_complete or any(
+        k in payload for k in ("background", "learning_style", "math_comfort", "paper_preference", "time_per_week")
+    ):
+        if not any(
+            k in payload for k in ("background", "learning_style", "math_comfort", "paper_preference", "time_per_week")
+        ):
+            return None
         return {
             "type": "user_meta_complete",
-            "summary": data.get("summary", ""),
+            "summary": payload.get("summary", "") or data.get("summary", ""),
             "user_meta": {
-                "background": data.get("background", ""),
-                "learning_style": data.get("learning_style", {}),
-                "math_comfort": data.get("math_comfort", ""),
-                "paper_preference": data.get("paper_preference", ""),
-                "time_per_week": data.get("time_per_week", ""),
+                "background": payload.get("background", ""),
+                "learning_style": payload.get("learning_style", {}),
+                "math_comfort": payload.get("math_comfort", ""),
+                "paper_preference": payload.get("paper_preference", ""),
+                "time_per_week": payload.get("time_per_week", ""),
             },
         }
     return None
@@ -508,25 +549,43 @@ def _extract_profile(response: str) -> dict | None:
     if data.get("type") == "profile_complete" and data.get("profile"):
         return data
 
-    if "profile" in data and isinstance(data["profile"], dict) and "type" not in data:
-        data = data["profile"]
+    # If the model explicitly typed this block as something other than a
+    # profile completion, respect that and don't try to coerce it.
+    explicit_type = data.get("type")
+    if isinstance(explicit_type, str) and explicit_type and explicit_type != "profile_complete":
+        return None
+
+    is_complete = _is_complete_flag(data, "profile_complete")
+
+    # Unwrap a nested payload if the profile fields live under a wrapper key
+    # (profile / workspace / user / data). Models emit
+    # {"profile_complete": true, "user": {...}} as often as the canonical shape.
+    payload = _unwrap_payload(data, ("profile", "workspace", "user", "data"))
 
     profile_indicators = (
-        "areas", "level", "goal", "who", "what",
-        "primary_focus", "role", "hypothesis",
+        "areas", "focus_areas", "research_areas", "level", "goal",
+        "research_goals", "who", "what", "primary_focus", "role",
+        "hypothesis", "domain",
     )
-    if any(k in data for k in profile_indicators):
+    if is_complete or any(k in payload for k in profile_indicators):
+        # Require at least one substantive field so a bare flag with no content
+        # doesn't produce an empty profile.
+        if not any(k in payload for k in profile_indicators):
+            return None
         return {
             "type": "profile_complete",
-            "summary": data.get("summary", ""),
-            "profile": _normalize_profile(data),
+            "summary": payload.get("summary", "") or data.get("summary", ""),
+            "profile": _normalize_profile(payload),
         }
     return None
 
 
 def _normalize_profile(data: dict) -> dict:
     """Best-effort normalize a free-form profile JSON into the storage shape."""
-    areas_raw = data.get("areas", [])
+    # Accept alternate keys the model sometimes uses for the areas list.
+    areas_raw = data.get("areas")
+    if not areas_raw:
+        areas_raw = data.get("focus_areas") or data.get("research_areas") or []
     areas = []
     if isinstance(areas_raw, list):
         for item in areas_raw:
@@ -579,6 +638,9 @@ def _normalize_profile(data: dict) -> dict:
             "statement": hypothesis_raw.get("statement", ""),
             "status": hypothesis_raw.get("status", "forming"),
         }
+    elif isinstance(hypothesis_raw, str) and hypothesis_raw.strip():
+        # Model sometimes emits the hypothesis as a bare string.
+        hypothesis = {"statement": hypothesis_raw.strip(), "status": "forming"}
 
     return {"areas": areas, "meta": meta, "hypothesis": hypothesis}
 
