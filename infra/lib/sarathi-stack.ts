@@ -601,7 +601,17 @@ export class SarathiStack extends cdk.Stack {
     lensTask.addRetry(llmRetry);
     learnTask.addRetry(llmRetry);
 
-    const pipelineChain = injectDefaults
+    // Jitter: spread the nightly burst so a growing user base doesn't hit
+    // Bedrock all at once at 02:00 UTC. The fan-out injects a per-execution
+    // jitter_seconds (0..JITTER_MAX); onboarding_confirm injects 0 so a brand
+    // new user's first run is immediate. Waiting in the state machine (not in
+    // the fan-out Lambda) keeps fan-out fast.
+    const jitterWait = new sfn.Wait(this, 'JitterWait', {
+      time: sfn.WaitTime.secondsPath('$.jitter_seconds'),
+    });
+
+    const pipelineChain = jitterWait
+      .next(injectDefaults)
       .next(discoverTask)
       .next(triageTask)
       .next(selectTask)

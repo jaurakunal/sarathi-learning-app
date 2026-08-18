@@ -24,12 +24,113 @@ import os
 import boto3
 
 from backend.shared import db
-from backend.shared.llm import call_llm_multi
+from backend.shared.llm import call_llm, call_llm_multi
 from backend.api._workspace_helper import get_user_id, resolve_workspace_id
 
 logger = logging.getLogger(__name__)
 
 TABLE_NAME = os.environ.get("TABLE_NAME", "sarathi")
+
+# Onboarding turn generation: primary model with a fallback so a single Bedrock
+# hiccup during a new user's first five minutes doesn't stall onboarding.
+ONBOARDING_MODEL = os.environ.get("ONBOARDING_MODEL", "us.anthropic.claude-sonnet-4-6")
+ONBOARDING_FALLBACK_MODEL = os.environ.get(
+    "ONBOARDING_FALLBACK_MODEL", "moonshotai.kimi-k2.5"
+)
+# Confidence at/above which the separate readiness check unlocks completion.
+READINESS_MIN_CONFIDENCE = 0.7
+
+# Curated fallback areas so a user can always finish onboarding by picking from
+# a list even if the LLM interview is degraded. Kept broad for an AI-research
+# audience; each becomes a profile area.
+AREAS_CATALOG = [
+    {"id": "llm-agents", "label": "LLM agents & tool use"},
+    {"id": "agentic-evaluation", "label": "Agentic evaluation & benchmarks"},
+    {"id": "agent-memory", "label": "Long-running agents, memory & persistence"},
+    {"id": "rag", "label": "Retrieval-augmented generation (RAG)"},
+    {"id": "reasoning", "label": "Reasoning & planning"},
+    {"id": "alignment-safety", "label": "Alignment & safety"},
+    {"id": "efficient-inference", "label": "Efficient inference & serving"},
+    {"id": "fine-tuning", "label": "Fine-tuning & post-training"},
+    {"id": "multimodal", "label": "Multimodal models"},
+    {"id": "prompting", "label": "Prompting & in-context learning"},
+    {"id": "interpretability", "label": "Interpretability"},
+    {"id": "code-generation", "label": "Code generation & software agents"},
+]
+
+
+def _generate_turn(system: str, messages: list, max_tokens: int) -> str | None:
+    """Generate an onboarding assistant turn with model fallback.
+
+    call_llm_multi has no built-in fallback, so retry on the fallback model when
+    the primary returns None (a Bedrock outage/throttle otherwise stalls a new
+    user mid-onboarding).
+    """
+    text = call_llm_multi(
+        system=system, messages=messages,
+        model_id=ONBOARDING_MODEL, max_tokens=max_tokens, temperature=0.4,
+    )
+    if text is not None:
+        return text
+    logger.warning("Onboarding primary model failed — falling back to %s", ONBOARDING_FALLBACK_MODEL)
+    return call_llm_multi(
+        system=system, messages=messages,
+        model_id=ONBOARDING_FALLBACK_MODEL, max_tokens=max_tokens, temperature=0.4,
+    )
+
+
+READINESS_SYSTEM_PROMPT = """You assess whether a research-onboarding conversation has gathered enough to build a useful paper-recommendation profile for the user's workspace.
+
+Enough means we can name: at least one concrete research AREA the user cares about, and a sense of what they want (consume/learn vs. produce/publish) — a hypothesis or goal is a bonus, not required.
+
+Respond with ONLY a JSON object, no prose:
+{
+  "ready": true|false,
+  "confidence": 0.0-1.0,
+  "missing": ["areas"|"goal"|"level", ...],
+  "profile": {
+    "areas": [{"id": "kebab-id", "label": "Human label", "role": "primary"}],
+    "meta": {"paper_goal": "one sentence"},
+    "hypothesis": {"statement": "optional", "status": "forming"}
+  }
+}
+Only populate "profile" when ready is true. Base it strictly on what the user said; do not invent areas."""
+
+
+def _assess_readiness(messages: list) -> dict:
+    """Separate structured LLM check: is there enough to build a profile?
+
+    Decouples completion from the brittle inline completion-JSON parsing — the
+    interview model no longer has to emit a perfectly-shaped block for the user
+    to advance. Returns a dict; {"ready": False} on any failure (fail-safe: the
+    user simply keeps chatting, or uses the dropdown fallback).
+    """
+    transcript = "\n".join(
+        f"{'User' if m.get('role') == 'user' else 'Assistant'}: {m.get('content', '')}"
+        for m in messages
+    )
+    raw = call_llm(
+        system=READINESS_SYSTEM_PROMPT,
+        user_message=f"Conversation so far:\n\n{transcript}",
+        model_id=ONBOARDING_FALLBACK_MODEL,
+        max_tokens=1500,
+        temperature=0.2,
+    )
+    if not raw:
+        return {"ready": False, "confidence": 0.0, "missing": [], "profile": {}}
+    block = _extract_json_block(raw)
+    if not block:
+        return {"ready": False, "confidence": 0.0, "missing": [], "profile": {}}
+    try:
+        data = json.loads(block)
+    except json.JSONDecodeError:
+        return {"ready": False, "confidence": 0.0, "missing": [], "profile": {}}
+    return {
+        "ready": bool(data.get("ready")),
+        "confidence": float(data.get("confidence", 0.0) or 0.0),
+        "missing": data.get("missing", []) or [],
+        "profile": data.get("profile", {}) or {},
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -211,6 +312,9 @@ def _get_status(table, user_id: str, event: dict) -> dict:
         "has_workspace_profile": has_workspace_profile,
         "workspace_id": workspace_id,
         "next_stage": next_stage,
+        # Curated areas for the dropdown fallback (finish onboarding without the
+        # LLM interview if it's degraded or the user prefers to just pick).
+        "areas_catalog": AREAS_CATALOG,
         # Legacy compatibility for older clients:
         "has_profile": has_user_meta and has_workspace_profile,
     })
@@ -271,13 +375,7 @@ def _handle_user_stage(table, user_id: str, message: str) -> dict:
     if not message and not turns:
         llm_messages.append({"role": "user", "content": "Hi, I just signed up."})
 
-    response = call_llm_multi(
-        system=system,
-        messages=llm_messages,
-        model_id="us.anthropic.claude-sonnet-4-6",
-        max_tokens=8000,
-        temperature=0.4,
-    )
+    response = _generate_turn(system, llm_messages, max_tokens=8000)
     if not response:
         return _response(500, {"error": "LLM call failed"})
 
@@ -380,13 +478,7 @@ def _handle_workspace_stage(table, user_id: str, event: dict, message: str) -> d
             )
         llm_messages.append({"role": "user", "content": f"{priming}Let's set up this workspace."})
 
-    response = call_llm_multi(
-        system=system,
-        messages=llm_messages,
-        model_id="us.anthropic.claude-sonnet-4-6",
-        max_tokens=24000,
-        temperature=0.4,
-    )
+    response = _generate_turn(system, llm_messages, max_tokens=24000)
     if not response:
         return _response(500, {"error": "LLM call failed"})
 
@@ -400,12 +492,20 @@ def _handle_workspace_stage(table, user_id: str, event: dict, message: str) -> d
     )
     db.update_conversation_last_active(table, user_id, workspace_id, conv_id)
 
+    # Completion is gated on a SEPARATE readiness check, not on the interview
+    # model emitting a perfectly-shaped completion JSON inline. First honor an
+    # inline completion block if the model did emit one (backward compatible);
+    # otherwise ask the readiness assessor.
     profile_data = _extract_profile(response)
     if not profile_data:
-        for turn in reversed(turns):
-            profile_data = _extract_profile(turn.get("response", ""))
-            if profile_data:
-                break
+        full_messages = llm_messages + [{"role": "assistant", "content": response}]
+        readiness = _assess_readiness(full_messages)
+        if readiness["ready"] and readiness["confidence"] >= READINESS_MIN_CONFIDENCE and readiness["profile"].get("areas"):
+            profile_data = {
+                "type": "profile_complete",
+                "summary": readiness["profile"].get("meta", {}).get("paper_goal", ""),
+                "profile": _normalize_profile(readiness["profile"]),
+            }
 
     result: dict = {
         "stage": "workspace",

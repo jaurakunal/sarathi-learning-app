@@ -208,6 +208,10 @@ class TestFanoutHandler:
         assert sfn_input["table_name"] == "sarathi-test"
         assert sfn_input["s3_bucket"] == "sarathi-bucket"
         assert sfn_input["since_days"] == 30
+        # Jitter is injected for the nightly burst, within [0, JITTER_MAX_SECONDS].
+        from backend.pipeline.fanout import JITTER_MAX_SECONDS
+        assert "jitter_seconds" in sfn_input
+        assert 0 <= sfn_input["jitter_seconds"] <= JITTER_MAX_SECONDS
 
     @patch.dict("os.environ", {"TABLE_NAME": "sarathi-test", "STATE_MACHINE_ARN": "arn:aws:states:us-east-1:123:stateMachine:pipeline", "BUCKET_NAME": "sarathi-bucket"})
     @patch("backend.pipeline.fanout.db")

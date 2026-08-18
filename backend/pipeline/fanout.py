@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import random
 from datetime import datetime, timezone, timedelta
 
 import boto3
@@ -24,6 +25,10 @@ from backend.shared import db
 logger = logging.getLogger(__name__)
 
 INACTIVE_DAYS = 3
+
+# Spread the nightly burst across a window so we don't hit Bedrock all at once.
+# Each execution waits a random 0..JITTER_MAX_SECONDS in the state machine.
+JITTER_MAX_SECONDS = int(os.environ.get("JITTER_MAX_SECONDS", "3600"))
 
 
 def _can_trigger(table, sfn, user_id: str, workspace_id: str) -> bool:
@@ -127,6 +132,8 @@ def handler(event: dict, context) -> dict:
                         "table_name": table_name,
                         "s3_bucket": s3_bucket,
                         "since_days": 30,
+                        # Stagger the nightly burst; state machine waits this long.
+                        "jitter_seconds": random.randint(0, JITTER_MAX_SECONDS),
                     }),
                 )
                 execution_arn = resp_sfn.get("executionArn", "")

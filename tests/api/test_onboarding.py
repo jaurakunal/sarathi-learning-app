@@ -450,3 +450,98 @@ Does this look right?'''
 
         assert result is not None
         assert result["type"] == "profile_complete"
+
+
+# ---------------------------------------------------------------------------
+# Onboarding hardening: readiness gate, model fallback, dropdown catalog
+# ---------------------------------------------------------------------------
+
+
+class TestReadinessAndFallback:
+    @patch("backend.api.onboarding.call_llm")
+    def test_assess_readiness_ready_with_profile(self, mock_call_llm):
+        from backend.api.onboarding import _assess_readiness
+        mock_call_llm.return_value = '''```json
+{"ready": true, "confidence": 0.9, "missing": [],
+ "profile": {"areas": [{"id": "rag", "label": "RAG", "role": "primary"}],
+             "meta": {"paper_goal": "learn RAG"}}}
+```'''
+        r = _assess_readiness([{"role": "user", "content": "I care about RAG"}])
+        assert r["ready"] is True
+        assert r["confidence"] == 0.9
+        assert r["profile"]["areas"][0]["id"] == "rag"
+
+    @patch("backend.api.onboarding.call_llm")
+    def test_assess_readiness_not_ready(self, mock_call_llm):
+        from backend.api.onboarding import _assess_readiness
+        mock_call_llm.return_value = '{"ready": false, "confidence": 0.2, "missing": ["areas"]}'
+        r = _assess_readiness([{"role": "user", "content": "hi"}])
+        assert r["ready"] is False
+
+    @patch("backend.api.onboarding.call_llm")
+    def test_assess_readiness_failsafe_on_none(self, mock_call_llm):
+        from backend.api.onboarding import _assess_readiness
+        mock_call_llm.return_value = None
+        r = _assess_readiness([{"role": "user", "content": "hi"}])
+        assert r["ready"] is False
+        assert r["confidence"] == 0.0
+
+    @patch("backend.api.onboarding.call_llm_multi")
+    def test_generate_turn_falls_back_on_primary_failure(self, mock_multi):
+        from backend.api.onboarding import _generate_turn, ONBOARDING_MODEL, ONBOARDING_FALLBACK_MODEL
+        # Primary returns None, fallback returns text.
+        mock_multi.side_effect = [None, "fallback response"]
+        out = _generate_turn("sys", [{"role": "user", "content": "hi"}], max_tokens=100)
+        assert out == "fallback response"
+        assert mock_multi.call_count == 2
+        # Second call used the fallback model.
+        assert mock_multi.call_args_list[1].kwargs["model_id"] == ONBOARDING_FALLBACK_MODEL
+
+    @patch("backend.api.onboarding.boto3")
+    @patch("backend.api.onboarding.db")
+    def test_get_status_includes_areas_catalog(self, mock_db, mock_boto3):
+        from backend.api.onboarding import handler, AREAS_CATALOG
+        mock_boto3.resource.return_value.Table.return_value = MagicMock()
+        mock_db.get_user_meta.return_value = None
+        mock_db.get_user_onboarding_status.return_value = None
+        event = {
+            "httpMethod": "GET",
+            "requestContext": {"authorizer": {"claims": {"sub": "u1"}}},
+            "body": None,
+        }
+        resp = handler(event, None)
+        body = json.loads(resp["body"])
+        assert body["areas_catalog"] == AREAS_CATALOG
+        assert len(body["areas_catalog"]) >= 5
+
+    @patch("backend.api.onboarding._assess_readiness")
+    @patch("backend.api.onboarding._generate_turn")
+    @patch("backend.api.onboarding.resolve_workspace_id", return_value="w1")
+    @patch("backend.api.onboarding.boto3")
+    @patch("backend.api.onboarding.db")
+    def test_workspace_stage_completes_via_readiness_gate(
+        self, mock_db, mock_boto3, mock_resolve, mock_gen, mock_ready,
+    ):
+        """When the interview model does NOT emit an inline completion block,
+        the separate readiness check unlocks completion."""
+        mock_boto3.resource.return_value.Table.return_value = MagicMock()
+        mock_db.get_user_meta.return_value = {"background": "SDE"}
+        mock_db.get_conversation_by_paper.return_value = {"conv_id": "onboarding"}
+        mock_db.get_conversation_turns.return_value = []
+        # A plain conversational turn, no JSON block.
+        mock_gen.return_value = "Got it — sounds like RAG is your focus."
+        mock_ready.return_value = {
+            "ready": True, "confidence": 0.85, "missing": [],
+            "profile": {"areas": [{"id": "rag", "label": "RAG", "role": "primary"}],
+                        "meta": {"paper_goal": "learn RAG"}},
+        }
+        from backend.api.onboarding import handler
+        event = {
+            "httpMethod": "POST",
+            "requestContext": {"authorizer": {"claims": {"sub": "u1"}}},
+            "body": json.dumps({"message": "I care about RAG", "stage": "workspace"}),
+        }
+        resp = handler(event, None)
+        body = json.loads(resp["body"])
+        assert body["profile_complete"] is True
+        assert body["profile"]["areas"][0]["id"] == "rag"

@@ -155,6 +155,8 @@ def _confirm_workspace_profile(table, user_id: str, event: dict, body: dict) -> 
                         "table_name": TABLE_NAME,
                         "s3_bucket": os.environ.get("BUCKET_NAME", ""),
                         "since_days": 30,
+                        # A brand-new user's first run should be immediate.
+                        "jitter_seconds": 0,
                     }),
                 )
                 execution_arn = resp_sfn.get("executionArn", "")
