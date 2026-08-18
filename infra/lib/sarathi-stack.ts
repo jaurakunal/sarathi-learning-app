@@ -1045,12 +1045,18 @@ export class SarathiStack extends cdk.Stack {
 
     const slackWorkspaceId = this.node.tryGetContext('slackWorkspaceId');
     const slackChannelId = this.node.tryGetContext('slackChannelId');
+    const slackFeedbackChannelId = this.node.tryGetContext('slackFeedbackChannelId');
     if (slackWorkspaceId && slackChannelId) {
+      // A Slack channel can hold only ONE Chatbot config per account. When
+      // feedback has no dedicated channel, route it to the alarm channel by
+      // adding feedbackTopic to THIS config rather than a second config on the
+      // same channel (which AWS Chatbot rejects).
+      const alarmTopics = slackFeedbackChannelId ? [alarmTopic] : [alarmTopic, feedbackTopic];
       new chatbot.SlackChannelConfiguration(this, 'SlackAlarms', {
         slackChannelConfigurationName: 'sarathi-alarms',
         slackWorkspaceId,
         slackChannelId,
-        notificationTopics: [alarmTopic],
+        notificationTopics: alarmTopics,
       });
     }
 
@@ -1073,16 +1079,14 @@ export class SarathiStack extends cdk.Stack {
       digestTopic = metricsTopic;
     }
 
-    // Feedback → its own channel (-c slackFeedbackChannelId=C...), else the
-    // alarm channel so reports are never lost. The feedback Lambda always
-    // publishes to feedbackTopic; this just points a channel at it.
-    const slackFeedbackChannelId = this.node.tryGetContext('slackFeedbackChannelId');
-    const feedbackChannel = slackFeedbackChannelId || slackChannelId;
-    if (slackWorkspaceId && feedbackChannel) {
+    // Feedback → its OWN channel only when a dedicated one is configured
+    // (-c slackFeedbackChannelId=C...). Without it, feedbackTopic is already
+    // attached to the alarm channel's config above, so reports still land.
+    if (slackWorkspaceId && slackFeedbackChannelId) {
       new chatbot.SlackChannelConfiguration(this, 'SlackFeedback', {
         slackChannelConfigurationName: 'sarathi-feedback',
         slackWorkspaceId,
-        slackChannelId: feedbackChannel,
+        slackChannelId: slackFeedbackChannelId,
         notificationTopics: [feedbackTopic],
       });
     }
