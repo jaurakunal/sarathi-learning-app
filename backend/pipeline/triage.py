@@ -238,4 +238,8 @@ def handler(event: dict, context) -> dict:
         worth_reading,
     )
 
+    from backend.shared import metrics
+    metrics.emit("PapersTriaged", papers_triaged)
+    metrics.emit("PapersWorthReading", worth_reading)
+
     return {"papers_triaged": papers_triaged, "worth_reading": worth_reading}

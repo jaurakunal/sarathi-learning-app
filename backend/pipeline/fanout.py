@@ -140,6 +140,9 @@ def handler(event: dict, context) -> dict:
         "Fan-out complete: %d workspaces triggered, %d workspaces auto-paused, %d workspaces skipped, %d users without workspaces",
         triggered, paused, skipped, no_workspace,
     )
+    from backend.shared import metrics
+    metrics.emit("PipelineExecutionsStarted", triggered)
+    metrics.emit("WorkspacesAutoPaused", paused)
     return {
         "workspaces_triggered": triggered,
         "users_paused": paused,

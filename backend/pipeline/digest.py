@@ -426,6 +426,10 @@ def run(event: dict) -> dict:
     result = {"cards_generated": cards_generated, "papers_failed": papers_failed}
     logger.info("Digest step complete: %s", result)
 
+    from backend.shared import metrics
+    metrics.emit("FeedCardsGenerated", cards_generated)
+    metrics.emit("PapersFailedInDigest", papers_failed)
+
     # Send push notification if new cards were generated
     if cards_generated > 0:
         try:

@@ -47,6 +47,14 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
+def _safe_metric(name: str, value: float, dimensions: Optional[dict] = None) -> None:
+    try:
+        from backend.shared import metrics
+        metrics.emit(name, value, dimensions=dimensions)
+    except Exception:
+        pass
+
+
 def _publish_chunk(
     conversation_id: str, turn_seq: int, chunk: str, done: bool,
     tokens_in: int = 0, tokens_out: int = 0,
@@ -113,11 +121,14 @@ def _publish_chunk(
         resp_body = resp.read().decode("utf-8")
         if '"errors"' in resp_body:
             logger.error("AppSync publish returned errors: %s", resp_body[:500])
+            _safe_metric("PublishChunkFailed", 1)
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8") if e.fp else ""
         logger.error("AppSync publish HTTP %d: %s", e.code, body[:500])
+        _safe_metric("PublishChunkFailed", 1)
     except Exception:
         logger.exception("Failed to publish chunk to AppSync")
+        _safe_metric("PublishChunkFailed", 1)
 
 
 def handler(event: dict, context) -> dict:
@@ -255,10 +266,12 @@ def handler(event: dict, context) -> dict:
         # Publish done signal with full response for client confirmation
         full_response = "".join(response_chunks)
         _publish_chunk(conv_id, seq, full_response, True, tokens_in, tokens_out)
+        _safe_metric("ChatStreamCompleted", 1)
 
     except Exception:
         logger.exception("Bedrock streaming failed")
         _publish_chunk(conv_id, seq, "[Error: LLM streaming failed]", True)
+        _safe_metric("ChatStreamFailed", 1)
         return {"conversationId": conv_id, "turnSeq": seq, "status": "error:llm_failed"}
 
     # 8. Update turn with full response

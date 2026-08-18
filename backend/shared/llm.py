@@ -15,6 +15,15 @@ DEFAULT_MODEL_ID = "us.anthropic.claude-sonnet-4-6"
 DEFAULT_REGION = "us-east-1"
 
 
+def _safe_metric(name: str, value: float, dimensions: Optional[dict] = None) -> None:
+    """Emit a metric without ever letting a monitoring failure break an LLM call."""
+    try:
+        from backend.shared import metrics
+        metrics.emit(name, value, dimensions=dimensions)
+    except Exception:
+        pass
+
+
 def _is_openai_compat(model_id: str) -> bool:
     """GLM (zai.*), Kimi (moonshot*), Qwen (qwen.*), and DeepSeek use the
     OpenAI-style request/response format on Bedrock. Anthropic uses its own format.
@@ -180,6 +189,7 @@ def call_llm(
 
     except Exception:
         logger.exception("Bedrock LLM call failed (model=%s)", model_id)
+        _safe_metric("LlmCallFailed", 1, {"model": model_id})
         return None
 
 
@@ -227,6 +237,7 @@ def call_llm_with_fallback(
         primary_model,
         fallback_model,
     )
+    _safe_metric("LlmFallbackUsed", 1, {"model": primary_model})
     return call_llm(
         system=system,
         user_message=user_message,

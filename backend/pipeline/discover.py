@@ -223,4 +223,6 @@ def handler(event: dict, context) -> dict:
         "duplicates_skipped": duplicates_skipped,
     }
     logger.info("Discover step complete: %s", summary)
+    from backend.shared import metrics
+    metrics.emit("CandidatesDiscovered", new_candidates_written)
     return summary

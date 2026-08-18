@@ -64,6 +64,9 @@ def _confirm_user_meta(table, user_id: str, body: dict) -> dict:
     db.put_user_meta(table, user_id, payload)
     db.set_user_onboarding_complete(table, user_id)
 
+    from backend.shared import metrics
+    metrics.emit("OnboardingCompleted", 1, dimensions={"stage": "user"})
+
     return _response(200, {"status": "user_meta_saved"})
 
 
@@ -161,6 +164,9 @@ def _confirm_workspace_profile(table, user_id: str, event: dict, body: dict) -> 
                 logger.info("Pipeline already running for user %s ws %s", user_id, workspace_id)
     except Exception:
         logger.exception("Failed to trigger initial pipeline — user can wait for nightly run")
+
+    from backend.shared import metrics
+    metrics.emit("OnboardingCompleted", 1, dimensions={"stage": "workspace"})
 
     return _response(200, {
         "status": "confirmed",
