@@ -36,7 +36,7 @@ TABLE_NAME = os.environ.get("TABLE_NAME", "sarathi")
 # on the main model, then a cross-provider fallback to OpenAI GPT-5.6. The exact
 # Bedrock model id is env-overridable in case it differs from the default.
 ONBOARDING_MODEL = os.environ.get("ONBOARDING_MODEL", "us.anthropic.claude-sonnet-4-6")
-ONBOARDING_FALLBACK_MODEL = os.environ.get("ONBOARDING_FALLBACK_MODEL", "openai.gpt-5.6")
+ONBOARDING_FALLBACK_MODEL = os.environ.get("ONBOARDING_FALLBACK_MODEL", "openai.gpt-5.6-luna")
 MAIN_MODEL_ATTEMPTS = int(os.environ.get("ONBOARDING_MAIN_ATTEMPTS", "3"))
 FALLBACK_MODEL_ATTEMPTS = int(os.environ.get("ONBOARDING_FALLBACK_ATTEMPTS", "2"))
 # Confidence at/above which the separate readiness check unlocks completion.
