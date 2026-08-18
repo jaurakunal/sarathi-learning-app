@@ -13,21 +13,13 @@ from datetime import datetime, timezone
 
 import boto3
 
-from backend.shared import db
+from backend.shared import db, metrics  # metrics.emit never raises
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
 TABLE_NAME = os.environ.get("TABLE_NAME", "sarathi")
 STREAM_FUNCTION_NAME = os.environ.get("STREAM_FUNCTION_NAME", "sarathi-chat-stream")
-
-
-def _safe_metric(name: str, value: float, dimensions: dict | None = None) -> None:
-    try:
-        from backend.shared import metrics
-        metrics.emit(name, value, dimensions=dimensions)
-    except Exception:
-        pass
 
 
 def _now_iso() -> str:
@@ -112,9 +104,9 @@ def handler(event: dict, context) -> dict:
         # The turn is already written; if we can't kick off the stream the
         # client would otherwise hang forever. Surface an error instead.
         logger.exception("Failed to dispatch stream Lambda for conv=%s ws=%s", conv_id, workspace_id)
-        _safe_metric("ChatStreamDispatchFailed", 1)
+        metrics.emit("ChatStreamDispatchFailed", 1)
         return "error:dispatch_failed"
 
     logger.info("Dispatched stream for conv=%s ws=%s scope=%s turn=%d", conv_id, workspace_id, scope, seq)
-    _safe_metric("ChatStreamStarted", 1)
+    metrics.emit("ChatStreamStarted", 1)
     return {"conversationId": conv_id, "turnSeq": seq, "status": "ok"}

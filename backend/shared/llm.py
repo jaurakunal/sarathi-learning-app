@@ -9,19 +9,12 @@ from typing import Generator, Optional
 import boto3
 from botocore.config import Config
 
+from backend.shared import metrics  # metrics.emit never raises
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL_ID = "us.anthropic.claude-sonnet-4-6"
 DEFAULT_REGION = "us-east-1"
-
-
-def _safe_metric(name: str, value: float, dimensions: Optional[dict] = None) -> None:
-    """Emit a metric without ever letting a monitoring failure break an LLM call."""
-    try:
-        from backend.shared import metrics
-        metrics.emit(name, value, dimensions=dimensions)
-    except Exception:
-        pass
 
 
 def _is_openai_compat(model_id: str) -> bool:
@@ -189,7 +182,7 @@ def call_llm(
 
     except Exception:
         logger.exception("Bedrock LLM call failed (model=%s)", model_id)
-        _safe_metric("LlmCallFailed", 1, {"model": model_id})
+        metrics.emit("LlmCallFailed", 1, {"model": model_id})
         return None
 
 
@@ -237,7 +230,7 @@ def call_llm_with_fallback(
         primary_model,
         fallback_model,
     )
-    _safe_metric("LlmFallbackUsed", 1, {"model": primary_model})
+    metrics.emit("LlmFallbackUsed", 1, {"model": primary_model})
     return call_llm(
         system=system,
         user_message=user_message,

@@ -1111,12 +1111,20 @@ export class SarathiStack extends cdk.Stack {
         comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
         treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
       }));
-      // Two-week log retention so log groups stop growing forever.
-      new logs.LogRetention(this, `LogRet-${name}`, {
-        logGroupName: `/aws/lambda/${fn.functionName}`,
-        retention: logs.RetentionDays.TWO_WEEKS,
-      });
     }
+
+    // Two-week log retention on every log group in the stack. Each function
+    // already has a CDK-managed AWS::Logs::LogGroup (a feature flag creates
+    // them), so set retention on those in place via an Aspect rather than
+    // adding separate LogRetention custom resources (which would collide with
+    // the managed group on any newly-added function).
+    cdk.Aspects.of(this).add({
+      visit(node: any) {
+        if (node instanceof logs.CfnLogGroup) {
+          node.retentionInDays = 14;
+        }
+      },
+    });
 
     // ─── Duration alarms for the synchronous-LLM handlers (504 risk) ─────
     // API Gateway caps at 29s; alarm when p99 approaches it.
