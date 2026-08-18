@@ -1019,6 +1019,25 @@ export class SarathiStack extends cdk.Stack {
       });
     }
 
+    // Product-metrics digest goes to its own Slack channel when configured
+    // (-c slackMetricsChannelId=C...); otherwise it falls back to the alarm
+    // channel so nothing is lost before the dedicated channel is wired.
+    const slackMetricsChannelId = this.node.tryGetContext('slackMetricsChannelId');
+    let digestTopic = alarmTopic;
+    if (slackWorkspaceId && slackMetricsChannelId) {
+      const metricsTopic = new sns.Topic(this, 'MetricsTopic', {
+        topicName: 'sarathi-product-metrics',
+        displayName: 'Sarathi Product Metrics',
+      });
+      new chatbot.SlackChannelConfiguration(this, 'SlackMetrics', {
+        slackChannelConfigurationName: 'sarathi-product-metrics',
+        slackWorkspaceId,
+        slackChannelId: slackMetricsChannelId,
+        notificationTopics: [metricsTopic],
+      });
+      digestTopic = metricsTopic;
+    }
+
     const alarmAction = new cwActions.SnsAction(alarmTopic);
     const wire = (alarm: cloudwatch.Alarm): cloudwatch.Alarm => {
       alarm.addAlarmAction(alarmAction);
@@ -1080,12 +1099,12 @@ export class SarathiStack extends cdk.Stack {
       runtime: lambda.Runtime.PYTHON_3_12,
       handler: 'backend.monitoring.product_digest.handler',
       code: lambdaCode,
-      environment: { ...lambdaEnv, ALARM_TOPIC_ARN: alarmTopic.topicArn },
+      environment: { ...lambdaEnv, ALARM_TOPIC_ARN: digestTopic.topicArn },
       role: lambdaRole,
       timeout: cdk.Duration.minutes(2),
       memorySize: 256,
     });
-    alarmTopic.grantPublish(productDigestFn);
+    digestTopic.grantPublish(productDigestFn);
     new events.Rule(this, 'ProductDigestSchedule', {
       ruleName: 'sarathi-product-digest',
       schedule: events.Schedule.cron({ minute: '30', hour: '8', weekDay: 'MON' }),
