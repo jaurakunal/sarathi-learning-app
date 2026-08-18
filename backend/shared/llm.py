@@ -18,11 +18,12 @@ DEFAULT_REGION = "us-east-1"
 
 
 def _is_openai_compat(model_id: str) -> bool:
-    """GLM (zai.*), Kimi (moonshot*), Qwen (qwen.*), and DeepSeek use the
-    OpenAI-style request/response format on Bedrock. Anthropic uses its own format.
+    """GLM (zai.*), Kimi (moonshot*), Qwen (qwen.*), DeepSeek, and OpenAI
+    (openai.*/gpt-*) use the OpenAI-style request/response format on Bedrock.
+    Anthropic uses its own format.
     """
     mid = model_id.lower()
-    return mid.startswith(("zai.", "moonshot", "qwen.", "deepseek."))
+    return mid.startswith(("zai.", "moonshot", "qwen.", "deepseek.", "openai.", "gpt-"))
 
 
 def _drops_temperature(model_id: str) -> bool:

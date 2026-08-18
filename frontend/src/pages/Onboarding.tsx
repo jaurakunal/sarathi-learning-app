@@ -14,18 +14,12 @@ interface OnboardingMessage {
 
 type Stage = 'user' | 'workspace'
 
-interface AreaOption {
-  id: string
-  label: string
-}
-
 interface OnboardingStatus {
   has_user_meta: boolean
   user_onboarding_complete: boolean
   has_workspace_profile: boolean
   workspace_id: string | null
   next_stage: 'user' | 'workspace' | 'complete'
-  areas_catalog?: AreaOption[]
   has_profile?: boolean
 }
 
@@ -52,11 +46,6 @@ export function Onboarding() {
 
   const [confirming, setConfirming] = useState(false)
   const [confirmed, setConfirmed] = useState(false)
-
-  // Dropdown fallback: pick areas from a list if the chat is degraded/skipped.
-  const [areasCatalog, setAreasCatalog] = useState<AreaOption[]>([])
-  const [showAreaPicker, setShowAreaPicker] = useState(false)
-  const [pickedAreas, setPickedAreas] = useState<Set<string>>(new Set())
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const startedRef = useRef(false)
@@ -85,7 +74,6 @@ export function Onboarding() {
   async function bootstrap() {
     try {
       const status = await apiFetch<OnboardingStatus>('/onboarding')
-      if (status.areas_catalog?.length) setAreasCatalog(status.areas_catalog)
       let nextStage: Stage = 'user'
       if (isNewWorkspace) {
         // User clicked "Create new workspace" — skip user-level if we already
@@ -212,30 +200,6 @@ export function Onboarding() {
       await apiFetch('/onboarding/profile', {
         method: 'PUT',
         body: JSON.stringify({ stage: 'workspace', profile }),
-      })
-      setConfirmed(true)
-      setTimeout(() => navigate('/'), 3000)
-    } catch {
-      setConfirming(false)
-    }
-  }
-
-  // Dropdown fallback: build a minimal but valid profile from the picked areas
-  // and finish onboarding without the LLM interview.
-  async function confirmPickedAreas() {
-    if (pickedAreas.size === 0) return
-    setConfirming(true)
-    try {
-      const chosen = areasCatalog.filter((a) => pickedAreas.has(a.id))
-      const builtProfile = {
-        areas: chosen.map((a) => ({ id: a.id, label: a.label, role: 'primary' })),
-        meta: {
-          paper_goal: `Follow research on ${chosen.map((a) => a.label).join(', ')}.`,
-        },
-      }
-      await apiFetch('/onboarding/profile', {
-        method: 'PUT',
-        body: JSON.stringify({ stage: 'workspace', profile: builtProfile }),
       })
       setConfirmed(true)
       setTimeout(() => navigate('/'), 3000)
@@ -391,69 +355,6 @@ export function Onboarding() {
               Go to feed now →
             </button>
           </motion.div>
-        )}
-
-        {/* Dropdown fallback: pick areas directly. Available in the workspace
-            stage so a user can always finish even if the chat is degraded. */}
-        {stage === 'workspace' && !profileComplete && !confirmed && areasCatalog.length > 0 && (
-          <div className="pt-4">
-            {!showAreaPicker ? (
-              <div className="text-center">
-                <button
-                  onClick={() => setShowAreaPicker(true)}
-                  className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors underline underline-offset-2"
-                >
-                  Prefer to just pick your areas from a list?
-                </button>
-              </div>
-            ) : (
-              <motion.div
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="p-4 rounded-xl border border-accent/30 bg-accent/5 space-y-3"
-              >
-                <p className="text-sm text-white font-medium">Pick the areas you want in this workspace:</p>
-                <div className="flex flex-wrap gap-2">
-                  {areasCatalog.map((a) => {
-                    const on = pickedAreas.has(a.id)
-                    return (
-                      <button
-                        key={a.id}
-                        onClick={() => setPickedAreas((prev) => {
-                          const next = new Set(prev)
-                          if (next.has(a.id)) next.delete(a.id); else next.add(a.id)
-                          return next
-                        })}
-                        className={`px-3 py-1.5 rounded-full text-xs border transition-all ${
-                          on
-                            ? 'bg-accent/20 border-accent-dim text-white'
-                            : 'border-white/[0.12] text-zinc-400 hover:text-zinc-200'
-                        }`}
-                      >
-                        {a.label}
-                      </button>
-                    )
-                  })}
-                </div>
-                <div className="flex items-center gap-3 pt-1">
-                  <button
-                    onClick={confirmPickedAreas}
-                    disabled={confirming || pickedAreas.size === 0}
-                    className="flex items-center gap-2 px-4 py-2 bg-accent text-white text-sm font-medium rounded-lg hover:bg-accent-light disabled:opacity-50 transition-all"
-                  >
-                    <Check size={14} />
-                    {confirming ? 'Setting up...' : `Build my feed${pickedAreas.size ? ` (${pickedAreas.size})` : ''}`}
-                  </button>
-                  <button
-                    onClick={() => setShowAreaPicker(false)}
-                    className="px-4 py-2 text-sm text-zinc-400 hover:text-white transition-colors"
-                  >
-                    Back to chat
-                  </button>
-                </div>
-              </motion.div>
-            )}
-          </div>
         )}
 
         {!userMetaComplete && !profileComplete && !confirmed && messages.length >= 6 && (

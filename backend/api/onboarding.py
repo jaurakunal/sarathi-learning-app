@@ -31,52 +31,44 @@ logger = logging.getLogger(__name__)
 
 TABLE_NAME = os.environ.get("TABLE_NAME", "sarathi")
 
-# Onboarding turn generation: primary model with a fallback so a single Bedrock
-# hiccup during a new user's first five minutes doesn't stall onboarding.
+# Onboarding is LLM-driven end to end — there is deliberately NO hard-coded
+# fallback path. Robustness comes from retries: up to MAIN_MODEL_ATTEMPTS tries
+# on the main model, then a cross-provider fallback to OpenAI GPT-5.6. The exact
+# Bedrock model id is env-overridable in case it differs from the default.
 ONBOARDING_MODEL = os.environ.get("ONBOARDING_MODEL", "us.anthropic.claude-sonnet-4-6")
-ONBOARDING_FALLBACK_MODEL = os.environ.get(
-    "ONBOARDING_FALLBACK_MODEL", "moonshotai.kimi-k2.5"
-)
+ONBOARDING_FALLBACK_MODEL = os.environ.get("ONBOARDING_FALLBACK_MODEL", "openai.gpt-5.6")
+MAIN_MODEL_ATTEMPTS = int(os.environ.get("ONBOARDING_MAIN_ATTEMPTS", "3"))
+FALLBACK_MODEL_ATTEMPTS = int(os.environ.get("ONBOARDING_FALLBACK_ATTEMPTS", "2"))
 # Confidence at/above which the separate readiness check unlocks completion.
 READINESS_MIN_CONFIDENCE = 0.7
 
-# Curated fallback areas so a user can always finish onboarding by picking from
-# a list even if the LLM interview is degraded. Kept broad for an AI-research
-# audience; each becomes a profile area.
-AREAS_CATALOG = [
-    {"id": "llm-agents", "label": "LLM agents & tool use"},
-    {"id": "agentic-evaluation", "label": "Agentic evaluation & benchmarks"},
-    {"id": "agent-memory", "label": "Long-running agents, memory & persistence"},
-    {"id": "rag", "label": "Retrieval-augmented generation (RAG)"},
-    {"id": "reasoning", "label": "Reasoning & planning"},
-    {"id": "alignment-safety", "label": "Alignment & safety"},
-    {"id": "efficient-inference", "label": "Efficient inference & serving"},
-    {"id": "fine-tuning", "label": "Fine-tuning & post-training"},
-    {"id": "multimodal", "label": "Multimodal models"},
-    {"id": "prompting", "label": "Prompting & in-context learning"},
-    {"id": "interpretability", "label": "Interpretability"},
-    {"id": "code-generation", "label": "Code generation & software agents"},
-]
-
 
 def _generate_turn(system: str, messages: list, max_tokens: int) -> str | None:
-    """Generate an onboarding assistant turn with model fallback.
+    """Generate an onboarding assistant turn resiliently.
 
-    call_llm_multi has no built-in fallback, so retry on the fallback model when
-    the primary returns None (a Bedrock outage/throttle otherwise stalls a new
-    user mid-onboarding).
+    Retry the main model up to MAIN_MODEL_ATTEMPTS times, then fall back to the
+    OpenAI model for FALLBACK_MODEL_ATTEMPTS. Returns None only if every attempt
+    fails. There is intentionally no hard-coded content fallback.
     """
-    text = call_llm_multi(
-        system=system, messages=messages,
-        model_id=ONBOARDING_MODEL, max_tokens=max_tokens, temperature=0.4,
-    )
-    if text is not None:
-        return text
-    logger.warning("Onboarding primary model failed — falling back to %s", ONBOARDING_FALLBACK_MODEL)
-    return call_llm_multi(
-        system=system, messages=messages,
-        model_id=ONBOARDING_FALLBACK_MODEL, max_tokens=max_tokens, temperature=0.4,
-    )
+    for attempt in range(MAIN_MODEL_ATTEMPTS):
+        text = call_llm_multi(
+            system=system, messages=messages,
+            model_id=ONBOARDING_MODEL, max_tokens=max_tokens, temperature=0.4,
+        )
+        if text is not None:
+            return text
+        logger.warning("Onboarding main model attempt %d/%d failed", attempt + 1, MAIN_MODEL_ATTEMPTS)
+
+    logger.warning("Onboarding main model exhausted — falling back to %s", ONBOARDING_FALLBACK_MODEL)
+    for attempt in range(FALLBACK_MODEL_ATTEMPTS):
+        text = call_llm_multi(
+            system=system, messages=messages,
+            model_id=ONBOARDING_FALLBACK_MODEL, max_tokens=max_tokens, temperature=0.4,
+        )
+        if text is not None:
+            return text
+        logger.warning("Onboarding fallback attempt %d/%d failed", attempt + 1, FALLBACK_MODEL_ATTEMPTS)
+    return None
 
 
 READINESS_SYSTEM_PROMPT = """You assess whether a research-onboarding conversation has gathered enough to build a useful paper-recommendation profile for the user's workspace.
@@ -97,25 +89,39 @@ Respond with ONLY a JSON object, no prose:
 Only populate "profile" when ready is true. Base it strictly on what the user said; do not invent areas."""
 
 
+def _readiness_llm(user_message: str) -> str | None:
+    """Resilient single-turn call for the readiness check: retry the main model,
+    then fall back to the OpenAI model. Same policy as turn generation."""
+    for _ in range(MAIN_MODEL_ATTEMPTS):
+        raw = call_llm(
+            system=READINESS_SYSTEM_PROMPT, user_message=user_message,
+            model_id=ONBOARDING_MODEL, max_tokens=1500, temperature=0.2,
+        )
+        if raw is not None:
+            return raw
+    for _ in range(FALLBACK_MODEL_ATTEMPTS):
+        raw = call_llm(
+            system=READINESS_SYSTEM_PROMPT, user_message=user_message,
+            model_id=ONBOARDING_FALLBACK_MODEL, max_tokens=1500, temperature=0.2,
+        )
+        if raw is not None:
+            return raw
+    return None
+
+
 def _assess_readiness(messages: list) -> dict:
     """Separate structured LLM check: is there enough to build a profile?
 
     Decouples completion from the brittle inline completion-JSON parsing — the
     interview model no longer has to emit a perfectly-shaped block for the user
     to advance. Returns a dict; {"ready": False} on any failure (fail-safe: the
-    user simply keeps chatting, or uses the dropdown fallback).
+    user simply keeps chatting).
     """
     transcript = "\n".join(
         f"{'User' if m.get('role') == 'user' else 'Assistant'}: {m.get('content', '')}"
         for m in messages
     )
-    raw = call_llm(
-        system=READINESS_SYSTEM_PROMPT,
-        user_message=f"Conversation so far:\n\n{transcript}",
-        model_id=ONBOARDING_FALLBACK_MODEL,
-        max_tokens=1500,
-        temperature=0.2,
-    )
+    raw = _readiness_llm(f"Conversation so far:\n\n{transcript}")
     if not raw:
         return {"ready": False, "confidence": 0.0, "missing": [], "profile": {}}
     block = _extract_json_block(raw)
@@ -312,9 +318,6 @@ def _get_status(table, user_id: str, event: dict) -> dict:
         "has_workspace_profile": has_workspace_profile,
         "workspace_id": workspace_id,
         "next_stage": next_stage,
-        # Curated areas for the dropdown fallback (finish onboarding without the
-        # LLM interview if it's degraded or the user prefers to just pick).
-        "areas_catalog": AREAS_CATALOG,
         # Legacy compatibility for older clients:
         "has_profile": has_user_meta and has_workspace_profile,
     })

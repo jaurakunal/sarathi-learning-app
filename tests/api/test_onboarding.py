@@ -487,20 +487,35 @@ class TestReadinessAndFallback:
         assert r["confidence"] == 0.0
 
     @patch("backend.api.onboarding.call_llm_multi")
-    def test_generate_turn_falls_back_on_primary_failure(self, mock_multi):
-        from backend.api.onboarding import _generate_turn, ONBOARDING_MODEL, ONBOARDING_FALLBACK_MODEL
-        # Primary returns None, fallback returns text.
-        mock_multi.side_effect = [None, "fallback response"]
+    def test_generate_turn_retries_main_then_falls_back_to_openai(self, mock_multi):
+        from backend.api.onboarding import (
+            _generate_turn, ONBOARDING_MODEL, ONBOARDING_FALLBACK_MODEL,
+            MAIN_MODEL_ATTEMPTS,
+        )
+        # Main model fails MAIN_MODEL_ATTEMPTS times, then the OpenAI fallback succeeds.
+        mock_multi.side_effect = [None] * MAIN_MODEL_ATTEMPTS + ["fallback response"]
         out = _generate_turn("sys", [{"role": "user", "content": "hi"}], max_tokens=100)
         assert out == "fallback response"
-        assert mock_multi.call_count == 2
-        # Second call used the fallback model.
-        assert mock_multi.call_args_list[1].kwargs["model_id"] == ONBOARDING_FALLBACK_MODEL
+        assert mock_multi.call_count == MAIN_MODEL_ATTEMPTS + 1
+        # First MAIN_MODEL_ATTEMPTS calls used the main model...
+        for i in range(MAIN_MODEL_ATTEMPTS):
+            assert mock_multi.call_args_list[i].kwargs["model_id"] == ONBOARDING_MODEL
+        # ...then it switched to the OpenAI fallback.
+        assert mock_multi.call_args_list[MAIN_MODEL_ATTEMPTS].kwargs["model_id"] == ONBOARDING_FALLBACK_MODEL
+        assert ONBOARDING_FALLBACK_MODEL.startswith("openai.")
+
+    @patch("backend.api.onboarding.call_llm_multi")
+    def test_generate_turn_returns_none_when_all_attempts_fail(self, mock_multi):
+        from backend.api.onboarding import _generate_turn
+        mock_multi.return_value = None
+        out = _generate_turn("sys", [{"role": "user", "content": "hi"}], max_tokens=100)
+        assert out is None
 
     @patch("backend.api.onboarding.boto3")
     @patch("backend.api.onboarding.db")
-    def test_get_status_includes_areas_catalog(self, mock_db, mock_boto3):
-        from backend.api.onboarding import handler, AREAS_CATALOG
+    def test_get_status_has_no_hardcoded_areas_catalog(self, mock_db, mock_boto3):
+        """Onboarding is LLM-driven end to end: there must be NO hard-coded list."""
+        import backend.api.onboarding as ob
         mock_boto3.resource.return_value.Table.return_value = MagicMock()
         mock_db.get_user_meta.return_value = None
         mock_db.get_user_onboarding_status.return_value = None
@@ -509,10 +524,10 @@ class TestReadinessAndFallback:
             "requestContext": {"authorizer": {"claims": {"sub": "u1"}}},
             "body": None,
         }
-        resp = handler(event, None)
+        resp = ob.handler(event, None)
         body = json.loads(resp["body"])
-        assert body["areas_catalog"] == AREAS_CATALOG
-        assert len(body["areas_catalog"]) >= 5
+        assert "areas_catalog" not in body
+        assert not hasattr(ob, "AREAS_CATALOG")
 
     @patch("backend.api.onboarding._assess_readiness")
     @patch("backend.api.onboarding._generate_turn")
