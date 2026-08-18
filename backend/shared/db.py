@@ -1062,3 +1062,82 @@ def list_push_subscriptions(table, user_id: str) -> list[dict]:
         ),
     )
     return resp.get("Items", [])
+
+
+# ---------------------------------------------------------------------------
+# Product analytics: daily active-user tracking + metrics snapshots
+# ---------------------------------------------------------------------------
+#
+# Daily activity: one idempotent item per (day, user). Writing the same key
+# again the same day is a no-op overwrite, so this naturally de-dupes to a
+# distinct-active-user set per day without reads.
+#   PK=SYSTEM#ACTIVITY#<YYYY-MM-DD>, SK=USER#<sub>
+# DAU  = count of items in a day's partition.
+# WAU  = distinct union across the last 7 day partitions.
+# MAU  = distinct union across the last 30 day partitions.
+#
+# Metrics snapshot: one item per day holding the computed product metrics
+# (and that day's active-user id list, so rolling windows need no re-scan).
+#   PK=SYSTEM#METRICS, SK=DATE#<YYYY-MM-DD>
+
+def _activity_pk(day: str) -> str:
+    return f"SYSTEM#ACTIVITY#{day}"
+
+
+def record_daily_activity(table, user_id: str, day: str) -> None:
+    """Mark a user active on a given day (idempotent). Never raises."""
+    try:
+        table.put_item(Item={
+            "PK": _activity_pk(day),
+            "SK": f"USER#{user_id}",
+            "user_id": user_id,
+            "day": day,
+            "last_seen_at": _now_iso(),
+        })
+    except Exception:
+        pass
+
+
+def list_daily_active_user_ids(table, day: str) -> list[str]:
+    """Return the distinct user_ids active on a given day."""
+    ids: list[str] = []
+    resp = table.query(
+        KeyConditionExpression=Key("PK").eq(_activity_pk(day)) & Key("SK").begins_with("USER#"),
+        ProjectionExpression="user_id",
+    )
+    ids.extend(i.get("user_id", "") for i in resp.get("Items", []))
+    while resp.get("LastEvaluatedKey"):
+        resp = table.query(
+            KeyConditionExpression=Key("PK").eq(_activity_pk(day)) & Key("SK").begins_with("USER#"),
+            ProjectionExpression="user_id",
+            ExclusiveStartKey=resp["LastEvaluatedKey"],
+        )
+        ids.extend(i.get("user_id", "") for i in resp.get("Items", []))
+    return [i for i in ids if i]
+
+
+def put_metrics_snapshot(table, day: str, data: dict) -> None:
+    """Write (overwrite) the daily product-metrics snapshot."""
+    item = {
+        "PK": "SYSTEM#METRICS",
+        "SK": f"DATE#{day}",
+        "day": day,
+        "created_at": _now_iso(),
+        **data,
+    }
+    table.put_item(Item=_sanitize_item(item))
+
+
+def get_metrics_snapshot(table, day: str) -> Optional[dict]:
+    resp = table.get_item(Key={"PK": "SYSTEM#METRICS", "SK": f"DATE#{day}"})
+    return resp.get("Item")
+
+
+def list_metrics_snapshots(table, since_day: str) -> list[dict]:
+    """Return daily snapshots with SK DATE# >= since_day, oldest first."""
+    resp = table.query(
+        KeyConditionExpression=(
+            Key("PK").eq("SYSTEM#METRICS") & Key("SK").gte(f"DATE#{since_day}")
+        ),
+    )
+    return resp.get("Items", [])

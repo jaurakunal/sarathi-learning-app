@@ -27,9 +27,11 @@ class DecimalEncoder(json.JSONEncoder):
 
 
 def _touch_last_active(table, user_id: str, workspace_id: str) -> None:
-    """Update last_active_at on the user's SYSTEM#USERS record + the workspace."""
+    """Update last_active_at on the user's SYSTEM#USERS record + the workspace,
+    and record the user as active today (append-only, for DAU/WAU/MAU)."""
     try:
-        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        now_dt = datetime.now(timezone.utc)
+        now = now_dt.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
         table.update_item(
             Key={"PK": "SYSTEM#USERS", "SK": f"USER#{user_id}"},
             UpdateExpression="SET last_active_at = :ts",
@@ -37,6 +39,8 @@ def _touch_last_active(table, user_id: str, workspace_id: str) -> None:
         )
         if workspace_id:
             db.update_workspace(table, user_id, workspace_id, last_active_at=now)
+        # Opening the feed is the canonical "active user" signal.
+        db.record_daily_activity(table, user_id, now_dt.strftime("%Y-%m-%d"))
     except Exception:
         pass
 

@@ -192,7 +192,7 @@ export class SarathiStack extends cdk.Stack {
       resources: [`arn:aws:states:${this.region}:${this.account}:stateMachine:sarathi-nightly-pipeline`],
     }));
     lambdaRole.addToPolicy(new iam.PolicyStatement({
-      actions: ['cognito-idp:AdminDeleteUser'],
+      actions: ['cognito-idp:AdminDeleteUser', 'cognito-idp:ListUsers'],
       resources: [userPool.userPoolArn],
     }));
 
@@ -1053,6 +1053,45 @@ export class SarathiStack extends cdk.Stack {
       targets: [new targets.LambdaFunction(freshnessCanaryFn)],
     });
 
+    // ─── Product analytics: daily aggregator + weekly Slack digest ───────
+    // Daily aggregator computes signups, activation funnel, DAU/WAU/MAU,
+    // engagement depth, and area distribution; writes a SYSTEM#METRICS
+    // snapshot. Runs 06:00 UTC (after the pipeline + freshness canary).
+    const productMetricsFn = new lambda.Function(this, 'ProductMetricsFn', {
+      functionName: 'sarathi-product-metrics',
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'backend.monitoring.product_metrics.handler',
+      code: lambdaCode,
+      environment: { ...lambdaEnv, USER_POOL_ID: userPool.userPoolId },
+      role: lambdaRole,
+      timeout: cdk.Duration.minutes(5),
+      memorySize: 512,
+    });
+    new events.Rule(this, 'ProductMetricsSchedule', {
+      ruleName: 'sarathi-product-metrics',
+      schedule: events.Schedule.cron({ minute: '0', hour: '6' }),
+      targets: [new targets.LambdaFunction(productMetricsFn)],
+    });
+
+    // Weekly digest reads the snapshots and posts to Slack via the alarm SNS
+    // topic (AWS Chatbot custom-notification schema). Monday 08:30 UTC.
+    const productDigestFn = new lambda.Function(this, 'ProductDigestFn', {
+      functionName: 'sarathi-product-digest',
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'backend.monitoring.product_digest.handler',
+      code: lambdaCode,
+      environment: { ...lambdaEnv, ALARM_TOPIC_ARN: alarmTopic.topicArn },
+      role: lambdaRole,
+      timeout: cdk.Duration.minutes(2),
+      memorySize: 256,
+    });
+    alarmTopic.grantPublish(productDigestFn);
+    new events.Rule(this, 'ProductDigestSchedule', {
+      ruleName: 'sarathi-product-digest',
+      schedule: events.Schedule.cron({ minute: '30', hour: '8', weekDay: 'MON' }),
+      targets: [new targets.LambdaFunction(productDigestFn)],
+    });
+
     // THE feed-stale alarm. Canary emits FeedFreshnessBreach=1 when there are
     // active workspaces but zero fresh cards. Missing data (canary didn't run)
     // is itself a breach.
@@ -1103,6 +1142,8 @@ export class SarathiStack extends cdk.Stack {
       { fn: weeklyBriefFanoutFn, name: 'weekly-brief-fanout' },
       { fn: chatDispatchFn, name: 'chat-dispatch' }, { fn: chatStreamFn, name: 'chat-stream' },
       { fn: freshnessCanaryFn, name: 'freshness-canary' },
+      { fn: productMetricsFn, name: 'product-metrics' },
+      { fn: productDigestFn, name: 'product-digest' },
     ];
     for (const { fn, name } of allFns) {
       wire(new cloudwatch.Alarm(this, `Err-${name}`, {
