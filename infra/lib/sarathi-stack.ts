@@ -20,6 +20,11 @@ import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
 import * as appsync from 'aws-cdk-lib/aws-appsync';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
 import * as s3vectors from 'aws-cdk-lib/aws-s3vectors';
+import * as sqs from 'aws-cdk-lib/aws-sqs';
+import * as sns from 'aws-cdk-lib/aws-sns';
+import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import * as cwActions from 'aws-cdk-lib/aws-cloudwatch-actions';
+import * as chatbot from 'aws-cdk-lib/aws-chatbot';
 import { Construct } from 'constructs';
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
@@ -580,6 +585,22 @@ export class SarathiStack extends cdk.Stack {
       resultPath: '$.learnResult',
     });
 
+    // Retry the LLM/network-touching steps on transient failure (e.g. a
+    // Bedrock throttle). Without this, a single transient error silently
+    // empties a night's feed. Backoff with jitter; the steps are idempotent
+    // (dedup on paper id / feed card id).
+    const llmRetry = {
+      errors: ['States.ALL'],
+      interval: cdk.Duration.seconds(30),
+      maxAttempts: 3,
+      backoffRate: 2,
+    };
+    discoverTask.addRetry(llmRetry);
+    triageTask.addRetry(llmRetry);
+    digestTask.addRetry(llmRetry);
+    lensTask.addRetry(llmRetry);
+    learnTask.addRetry(llmRetry);
+
     const pipelineChain = injectDefaults
       .next(discoverTask)
       .next(triageTask)
@@ -592,6 +613,7 @@ export class SarathiStack extends cdk.Stack {
       stateMachineName: 'sarathi-nightly-pipeline',
       definitionBody: sfn.DefinitionBody.fromChainable(pipelineChain),
       timeout: cdk.Duration.hours(2),
+      tracingEnabled: true,
     });
 
     // Grant confirm Lambda access to start the pipeline for new users
@@ -877,6 +899,14 @@ export class SarathiStack extends cdk.Stack {
       memorySize: 512,
     });
 
+    // DLQ for the async stream Lambda: a malformed dispatch payload or a crash
+    // before the first published chunk would otherwise vanish (invisible hung
+    // stream to the user). Failed async invocations land here for inspection.
+    const chatStreamDlq = new sqs.Queue(this, 'ChatStreamDlq', {
+      queueName: 'sarathi-chat-stream-dlq',
+      retentionPeriod: cdk.Duration.days(14),
+    });
+
     // Stream Lambda — invoked async, runs up to 5 min
     const chatStreamFn = new lambda.Function(this, 'ChatStreamFn', {
       functionName: 'sarathi-chat-stream',
@@ -890,6 +920,8 @@ export class SarathiStack extends cdk.Stack {
       role: lambdaRole,
       timeout: cdk.Duration.minutes(5),
       memorySize: 512,
+      deadLetterQueue: chatStreamDlq,
+      retryAttempts: 1,
     });
 
     // Grant the shared Lambda role permission to invoke the stream function
@@ -956,6 +988,264 @@ export class SarathiStack extends cdk.Stack {
       distribution,
       distributionPaths: ['/*'],
     });
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Monitoring & Alerting
+    //
+    // The app's characteristic failure is silence (a green pipeline that
+    // produced nothing, a hung stream, an LLM that degraded to None), so the
+    // most important signals are outcome/freshness metrics, not error rates.
+    // Custom metrics are emitted from the Python code via EMF (namespace
+    // "Sarathi"); the alarms below combine those with platform metrics.
+    // ═══════════════════════════════════════════════════════════════════
+
+    // Notification channel: one SNS topic; Slack via AWS Chatbot when the
+    // workspace/channel IDs are supplied via context. The Slack workspace must
+    // be authorized once in the AWS Chatbot console, then deploy with:
+    //   cdk deploy -c slackWorkspaceId=T0XXXX -c slackChannelId=C0XXXX
+    const alarmTopic = new sns.Topic(this, 'AlarmTopic', {
+      topicName: 'sarathi-alarms',
+      displayName: 'Sarathi Alarms',
+    });
+
+    const slackWorkspaceId = this.node.tryGetContext('slackWorkspaceId');
+    const slackChannelId = this.node.tryGetContext('slackChannelId');
+    if (slackWorkspaceId && slackChannelId) {
+      new chatbot.SlackChannelConfiguration(this, 'SlackAlarms', {
+        slackChannelConfigurationName: 'sarathi-alarms',
+        slackWorkspaceId,
+        slackChannelId,
+        notificationTopics: [alarmTopic],
+      });
+    }
+
+    const alarmAction = new cwActions.SnsAction(alarmTopic);
+    const wire = (alarm: cloudwatch.Alarm): cloudwatch.Alarm => {
+      alarm.addAlarmAction(alarmAction);
+      alarm.addOkAction(alarmAction);
+      return alarm;
+    };
+    const sarathiMetric = (
+      metricName: string,
+      period: cdk.Duration,
+      statistic: string,
+    ) => new cloudwatch.Metric({ namespace: 'Sarathi', metricName, period, statistic });
+
+    // ─── Freshness canary: the single most important check ───────────────
+    // Runs 04:00 UTC (2h after the nightly pipeline trigger) and counts feed
+    // cards created in the last 24h across active workspaces.
+    const freshnessCanaryFn = new lambda.Function(this, 'FreshnessCanaryFn', {
+      functionName: 'sarathi-freshness-canary',
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'backend.monitoring.freshness_canary.handler',
+      code: lambdaCode,
+      environment: lambdaEnv,
+      role: lambdaRole,
+      timeout: cdk.Duration.minutes(2),
+      memorySize: 256,
+    });
+    new events.Rule(this, 'FreshnessCanarySchedule', {
+      ruleName: 'sarathi-freshness-canary',
+      schedule: events.Schedule.cron({ minute: '0', hour: '4' }),
+      targets: [new targets.LambdaFunction(freshnessCanaryFn)],
+    });
+
+    // THE feed-stale alarm. Canary emits FeedFreshnessBreach=1 when there are
+    // active workspaces but zero fresh cards. Missing data (canary didn't run)
+    // is itself a breach.
+    wire(new cloudwatch.Alarm(this, 'FeedFreshnessAlarm', {
+      alarmName: 'sarathi-feed-stale',
+      alarmDescription: 'Feed produced zero new cards in the last 24h despite active workspaces (or the canary failed to run). The pipeline likely succeeded silently — check triage/discover for a Bedrock outage.',
+      metric: sarathiMetric('FeedFreshnessBreach', cdk.Duration.hours(24), 'Maximum'),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.BREACHING,
+    }));
+
+    // ─── Step Functions pipeline ─────────────────────────────────────────
+    wire(new cloudwatch.Alarm(this, 'PipelineFailedAlarm', {
+      alarmName: 'sarathi-pipeline-failed',
+      alarmDescription: 'One or more nightly pipeline executions failed.',
+      metric: stateMachine.metricFailed({ period: cdk.Duration.hours(1), statistic: 'Sum' }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    }));
+    wire(new cloudwatch.Alarm(this, 'PipelineTimedOutAlarm', {
+      alarmName: 'sarathi-pipeline-timed-out',
+      alarmDescription: 'A pipeline execution hit the 2h state-machine timeout.',
+      metric: stateMachine.metricTimedOut({ period: cdk.Duration.hours(1), statistic: 'Sum' }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    }));
+
+    // ─── Per-Lambda error alarms (all functions) ─────────────────────────
+    const allFns: { fn: lambda.Function; name: string }[] = [
+      { fn: preSignUpFn, name: 'pre-signup' },
+      { fn: discoverFn, name: 'discover' }, { fn: triageFn, name: 'triage' },
+      { fn: selectFn, name: 'select' }, { fn: lensFn, name: 'lens' },
+      { fn: learnFn, name: 'learn' }, { fn: feedFn, name: 'feed' },
+      { fn: engagementFn, name: 'engagement' }, { fn: profileFn, name: 'profile' },
+      { fn: libraryFn, name: 'library' }, { fn: convFn, name: 'conversations' },
+      { fn: settingsFn, name: 'settings' }, { fn: onboardingFn, name: 'onboarding' },
+      { fn: onboardingConfirmFn, name: 'onboarding-confirm' }, { fn: suggestFn, name: 'suggest' },
+      { fn: researchFn, name: 'research' }, { fn: proposalFn, name: 'proposal' },
+      { fn: workspacesFn, name: 'workspaces' }, { fn: briefsFn, name: 'briefs' },
+      { fn: pushFn, name: 'push' }, { fn: chatFn, name: 'chat' },
+      { fn: fanoutFn, name: 'fanout' }, { fn: weeklyBriefFn, name: 'weekly-brief' },
+      { fn: weeklyBriefFanoutFn, name: 'weekly-brief-fanout' },
+      { fn: chatDispatchFn, name: 'chat-dispatch' }, { fn: chatStreamFn, name: 'chat-stream' },
+      { fn: freshnessCanaryFn, name: 'freshness-canary' },
+    ];
+    for (const { fn, name } of allFns) {
+      wire(new cloudwatch.Alarm(this, `Err-${name}`, {
+        alarmName: `sarathi-lambda-errors-${name}`,
+        alarmDescription: `Lambda ${name} is throwing errors.`,
+        metric: fn.metricErrors({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
+        threshold: 1,
+        evaluationPeriods: 1,
+        comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      }));
+      // Two-week log retention so log groups stop growing forever.
+      new logs.LogRetention(this, `LogRet-${name}`, {
+        logGroupName: `/aws/lambda/${fn.functionName}`,
+        retention: logs.RetentionDays.TWO_WEEKS,
+      });
+    }
+
+    // ─── Duration alarms for the synchronous-LLM handlers (504 risk) ─────
+    // API Gateway caps at 29s; alarm when p99 approaches it.
+    for (const { fn, name } of [
+      { fn: onboardingFn, name: 'onboarding' },
+      { fn: proposalFn, name: 'proposal' },
+      { fn: chatFn, name: 'chat' },
+    ]) {
+      wire(new cloudwatch.Alarm(this, `Dur-${name}`, {
+        alarmName: `sarathi-lambda-slow-${name}`,
+        alarmDescription: `Lambda ${name} p99 latency approaching the 29s API Gateway timeout.`,
+        metric: fn.metricDuration({ period: cdk.Duration.minutes(5), statistic: 'p99' }),
+        threshold: 25000,
+        evaluationPeriods: 2,
+        comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      }));
+    }
+
+    // ─── API Gateway ─────────────────────────────────────────────────────
+    wire(new cloudwatch.Alarm(this, 'Api5xxAlarm', {
+      alarmName: 'sarathi-api-5xx',
+      alarmDescription: 'API Gateway is returning 5XX (502/504/500) to users.',
+      metric: api.metricServerError({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
+      threshold: 3,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    }));
+    wire(new cloudwatch.Alarm(this, 'ApiLatencyAlarm', {
+      alarmName: 'sarathi-api-latency',
+      alarmDescription: 'API Gateway p99 latency approaching the 29s integration timeout.',
+      metric: api.metricLatency({ period: cdk.Duration.minutes(5), statistic: 'p99' }),
+      threshold: 25000,
+      evaluationPeriods: 2,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    }));
+
+    // ─── DynamoDB throttling ─────────────────────────────────────────────
+    wire(new cloudwatch.Alarm(this, 'DdbThrottleAlarm', {
+      alarmName: 'sarathi-ddb-throttled',
+      alarmDescription: 'DynamoDB requests are being throttled.',
+      metric: new cloudwatch.Metric({
+        namespace: 'AWS/DynamoDB',
+        metricName: 'ThrottledRequests',
+        dimensionsMap: { TableName: table.tableName },
+        period: cdk.Duration.minutes(5),
+        statistic: 'Sum',
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    }));
+
+    // ─── Dependency + streaming custom-metric alarms ─────────────────────
+    wire(new cloudwatch.Alarm(this, 'LlmFailuresAlarm', {
+      alarmName: 'sarathi-llm-failures',
+      alarmDescription: 'Bedrock calls are failing (both primary and fallback returned None). Feed quality and chat are degraded.',
+      metric: sarathiMetric('LlmCallFailed', cdk.Duration.minutes(15), 'Sum'),
+      threshold: 5,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    }));
+    wire(new cloudwatch.Alarm(this, 'PublishChunkFailedAlarm', {
+      alarmName: 'sarathi-chat-chunks-not-delivered',
+      alarmDescription: 'Chat stream chunks are failing to reach clients via AppSync (users see a hung spinner). Check APPSYNC_ENDPOINT and AppSync throttling.',
+      metric: sarathiMetric('PublishChunkFailed', cdk.Duration.minutes(15), 'Sum'),
+      threshold: 3,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    }));
+    wire(new cloudwatch.Alarm(this, 'ChatDispatchFailedAlarm', {
+      alarmName: 'sarathi-chat-dispatch-failed',
+      alarmDescription: 'The chat dispatcher could not start the stream Lambda (orphan turn, user sees an error).',
+      metric: sarathiMetric('ChatStreamDispatchFailed', cdk.Duration.minutes(15), 'Sum'),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    }));
+
+    // ─── Dashboard: one screen for feed / pipeline / API / dependency health
+    const dash = new cloudwatch.Dashboard(this, 'SarathiDashboard', {
+      dashboardName: 'Sarathi',
+    });
+    const daySum = (m: string) => sarathiMetric(m, cdk.Duration.days(1), 'Sum');
+    dash.addWidgets(
+      new cloudwatch.GraphWidget({
+        title: 'Feed freshness (last 24h)',
+        left: [daySum('FeedCardsLast24h'), daySum('ActiveWorkspaces')],
+        right: [sarathiMetric('FeedFreshnessBreach', cdk.Duration.days(1), 'Maximum')],
+        width: 12,
+      }),
+      new cloudwatch.GraphWidget({
+        title: 'Pipeline outcomes (nightly)',
+        left: [daySum('CandidatesDiscovered'), daySum('PapersWorthReading'), daySum('FeedCardsGenerated'), daySum('PapersFailedInDigest')],
+        width: 12,
+      }),
+      new cloudwatch.GraphWidget({
+        title: 'LLM / Bedrock health',
+        left: [sarathiMetric('LlmCallFailed', cdk.Duration.minutes(15), 'Sum'), sarathiMetric('LlmFallbackUsed', cdk.Duration.minutes(15), 'Sum')],
+        width: 12,
+      }),
+      new cloudwatch.GraphWidget({
+        title: 'Chat streaming',
+        left: [sarathiMetric('ChatStreamStarted', cdk.Duration.hours(1), 'Sum'), sarathiMetric('ChatStreamCompleted', cdk.Duration.hours(1), 'Sum'), sarathiMetric('ChatStreamFailed', cdk.Duration.hours(1), 'Sum'), sarathiMetric('PublishChunkFailed', cdk.Duration.hours(1), 'Sum')],
+        width: 12,
+      }),
+      new cloudwatch.GraphWidget({
+        title: 'API Gateway',
+        left: [api.metricServerError({ period: cdk.Duration.minutes(5), statistic: 'Sum' }), api.metricClientError({ period: cdk.Duration.minutes(5), statistic: 'Sum' })],
+        right: [api.metricLatency({ period: cdk.Duration.minutes(5), statistic: 'p99' })],
+        width: 12,
+      }),
+      new cloudwatch.GraphWidget({
+        title: 'Pipeline executions',
+        left: [stateMachine.metricSucceeded({ period: cdk.Duration.hours(24), statistic: 'Sum' }), stateMachine.metricFailed({ period: cdk.Duration.hours(24), statistic: 'Sum' }), daySum('PipelineExecutionsStarted'), daySum('WorkspacesAutoPaused')],
+        width: 12,
+      }),
+      new cloudwatch.GraphWidget({
+        title: 'Onboarding completions',
+        left: [sarathiMetric('OnboardingCompleted', cdk.Duration.days(1), 'Sum')],
+        width: 12,
+      }),
+    );
 
     // ─── Outputs ─────────────────────────────────────────────────────
     new cdk.CfnOutput(this, 'TableName', { value: table.tableName });
