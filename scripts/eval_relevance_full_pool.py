@@ -25,7 +25,6 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from collections import defaultdict
 
 import boto3
 
@@ -33,30 +32,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from backend.shared import db  # noqa: E402
 from backend.eval import learning_metrics as m  # noqa: E402
+from backend.eval.eval_common import resolve_sub, as_float, engagement_by_paper  # noqa: E402
 from backend.eval.relevance_judge import judge_paper_relevance  # noqa: E402
 
 TABLE_NAME = os.environ.get("TABLE_NAME", "sarathi")
-USER_POOL_ID = os.environ.get("USER_POOL_ID", "us-east-1_XXXXXXXXX")
 POOL_STATUSES = ("candidate", "surfaced", "digested", "skipped", "rejected")
 SERVED_STATUSES = {"digested"}
-
-
-def _resolve_sub(user: str) -> str:
-    if "@" not in user:
-        return user
-    cog = boto3.client("cognito-idp")
-    resp = cog.list_users(UserPoolId=USER_POOL_ID, Filter=f'email = "{user}"', Limit=1)
-    users = resp.get("Users", [])
-    if not users:
-        raise SystemExit(f"No Cognito user with email {user}")
-    return users[0]["Username"]
-
-
-def _as_float(v, default=0.0):
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return default
 
 
 def _sample_across_range(rows: list[dict], limit: int) -> list[dict]:
@@ -77,7 +58,7 @@ def main() -> int:
     args = ap.parse_args()
 
     table = boto3.resource("dynamodb").Table(TABLE_NAME)
-    sub = _resolve_sub(args.user)
+    sub = resolve_sub(args.user)
     print(f"User: {args.user}  (sub={sub})")
 
     if args.workspace:
@@ -111,12 +92,7 @@ def main() -> int:
 
         judged = _sample_across_range(pool, args.limit)
         # Engagement for the served-vs-engagement check.
-        eng = defaultdict(lambda: {"actions": [], "active_ms": 0})
-        for e in db.list_all_engagement_events(table, sub, wid):
-            pid = e.get("paper_id", "")
-            if pid:
-                eng[pid]["actions"].append(e.get("action", ""))
-                eng[pid]["active_ms"] = max(eng[pid]["active_ms"], int(_as_float(e.get("active_ms"))))
+        eng = engagement_by_paper(table, sub, wid)
 
         rows = []
         for p in judged:
@@ -124,11 +100,12 @@ def main() -> int:
             if r["relevance"] is None:
                 continue
             pid = p.get("id", "")
+            e = eng.get(pid, {"actions": [], "active_ms": 0, "rating": None})
             rows.append({
-                "triage_score": _as_float(p.get("triage_score")),
+                "triage_score": as_float(p.get("triage_score")),
                 "judge_relevance": r["relevance"],
                 "served": p.get("status") in SERVED_STATUSES,
-                "engaged": m.label_paper(eng[pid]["actions"], eng[pid]["active_ms"]),
+                "engaged": m.label_paper(e["actions"], e["active_ms"], e["rating"]),
             })
 
         print(f"  judged: {len(rows)} of {len(judged)} sampled")

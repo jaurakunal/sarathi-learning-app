@@ -173,11 +173,15 @@ class TestArea:
         d = asdict(area)
         expected_keys = {
             "id", "user_id", "label", "status", "role",
-            "links", "frontier", "too_basic", "just_right", "added_at",
+            "links", "frontier", "too_basic", "just_right",
+            "current_level", "intent", "added_at",
         }
         assert set(d.keys()) == expected_keys
         # Enum values serialize to their string value in asdict
         assert d["status"] == AreaStatus.ACTIVE
+        # New signal fields carry sensible defaults
+        assert d["current_level"] == "intermediate"
+        assert d["intent"] == "consume"
 
 
 class TestHypothesis:

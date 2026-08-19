@@ -10,6 +10,7 @@ import boto3
 
 from backend.shared import db
 from backend.shared.llm import call_llm, call_llm_with_fallback
+from backend.shared.textutil import flatten_field
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -21,9 +22,9 @@ FALLBACK_MODEL = "us.anthropic.claude-sonnet-4-6"
 def _build_system_prompt() -> str:
     return (
         "You are a research paper triage agent. "
-        "Score this paper for a specific user based on their learner profile. "
-        "The user is a practitioner who builds things but has little academic vocabulary. "
-        "They care about applied relevance to what they are building, not comprehension for its own sake.\n\n"
+        "Score this paper for the SPECIFIC user described in the message, using "
+        "their stated areas, level, intent, learning style, and math comfort. "
+        "Do not assume any persona beyond what the profile states.\n\n"
         "You must respond with ONLY valid JSON (no markdown fencing, no extra text) with these fields:\n"
         "- triage_score: float 0-1 (overall score combining relevance, level fit, and hypothesis alignment)\n"
         '- level: one of "too_basic", "just_right", "over_head"\n'
@@ -31,13 +32,6 @@ def _build_system_prompt() -> str:
         "- reasoning: string (1-2 sentences explaining the score)\n"
         "- worth_my_hours: boolean (true if this paper is worth the user's limited reading time)\n"
     )
-
-
-def _stringify(v) -> str:
-    """Flatten a profile field that may be a str or a dict into a compact string."""
-    if isinstance(v, dict):
-        return "; ".join(f"{k}: {val}" for k, val in v.items() if val)
-    return str(v or "").strip()
 
 
 def _build_user_message(paper: dict, profile: dict) -> str:
@@ -63,18 +57,15 @@ def _build_user_message(paper: dict, profile: dict) -> str:
     hypothesis_item = profile.get("hypothesis")
     hypothesis_statement = ""
     if hypothesis_item:
-        hypothesis_statement = hypothesis_item.get(
-            "statement",
-            "Brain-structure + agentic harness >> the LLM.",
-        )
+        hypothesis_statement = hypothesis_item.get("statement", "")
 
     # User-level context, from THIS user's profile (falls back to neutral
     # phrasing when a field is unset — never assumes a specific persona).
     um = profile.get("user_meta", {}) or {}
     background = str(um.get("background", "") or "").strip()
-    learning_style = _stringify(um.get("learning_style", ""))
+    learning_style = flatten_field(um.get("learning_style", ""))
     math_comfort = str(um.get("math_comfort", "") or "").strip()
-    paper_preference = _stringify(um.get("paper_preference", ""))
+    paper_preference = flatten_field(um.get("paper_preference", ""))
     time_per_week = str(um.get("time_per_week", "") or "").strip()
     trusted = (profile.get("meta", {}) or {}).get("trusted_venues", []) or []
 

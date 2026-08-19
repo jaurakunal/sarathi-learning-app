@@ -31,28 +31,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from backend.shared import db  # noqa: E402
 from backend.eval import learning_metrics as m  # noqa: E402
+from backend.eval.eval_common import resolve_sub, as_float, engagement_by_paper  # noqa: E402
 
 TABLE_NAME = os.environ.get("TABLE_NAME", "sarathi")
-USER_POOL_ID = os.environ.get("USER_POOL_ID", "us-east-1_XXXXXXXXX")
-
-
-def _resolve_sub(user: str) -> str:
-    """Accept a Cognito sub directly, or resolve an email to its sub."""
-    if "@" not in user:
-        return user
-    cog = boto3.client("cognito-idp")
-    resp = cog.list_users(UserPoolId=USER_POOL_ID, Filter=f'email = "{user}"', Limit=1)
-    users = resp.get("Users", [])
-    if not users:
-        raise SystemExit(f"No Cognito user with email {user}")
-    return users[0]["Username"]
-
-
-def _as_float(v, default=0.0) -> float:
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return default
 
 
 def _iso_week(ts: str) -> str:
@@ -77,19 +58,7 @@ def _gather(table, user_id: str, workspace_id: str) -> list[dict]:
             break
 
     # Engagement grouped by paper_id.
-    events = db.list_all_engagement_events(table, user_id, workspace_id)
-    by_paper: dict[str, dict] = defaultdict(lambda: {"actions": [], "active_ms": 0, "rating": None})
-    for e in events:
-        pid = e.get("paper_id", "")
-        if not pid:
-            continue
-        rec = by_paper[pid]
-        action = e.get("action", "")
-        if action:
-            rec["actions"].append(action)
-        rec["active_ms"] = max(rec["active_ms"], int(_as_float(e.get("active_ms"))))
-        if e.get("rating") is not None:
-            rec["rating"] = int(_as_float(e.get("rating")))
+    by_paper = engagement_by_paper(table, user_id, workspace_id)
 
     rows = []
     for card in cards:
@@ -103,7 +72,7 @@ def _gather(table, user_id: str, workspace_id: str) -> list[dict]:
         rows.append({
             "paper_id": pid,
             "served_at": card.get("created_at", ""),
-            "triage_score": _as_float(paper.get("triage_score")),
+            "triage_score": as_float(paper.get("triage_score")),
             "label": m.label_paper(eng["actions"], eng["active_ms"], eng["rating"]),
         })
     return rows
@@ -190,7 +159,7 @@ def main() -> int:
     args = ap.parse_args()
 
     table = boto3.resource("dynamodb").Table(TABLE_NAME)
-    sub = _resolve_sub(args.user)
+    sub = resolve_sub(args.user)
     print(f"User: {args.user}  (sub={sub})")
 
     if args.workspace:

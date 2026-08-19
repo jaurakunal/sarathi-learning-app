@@ -26,6 +26,7 @@ from boto3.dynamodb.conditions import Key
 from backend.eval import dataset as eval_dataset
 from backend.shared import db
 from backend.shared.llm import DEFAULT_MODEL_ID, call_llm
+from backend.shared.textutil import flatten_field
 
 logger = logging.getLogger(__name__)
 
@@ -199,12 +200,8 @@ def _profile_brief(profile: dict) -> str:
         out += f"\nHypothesis: {hyp}"
 
     um = profile.get("user_meta", {}) or {}
-    def _flat(v):
-        if isinstance(v, dict):
-            return "; ".join(f"{k}: {val}" for k, val in v.items() if val)
-        return str(v or "").strip()
-    learning = _flat(um.get("learning_style"))
-    math = _flat(um.get("math_comfort"))
+    learning = flatten_field(um.get("learning_style"))
+    math = flatten_field(um.get("math_comfort"))
     if learning:
         out += f"\nLearning style: {learning}"
     if math:

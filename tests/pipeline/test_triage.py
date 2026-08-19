@@ -438,3 +438,22 @@ def test_build_user_message_neutral_when_no_user_meta():
     msg = _build_user_message(paper, profile)
     assert "faithful AI clone" not in msg
     assert "No additional profile context" in msg
+
+
+def test_system_prompt_has_no_hardcoded_persona():
+    from backend.pipeline.triage import _build_system_prompt
+    sp = _build_system_prompt()
+    assert "little academic vocabulary" not in sp
+    assert "practitioner who builds things" not in sp
+    assert "SPECIFIC user" in sp
+
+
+def test_no_hypothesis_default_persona_leak():
+    """A profile with no hypothesis must not inject a hard-coded default one."""
+    from backend.pipeline.triage import _build_user_message
+    msg = _build_user_message(
+        {"title": "T", "abstract": "A"},
+        {"areas": [{"label": "X", "role": "primary"}], "hypothesis": None, "meta": {}},
+    )
+    assert "brain-structure" not in msg.lower()
+    assert "None stated." in msg
