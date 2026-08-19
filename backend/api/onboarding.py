@@ -40,7 +40,13 @@ ONBOARDING_FALLBACK_MODEL = os.environ.get("ONBOARDING_FALLBACK_MODEL", "openai.
 MAIN_MODEL_ATTEMPTS = int(os.environ.get("ONBOARDING_MAIN_ATTEMPTS", "3"))
 FALLBACK_MODEL_ATTEMPTS = int(os.environ.get("ONBOARDING_FALLBACK_ATTEMPTS", "2"))
 # Confidence at/above which the separate readiness check unlocks completion.
-READINESS_MIN_CONFIDENCE = 0.7
+READINESS_MIN_CONFIDENCE = 0.75
+# Minimum number of workspace-stage turns (opener + user answers) before the
+# "Looks good — start my feed" completion can be offered. Prevents the readiness
+# check from firing after one or two answers while the interview is still
+# gathering the user's angle, level, and goals. seq counts the opener turn, so
+# a floor of 5 = opener + ~4 real exchanges.
+MIN_WORKSPACE_TURNS = int(os.environ.get("ONBOARDING_MIN_WORKSPACE_TURNS", "5"))
 
 
 def _generate_turn(system: str, messages: list, max_tokens: int) -> str | None:
@@ -73,7 +79,7 @@ def _generate_turn(system: str, messages: list, max_tokens: int) -> str | None:
 
 READINESS_SYSTEM_PROMPT = """You assess whether a research-onboarding conversation has gathered enough to build a useful paper-recommendation profile for the user's workspace.
 
-Enough means we can name: at least one concrete research AREA the user cares about, and a sense of what they want (consume/learn vs. produce/publish) — a hypothesis or goal is a bonus, not required.
+"Enough" is a real bar, not the minimum: we should be able to name at least one concrete research AREA, the user's ANGLE on it (their role / how they relate to it), and either their experience LEVEL or a clear GOAL (consume/learn vs. produce/publish). One area plus a vague interest is NOT enough — set ready=false and list what's missing so the interview continues. Only set ready=true with high confidence when the picture is genuinely specific.
 
 Respond with ONLY a JSON object, no prose:
 {
@@ -495,20 +501,25 @@ def _handle_workspace_stage(table, user_id: str, event: dict, message: str) -> d
     )
     db.update_conversation_last_active(table, user_id, workspace_id, conv_id)
 
-    # Completion is gated on a SEPARATE readiness check, not on the interview
-    # model emitting a perfectly-shaped completion JSON inline. First honor an
-    # inline completion block if the model did emit one (backward compatible);
-    # otherwise ask the readiness assessor.
-    profile_data = _extract_profile(response)
-    if not profile_data:
-        full_messages = llm_messages + [{"role": "assistant", "content": response}]
-        readiness = _assess_readiness(full_messages)
-        if readiness["ready"] and readiness["confidence"] >= READINESS_MIN_CONFIDENCE and readiness["profile"].get("areas"):
-            profile_data = {
-                "type": "profile_complete",
-                "summary": readiness["profile"].get("meta", {}).get("paper_goal", ""),
-                "profile": _normalize_profile(readiness["profile"]),
-            }
+    # Completion is gated on (1) a minimum-conversation floor so we never offer
+    # "Looks good" after one or two answers, and (2) a SEPARATE readiness check
+    # rather than the interview model emitting a perfectly-shaped JSON inline.
+    # Below the floor, keep interviewing regardless of what the model/readiness
+    # check says.
+    profile_data = None
+    if seq >= MIN_WORKSPACE_TURNS:
+        # Honor an inline completion block if the model emitted one (legacy);
+        # otherwise ask the readiness assessor.
+        profile_data = _extract_profile(response)
+        if not profile_data:
+            full_messages = llm_messages + [{"role": "assistant", "content": response}]
+            readiness = _assess_readiness(full_messages)
+            if readiness["ready"] and readiness["confidence"] >= READINESS_MIN_CONFIDENCE and readiness["profile"].get("areas"):
+                profile_data = {
+                    "type": "profile_complete",
+                    "summary": readiness["profile"].get("meta", {}).get("paper_goal", ""),
+                    "profile": _normalize_profile(readiness["profile"]),
+                }
 
     result: dict = {
         "stage": "workspace",

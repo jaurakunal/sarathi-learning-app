@@ -529,34 +529,67 @@ class TestReadinessAndFallback:
         assert "areas_catalog" not in body
         assert not hasattr(ob, "AREAS_CATALOG")
 
+    @staticmethod
+    def _ready_result():
+        return {
+            "ready": True, "confidence": 0.85, "missing": [],
+            "profile": {"areas": [{"id": "rag", "label": "RAG", "role": "primary"}],
+                        "meta": {"paper_goal": "learn RAG"}},
+        }
+
+    def _ws_event(self):
+        return {
+            "httpMethod": "POST",
+            "requestContext": {"authorizer": {"claims": {"sub": "u1"}}},
+            "body": json.dumps({"message": "I care about RAG", "stage": "workspace"}),
+        }
+
     @patch("backend.api.onboarding._assess_readiness")
     @patch("backend.api.onboarding._generate_turn")
     @patch("backend.api.onboarding.resolve_workspace_id", return_value="w1")
     @patch("backend.api.onboarding.boto3")
     @patch("backend.api.onboarding.db")
-    def test_workspace_stage_completes_via_readiness_gate(
+    def test_workspace_stage_completes_via_readiness_gate_above_floor(
         self, mock_db, mock_boto3, mock_resolve, mock_gen, mock_ready,
     ):
-        """When the interview model does NOT emit an inline completion block,
-        the separate readiness check unlocks completion."""
+        """Above the turn floor, the readiness check unlocks completion."""
+        from backend.api.onboarding import handler, MIN_WORKSPACE_TURNS
         mock_boto3.resource.return_value.Table.return_value = MagicMock()
         mock_db.get_user_meta.return_value = {"background": "SDE"}
         mock_db.get_conversation_by_paper.return_value = {"conv_id": "onboarding"}
-        mock_db.get_conversation_turns.return_value = []
-        # A plain conversational turn, no JSON block.
+        # Enough prior turns that seq >= MIN_WORKSPACE_TURNS.
+        mock_db.get_conversation_turns.return_value = [
+            {"seq": i, "request": f"a{i}", "response": f"q{i}"}
+            for i in range(1, MIN_WORKSPACE_TURNS)
+        ]
         mock_gen.return_value = "Got it — sounds like RAG is your focus."
-        mock_ready.return_value = {
-            "ready": True, "confidence": 0.85, "missing": [],
-            "profile": {"areas": [{"id": "rag", "label": "RAG", "role": "primary"}],
-                        "meta": {"paper_goal": "learn RAG"}},
-        }
-        from backend.api.onboarding import handler
-        event = {
-            "httpMethod": "POST",
-            "requestContext": {"authorizer": {"claims": {"sub": "u1"}}},
-            "body": json.dumps({"message": "I care about RAG", "stage": "workspace"}),
-        }
-        resp = handler(event, None)
+        mock_ready.return_value = self._ready_result()
+
+        resp = handler(self._ws_event(), None)
         body = json.loads(resp["body"])
         assert body["profile_complete"] is True
         assert body["profile"]["areas"][0]["id"] == "rag"
+
+    @patch("backend.api.onboarding._assess_readiness")
+    @patch("backend.api.onboarding._generate_turn")
+    @patch("backend.api.onboarding.resolve_workspace_id", return_value="w1")
+    @patch("backend.api.onboarding.boto3")
+    @patch("backend.api.onboarding.db")
+    def test_workspace_stage_does_not_complete_before_floor(
+        self, mock_db, mock_boto3, mock_resolve, mock_gen, mock_ready,
+    ):
+        """Below the turn floor, completion is suppressed even if readiness says
+        ready — and the readiness check isn't even consulted."""
+        from backend.api.onboarding import handler
+        mock_boto3.resource.return_value.Table.return_value = MagicMock()
+        mock_db.get_user_meta.return_value = {"background": "SDE"}
+        mock_db.get_conversation_by_paper.return_value = {"conv_id": "onboarding"}
+        mock_db.get_conversation_turns.return_value = []  # seq = 1, well below floor
+        mock_gen.return_value = "Nice topic — where are you coming from with it?"
+        mock_ready.return_value = self._ready_result()  # would say ready if asked
+
+        resp = handler(self._ws_event(), None)
+        body = json.loads(resp["body"])
+        assert body.get("profile_complete") is not True
+        assert "profile" not in body
+        mock_ready.assert_not_called()  # floor short-circuits before readiness
