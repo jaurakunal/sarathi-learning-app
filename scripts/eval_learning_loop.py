@@ -123,9 +123,22 @@ def _report_block(title: str, rows: list[dict]) -> None:
     pos = sum(labels)
     print(f"  served (scored): {n}")
     print(f"  engaged (positive): {pos}  ({pos / n:.0%})")
+    # Range-restriction guard: triage already filters to its top band before
+    # anything is served, so triage_score often barely varies across the served
+    # set. When the spread is tiny, AUC is not interpretable as calibration —
+    # there's no variance left to rank on. Surface this so the number is never
+    # read naively.
+    lo, hi = min(scores), max(scores)
+    spread = hi - lo
+    sd = (sum((s - (sum(scores) / n)) ** 2 for s in scores) / n) ** 0.5
+    print(f"  triage_score spread: [{lo:.3f}, {hi:.3f}]  sd={sd:.3f}")
+    restricted = sd < 0.10
     a = m.auc(scores, labels)
-    print(f"  overall calibration AUC(triage_score -> engaged): {a:.3f}" if a is not None
-          else "  overall calibration AUC: n/a (single class)")
+    if a is not None:
+        note = "  (RANGE-RESTRICTED: not interpretable as calibration)" if restricted else ""
+        print(f"  overall AUC(triage_score -> engaged): {a:.3f}{note}")
+    else:
+        print("  overall AUC: n/a (single class)")
     for k in (3, 5, 10):
         p = m.precision_at_k(scores, labels, k)
         nd = m.ndcg_at_k(scores, labels, k)
@@ -200,8 +213,12 @@ def main() -> int:
 
     print("\n--- caveats ---")
     print("  * Selection bias: measured only over SERVED papers, not the unseen universe.")
+    print("  * Range restriction: triage pre-filters to its top band, so triage_score")
+    print("    barely varies across served papers — a compressed spread (sd<0.10) means")
+    print("    AUC is NOT a valid read on calibration. Validating triage properly needs")
+    print("    scoring the FULL candidate set (Tier 3 LLM judge / interleaving), not just")
+    print("    what was served.")
     print("  * Labels are behavioral and noisy; trust the multi-week TREND over any single number.")
-    print("  * A rising AUC slope = the evolving profile's triage predicts engagement better over time.")
     return 0
 
 
