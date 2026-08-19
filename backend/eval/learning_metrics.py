@@ -120,6 +120,46 @@ def ndcg_at_k(scores: list[float], labels: list[int], k: int) -> float | None:
     return dcg(ranked) / idcg
 
 
+def _avg_ranks(xs: list[float]) -> list[float]:
+    """Average (tie-aware) 1-indexed ranks for a list of values."""
+    n = len(xs)
+    order = sorted(range(n), key=lambda i: xs[i])
+    ranks = [0.0] * n
+    i = 0
+    while i < n:
+        j = i
+        while j + 1 < n and xs[order[j + 1]] == xs[order[i]]:
+            j += 1
+        avg = (i + j) / 2.0 + 1.0
+        for k in range(i, j + 1):
+            ranks[order[k]] = avg
+        i = j + 1
+    return ranks
+
+
+def spearman(x: list[float], y: list[float]) -> float | None:
+    """Spearman rank correlation between x and y. None if undefined.
+
+    Used to check whether triage_score agrees with an independent relevance
+    judge over the FULL candidate pool (Tier 3) — rank-based so it's robust to
+    the two scores being on different scales.
+    """
+    if len(x) != len(y):
+        raise ValueError("x and y must be the same length")
+    n = len(x)
+    if n < 2:
+        return None
+    rx, ry = _avg_ranks(x), _avg_ranks(y)
+    mx = sum(rx) / n
+    my = sum(ry) / n
+    num = sum((a - mx) * (b - my) for a, b in zip(rx, ry))
+    dx = sum((a - mx) ** 2 for a in rx)
+    dy = sum((b - my) ** 2 for b in ry)
+    if dx == 0 or dy == 0:
+        return None  # no variance in one series
+    return num / (dx ** 0.5 * dy ** 0.5)
+
+
 def trend_slope(points: list[tuple[float, float]]) -> float | None:
     """Least-squares slope of y over x for (x, y) points with y not None.
 

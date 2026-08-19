@@ -129,3 +129,24 @@ def test_trend_slope_skips_none():
 def test_trend_slope_insufficient_points():
     assert trend_slope([(0, 0.5)]) is None
     assert trend_slope([(0, None), (1, None)]) is None
+
+
+# ── spearman ──────────────────────────────────────────────────────────────
+
+def test_spearman_perfect_monotonic():
+    from backend.eval.learning_metrics import spearman
+    # y is a monotonic (non-linear) transform of x -> rank corr = 1
+    x = [1, 2, 3, 4]
+    y = [1, 4, 9, 16]
+    assert abs(spearman(x, y) - 1.0) < 1e-9
+
+
+def test_spearman_inverse():
+    from backend.eval.learning_metrics import spearman
+    assert abs(spearman([1, 2, 3, 4], [4, 3, 2, 1]) + 1.0) < 1e-9
+
+
+def test_spearman_none_when_no_variance_or_too_short():
+    from backend.eval.learning_metrics import spearman
+    assert spearman([1, 1, 1], [1, 2, 3]) is None
+    assert spearman([1], [2]) is None
