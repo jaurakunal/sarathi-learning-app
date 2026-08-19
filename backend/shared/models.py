@@ -63,6 +63,8 @@ class Area:
     frontier: str = ""
     too_basic: list[str] = field(default_factory=list)
     just_right: list[str] = field(default_factory=list)
+    current_level: str = "intermediate"
+    intent: str = "consume"  # consume | produce | both — shapes discovery + triage
     added_at: Optional[str] = None
 
 

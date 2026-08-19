@@ -33,6 +33,8 @@ def _area_from_dict(item: dict) -> Area:
         frontier=item.get("frontier", ""),
         too_basic=item.get("too_basic", []),
         just_right=item.get("just_right", []),
+        current_level=item.get("current_level", "intermediate"),
+        intent=item.get("intent", "consume"),
         added_at=item.get("added_at"),
     )
 
