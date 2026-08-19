@@ -7,9 +7,22 @@ import math
 import pytest
 
 from backend.eval.learning_metrics import (
-    auc, precision_at_k, ndcg_at_k, trend_slope, label_paper,
+    auc, precision_at_k, ndcg_at_k, trend_slope, label_paper, is_active_week,
     DWELL_POSITIVE_MS,
 )
+
+
+# ── active-week gating ────────────────────────────────────────────────────
+
+def test_is_active_week_requires_both_classes_and_volume():
+    # both classes, enough volume
+    assert is_active_week([1, 0, 1, 0, 1], min_n=5) is True
+    # all engaged (no negatives) → AUC undefined → not active
+    assert is_active_week([1, 1, 1, 1, 1], min_n=5) is False
+    # all skipped (user went inactive) → not active
+    assert is_active_week([0, 0, 0, 0, 0], min_n=5) is False
+    # both classes but below volume floor
+    assert is_active_week([1, 0], min_n=5) is False
 
 
 # ── labeling ──────────────────────────────────────────────────────────────

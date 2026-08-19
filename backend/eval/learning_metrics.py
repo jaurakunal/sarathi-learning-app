@@ -52,6 +52,17 @@ def label_paper(actions: Iterable[str], active_ms: int = 0, rating: int | None =
     return 0
 
 
+def is_active_week(labels: list[int], min_n: int) -> bool:
+    """A week counts toward the CALIBRATION trend only if it has enough served
+    papers AND both classes present (so AUC is defined). This keeps weeks where
+    the user went inactive — all-zero engagement — from masquerading as a
+    relevance decline; inactivity is a RETENTION signal, measured separately.
+    """
+    n = len(labels)
+    pos = sum(labels)
+    return n >= min_n and 0 < pos < n
+
+
 def auc(scores: list[float], labels: list[int]) -> float | None:
     """Rank-based ROC-AUC (Mann-Whitney), tie-aware.
 

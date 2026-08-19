@@ -109,6 +109,9 @@ def _gather(table, user_id: str, workspace_id: str) -> list[dict]:
     return rows
 
 
+MIN_ACTIVE_WEEK_N = 5  # min served papers for a week to enter the calibration trend
+
+
 def _report_block(title: str, rows: list[dict]) -> None:
     print(f"\n=== {title} ===")
     n = len(rows)
@@ -121,36 +124,50 @@ def _report_block(title: str, rows: list[dict]) -> None:
     print(f"  served (scored): {n}")
     print(f"  engaged (positive): {pos}  ({pos / n:.0%})")
     a = m.auc(scores, labels)
-    print(f"  AUC(triage_score -> engaged): {a:.3f}" if a is not None else "  AUC: n/a (single class)")
+    print(f"  overall calibration AUC(triage_score -> engaged): {a:.3f}" if a is not None
+          else "  overall calibration AUC: n/a (single class)")
     for k in (3, 5, 10):
         p = m.precision_at_k(scores, labels, k)
         nd = m.ndcg_at_k(scores, labels, k)
         if p is not None:
             print(f"  P@{k}={p:.2f}  NDCG@{k}={nd:.2f}" if nd is not None else f"  P@{k}={p:.2f}  NDCG@{k}=n/a")
 
-    # Temporal trend: AUC per tenure week.
     buckets: dict[str, list[dict]] = defaultdict(list)
     for r in rows:
         buckets[_iso_week(r["served_at"])].append(r)
     ordered = sorted(w for w in buckets if w != "unknown")
-    if len(ordered) >= 2:
-        print("  tenure-week trend (week: n, engaged%, AUC):")
-        pts = []
-        for idx, w in enumerate(ordered):
+
+    # ── Axis 1: RETENTION / activity (all weeks) ──────────────────────────
+    # Engagement rate over time. A decline here is disengagement, NOT a
+    # relevance regression — kept separate so it can't pollute calibration.
+    if ordered:
+        print("  retention (week: served, engaged%):")
+        for w in ordered:
             b = buckets[w]
             bl = [x["label"] for x in b]
-            ba = m.auc([x["triage_score"] for x in b], bl)
-            pts.append((idx, ba))
-            astr = f"{ba:.3f}" if ba is not None else "n/a"
-            print(f"    {w}: n={len(b):>3}  engaged={sum(bl)/len(bl):.0%}  AUC={astr}")
-        slope = m.trend_slope(pts)
+            print(f"    {w}: served={len(b):>3}  engaged={sum(bl) / len(bl):.0%}")
+
+    # ── Axis 2: CALIBRATION trend (ACTIVE weeks only) ─────────────────────
+    # Does triage_score rank engagement better over time? Only weeks with both
+    # engaged and skipped papers (and enough volume) qualify, so inactive weeks
+    # don't drag the trend.
+    pts = []
+    for idx, w in enumerate(ordered):
+        bl = [x["label"] for x in buckets[w]]
+        if m.is_active_week(bl, MIN_ACTIVE_WEEK_N):
+            ba = m.auc([x["triage_score"] for x in buckets[w]], bl)
+            pts.append((idx, ba, w, len(bl)))
+    if len(pts) >= 2:
+        print(f"  calibration trend over {len(pts)} active weeks (week: n, AUC):")
+        for _, ba, w, cnt in pts:
+            print(f"    {w}: n={cnt:>3}  AUC={ba:.3f}")
+        slope = m.trend_slope([(x, y) for x, y, _, _ in pts])
         if slope is not None:
             verdict = "IMPROVING" if slope > 0.01 else ("DECLINING" if slope < -0.01 else "flat")
-            print(f"  AUC trend slope: {slope:+.4f}/week  -> {verdict}")
-        else:
-            print("  AUC trend: insufficient labeled weeks")
+            print(f"  calibration AUC slope: {slope:+.4f}/active-week  -> {verdict}")
     else:
-        print("  (need >=2 tenure weeks with data for a trend)")
+        print(f"  calibration trend: insufficient active weeks "
+              f"(need >=2 with both engaged+skipped and n>={MIN_ACTIVE_WEEK_N})")
 
 
 def main() -> int:
