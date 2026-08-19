@@ -533,7 +533,8 @@ class TestReadinessAndFallback:
     def _ready_result():
         return {
             "ready": True, "confidence": 0.85, "missing": [],
-            "profile": {"areas": [{"id": "rag", "label": "RAG", "role": "primary"}],
+            "profile": {"areas": [{"id": "rag", "label": "RAG", "role": "primary",
+                                    "current_level": "intermediate", "intent": "consume"}],
                         "meta": {"paper_goal": "learn RAG"}},
         }
 
@@ -593,3 +594,60 @@ class TestReadinessAndFallback:
         assert body.get("profile_complete") is not True
         assert "profile" not in body
         mock_ready.assert_not_called()  # floor short-circuits before readiness
+
+
+# ---------------------------------------------------------------------------
+# Profile fields: per-area intent + trusted venues
+# ---------------------------------------------------------------------------
+
+
+class TestProfileFields:
+    def test_normalize_adds_intent_and_trusted_venues(self):
+        from backend.api.onboarding import _normalize_profile
+        data = {
+            "areas": [
+                {"id": "a1", "label": "Agents", "intent": "produce", "current_level": "advanced"},
+                {"id": "a2", "label": "RAG"},  # intent omitted -> default consume
+            ],
+            "meta": {"paper_goal": "g", "trusted_venues": ["NeurIPS", "a-lab"]},
+        }
+        prof = _normalize_profile(data)
+        assert prof["areas"][0]["intent"] == "produce"
+        assert prof["areas"][1]["intent"] == "consume"
+        assert prof["meta"]["trusted_venues"] == ["NeurIPS", "a-lab"]
+
+    def test_norm_intent_mapping(self):
+        from backend.api.onboarding import _norm_intent
+        assert _norm_intent("produce") == "produce"
+        assert _norm_intent("I want to publish") == "produce"
+        assert _norm_intent("consume") == "consume"
+        assert _norm_intent("") == "consume"
+        assert _norm_intent("learn and build") == "both"
+
+    def test_readiness_gate_requires_level_and_intent(self):
+        """An area missing level/intent must NOT complete even above the floor."""
+        from backend.api.onboarding import handler, MIN_WORKSPACE_TURNS
+        with patch("backend.api.onboarding.db") as mock_db, \
+             patch("backend.api.onboarding.boto3") as mock_boto3, \
+             patch("backend.api.onboarding.resolve_workspace_id", return_value="w1"), \
+             patch("backend.api.onboarding._generate_turn", return_value="ok"), \
+             patch("backend.api.onboarding._assess_readiness") as mock_ready:
+            mock_boto3.resource.return_value.Table.return_value = MagicMock()
+            mock_db.get_user_meta.return_value = {"background": "SDE"}
+            mock_db.get_conversation_by_paper.return_value = {"conv_id": "onboarding"}
+            mock_db.get_conversation_turns.return_value = [
+                {"seq": i, "request": f"a{i}", "response": f"q{i}"} for i in range(1, MIN_WORKSPACE_TURNS)
+            ]
+            # ready + confident, but area has no intent -> must stay incomplete
+            mock_ready.return_value = {
+                "ready": True, "confidence": 0.9, "missing": [],
+                "profile": {"areas": [{"id": "rag", "label": "RAG", "current_level": "intermediate"}],
+                            "meta": {"paper_goal": "g"}},
+            }
+            event = {
+                "httpMethod": "POST",
+                "requestContext": {"authorizer": {"claims": {"sub": "u1"}}},
+                "body": json.dumps({"message": "RAG", "stage": "workspace"}),
+            }
+            body = json.loads(handler(event, None)["body"])
+            assert body.get("profile_complete") is not True

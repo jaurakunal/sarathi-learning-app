@@ -33,9 +33,16 @@ def _build_system_prompt() -> str:
     )
 
 
+def _stringify(v) -> str:
+    """Flatten a profile field that may be a str or a dict into a compact string."""
+    if isinstance(v, dict):
+        return "; ".join(f"{k}: {val}" for k, val in v.items() if val)
+    return str(v or "").strip()
+
+
 def _build_user_message(paper: dict, profile: dict) -> str:
     """Construct the user message with paper and profile context."""
-    # Extract areas info
+    # Extract areas info (incl. per-area level + intent, which drive scoring)
     areas_text = ""
     for area in profile.get("areas", []):
         label = area.get("label", "unknown")
@@ -43,8 +50,10 @@ def _build_user_message(paper: dict, profile: dict) -> str:
         too_basic = area.get("too_basic", [])
         just_right = area.get("just_right", [])
         role = area.get("role", "")
+        level = area.get("current_level", "intermediate")
+        intent = area.get("intent", "consume")
         areas_text += (
-            f"- {label} (role: {role})\n"
+            f"- {label} (role: {role}, level: {level}, intent: {intent})\n"
             f"  Frontier: {frontier}\n"
             f"  Too basic: {too_basic}\n"
             f"  Just right: {just_right}\n"
@@ -59,6 +68,31 @@ def _build_user_message(paper: dict, profile: dict) -> str:
             "Brain-structure + agentic harness >> the LLM.",
         )
 
+    # User-level context, from THIS user's profile (falls back to neutral
+    # phrasing when a field is unset — never assumes a specific persona).
+    um = profile.get("user_meta", {}) or {}
+    background = str(um.get("background", "") or "").strip()
+    learning_style = _stringify(um.get("learning_style", ""))
+    math_comfort = str(um.get("math_comfort", "") or "").strip()
+    paper_preference = _stringify(um.get("paper_preference", ""))
+    time_per_week = str(um.get("time_per_week", "") or "").strip()
+    trusted = (profile.get("meta", {}) or {}).get("trusted_venues", []) or []
+
+    ctx_lines = []
+    if background:
+        ctx_lines.append(f"Background: {background}")
+    if learning_style:
+        ctx_lines.append(f"Learning style: {learning_style}")
+    if math_comfort:
+        ctx_lines.append(f"Math comfort: {math_comfort}")
+    if paper_preference:
+        ctx_lines.append(f"Paper preference: {paper_preference}")
+    if time_per_week:
+        ctx_lines.append(f"Reading time per week: {time_per_week}")
+    if trusted:
+        ctx_lines.append(f"Trusted venues/authors: {', '.join(map(str, trusted))}")
+    context_block = "\n".join(ctx_lines) if ctx_lines else "No additional profile context provided."
+
     # Paper info
     title = paper.get("title", "")
     abstract = paper.get("abstract", "")
@@ -72,26 +106,24 @@ def _build_user_message(paper: dict, profile: dict) -> str:
         f"**Areas matched during discovery:** {', '.join(areas_matched) if areas_matched else 'None'}\n\n"
         f"**Abstract:**\n{abstract}\n\n"
         "## User Profile\n\n"
-        "### Research Areas\n"
+        "### Research Areas (with level + intent)\n"
         f"{areas_text}\n"
         "### Hypothesis\n"
-        f"{hypothesis_statement}\n\n"
-        "### Context\n"
-        "The user is a practitioner-builder with zero academic vocabulary. "
-        "They have never read a paper end-to-end. Math is opaque to them. "
-        "They want papers that connect to what they are building (a faithful AI clone of a person "
-        "using memory architecture and agentic harness). "
-        "Papers at intersections of their areas are highest value. "
-        "The hypothesis to pressure-test: the right brain-structure + harness matters more than the LLM itself.\n\n"
+        f"{hypothesis_statement or 'None stated.'}\n\n"
+        "### About this user\n"
+        f"{context_block}\n\n"
         "## Instructions\n\n"
-        "Score this paper:\n"
-        "1. How relevant is it to the user's areas? (0-1)\n"
-        "2. Is this at the right level? (too_basic = things they already know; "
-        "just_right = stretches them without requiring math; over_head = heavy math/theory they can't parse)\n"
-        "3. Is this relevant to their hypothesis (brain-structure + harness >> LLM)?\n"
-        "4. Overall triage_score (0-1, combining relevance, level, hypothesis)\n"
-        "5. Brief reasoning (1-2 sentences)\n"
-        "6. worth_my_hours: given they have 2-4 hrs/week total, is this worth their time?\n\n"
+        "Score this paper FOR THIS USER using the profile above:\n"
+        "1. Relevance to their areas (0-1). Papers at intersections of their areas are highest value.\n"
+        "2. Right level? Judge against each area's stated level and the user's math comfort: "
+        "too_basic = below what they already know; just_right = stretches them at their level; "
+        "over_head = demands background/math beyond their comfort.\n"
+        "3. Intent fit: for a 'consume' area favor accessible, foundational, or survey/tutorial work; "
+        "for a 'produce' area favor novel methods, frontier results, and reproducible/implementable work.\n"
+        "4. Hypothesis relevance, if a hypothesis is stated.\n"
+        "5. Overall triage_score (0-1, combining relevance, level, intent, hypothesis).\n"
+        "6. Brief reasoning (1-2 sentences).\n"
+        "7. worth_my_hours: given their weekly reading time, is this worth it?\n\n"
         "Respond with ONLY the JSON object."
     )
     return message
@@ -190,11 +222,14 @@ def handler(event: dict, context) -> dict:
     if not workspace_id:
         workspace_id = db.get_active_workspace(table, user_id) or ""
 
-    # 1. Load user profile
+    # 1. Load user profile (workspace areas/hypothesis + user-level META, so
+    # scoring reflects THIS user's background/learning style/math comfort — not
+    # a hard-coded persona).
     profile = db.get_full_profile(table, user_id, workspace_id)
     if not profile.get("areas") and not profile.get("hypothesis"):
         logger.warning("No profile found for user %s ws %s — skipping triage.", user_id, workspace_id)
         return {"papers_triaged": 0, "worth_reading": 0}
+    profile["user_meta"] = db.get_user_meta(table, user_id) or {}
 
     # 2. Load candidate papers
     candidates = db.list_papers_by_status(table, user_id, workspace_id, "candidate", limit=100)

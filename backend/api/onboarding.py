@@ -85,14 +85,15 @@ Respond with ONLY a JSON object, no prose:
 {
   "ready": true|false,
   "confidence": 0.0-1.0,
-  "missing": ["areas"|"goal"|"level", ...],
+  "missing": ["areas"|"level"|"intent"|"goal", ...],
   "profile": {
-    "areas": [{"id": "kebab-id", "label": "Human label", "role": "primary"}],
-    "meta": {"paper_goal": "one sentence"},
+    "areas": [{"id": "kebab-id", "label": "Human label", "role": "primary",
+               "current_level": "beginner|intermediate|advanced", "intent": "consume|produce|both"}],
+    "meta": {"paper_goal": "one sentence", "trusted_venues": []},
     "hypothesis": {"statement": "optional", "status": "forming"}
   }
 }
-Only populate "profile" when ready is true. Base it strictly on what the user said; do not invent areas."""
+Ready requires EVERY area to have both a current_level and an intent — if any area is missing either, set ready=false and list what's missing. Only populate "profile" when ready is true. Base it strictly on what the user said; do not invent areas."""
 
 
 def _readiness_llm(user_message: str) -> str | None:
@@ -196,6 +197,8 @@ You need to understand these dimensions deeply (>90% confidence each):
    b) What they've already built or read in this area (establishes their floor)
    c) What concepts/terms they're comfortable with vs. what's new to them
    d) Where they want to go (their frontier — what they want to understand next)
+   e) Their LEVEL in this area (beginner | intermediate | advanced)
+   f) Their INTENT for this area — do they want to CONSUME it (learn/understand, favor accessible & foundational work) or PRODUCE in it (build/publish, favor novel methods & frontier results), or both? This strongly changes what to surface.
 
 2. CALIBRATION PER AREA — concrete probes:
    - "Have you implemented X before, or just read about it?"
@@ -207,6 +210,8 @@ You need to understand these dimensions deeply (>90% confidence each):
 4. GOAL for THIS workspace — what's driving research here? A project? Curiosity? Career growth? What would "success" look like in 3 months?
 
 5. HYPOTHESIS / driving question — what is the spine of this workspace's research? Many users won't have one explicit yet — that's fine, mark it as "forming".
+
+6. TRUSTED SOURCES (optional) — any venues, labs, or authors they specifically follow (e.g. NeurIPS, a lab, an author). One quick question; fine to skip if they have none.
 
 RULES:
 - Ask ONE focused question at a time. Never multi-part.
@@ -231,13 +236,15 @@ WHEN YOU'RE DONE (turn 12+, all dimensions calibrated):
           "role": "primary|secondary",
           "frontier": "specific thing they want to learn next",
           "current_level": "beginner|intermediate|advanced",
+          "intent": "consume|produce|both",
           "knows": ["concepts/terms they're comfortable with"],
           "too_basic": ["things that would be too elementary"]
         }
       ],
       "meta": {
         "paper_goal": "what they want from THIS workspace",
-        "workspace_summary": "1-2 sentences describing this workspace's focus"
+        "workspace_summary": "1-2 sentences describing this workspace's focus",
+        "trusted_venues": ["venues/labs/authors they follow, or [] if none"]
       },
       "hypothesis": {"statement": "their driving research question for this workspace, if any", "status": "forming|testing|refining"}
     }
@@ -514,7 +521,13 @@ def _handle_workspace_stage(table, user_id: str, event: dict, message: str) -> d
         if not profile_data:
             full_messages = llm_messages + [{"role": "assistant", "content": response}]
             readiness = _assess_readiness(full_messages)
-            if readiness["ready"] and readiness["confidence"] >= READINESS_MIN_CONFIDENCE and readiness["profile"].get("areas"):
+            r_areas = readiness["profile"].get("areas") or []
+            # Every area must carry a level and an intent — the fields triage
+            # relies on. If any is missing, keep interviewing.
+            areas_complete = bool(r_areas) and all(
+                a.get("current_level") and a.get("intent") for a in r_areas
+            )
+            if readiness["ready"] and readiness["confidence"] >= READINESS_MIN_CONFIDENCE and areas_complete:
                 profile_data = {
                     "type": "profile_complete",
                     "summary": readiness["profile"].get("meta", {}).get("paper_goal", ""),
@@ -694,6 +707,14 @@ def _extract_profile(response: str) -> dict | None:
     return None
 
 
+def _norm_intent(v) -> str:
+    """Normalize an area's intent to consume | produce | both (default consume)."""
+    s = str(v or "").strip().lower()
+    if "produc" in s or "publish" in s or "build" in s:
+        return "both" if "consum" in s or "learn" in s else "produce"
+    return "consume"
+
+
 def _normalize_profile(data: dict) -> dict:
     """Best-effort normalize a free-form profile JSON into the storage shape."""
     # Accept alternate keys the model sometimes uses for the areas list.
@@ -711,12 +732,13 @@ def _normalize_profile(data: dict) -> dict:
                     "role": item.get("role", "primary"),
                     "frontier": item.get("frontier", ""),
                     "current_level": item.get("current_level", "intermediate"),
+                    "intent": _norm_intent(item.get("intent")),
                     "knows": item.get("knows", []),
                     "too_basic": item.get("too_basic", []),
                 })
             else:
                 slug = str(item).lower().replace(" ", "-")[:30]
-                areas.append({"id": slug, "label": str(item), "role": "primary"})
+                areas.append({"id": slug, "label": str(item), "role": "primary", "intent": "consume"})
     elif isinstance(areas_raw, dict):
         for role_key in ("primary", "core", "secondary", "adjacent"):
             for item in areas_raw.get(role_key, []) or []:
@@ -728,6 +750,7 @@ def _normalize_profile(data: dict) -> dict:
                         "role": "primary" if role_key in ("primary", "core") else "secondary",
                         "frontier": item.get("frontier", ""),
                         "current_level": item.get("current_level", "intermediate"),
+                        "intent": _norm_intent(item.get("intent")),
                         "knows": item.get("knows", []),
                         "too_basic": item.get("too_basic", []),
                     })
@@ -737,12 +760,17 @@ def _normalize_profile(data: dict) -> dict:
                         "id": slug,
                         "label": str(item),
                         "role": "primary" if role_key in ("primary", "core") else "secondary",
+                        "intent": "consume",
                     })
 
     meta_raw = data.get("meta", {}) if isinstance(data.get("meta"), dict) else {}
+    trusted = meta_raw.get("trusted_venues") or data.get("trusted_venues") or []
+    if not isinstance(trusted, list):
+        trusted = [str(trusted)]
     meta = {
         "paper_goal": meta_raw.get("paper_goal") or data.get("goal", "") or "",
         "workspace_summary": meta_raw.get("workspace_summary", ""),
+        "trusted_venues": [str(t) for t in trusted if t],
     }
 
     hypothesis_raw = data.get("hypothesis", {})

@@ -405,3 +405,36 @@ def test_default_model_when_event_omits_it(
 
     kwargs = mock_fallback.call_args.kwargs
     assert kwargs["primary_model"] == DEFAULT_MODEL
+
+
+def test_build_user_message_uses_profile_not_hardcoded_persona():
+    """Triage context must reflect THIS user's profile (level/intent + META),
+    not a baked-in persona."""
+    from backend.pipeline.triage import _build_user_message
+    paper = {"title": "T", "abstract": "A", "authors": ["X"], "areas_matched": ["Agents"]}
+    profile = {
+        "areas": [{"label": "Agents", "role": "primary", "current_level": "advanced", "intent": "produce"}],
+        "hypothesis": {"statement": "H1"},
+        "meta": {"trusted_venues": ["NeurIPS"]},
+        "user_meta": {"background": "PhD physicist", "math_comfort": "high",
+                      "learning_style": "theory-first", "time_per_week": "6h"},
+    }
+    msg = _build_user_message(paper, profile)
+    # real profile shows up
+    assert "level: advanced" in msg and "intent: produce" in msg
+    assert "PhD physicist" in msg
+    assert "math comfort" in msg.lower()
+    assert "NeurIPS" in msg
+    # the old hard-coded persona is gone
+    assert "faithful AI clone" not in msg
+    assert "zero academic vocabulary" not in msg
+    assert "Math is opaque" not in msg
+
+
+def test_build_user_message_neutral_when_no_user_meta():
+    from backend.pipeline.triage import _build_user_message
+    paper = {"title": "T", "abstract": "A", "authors": [], "areas_matched": []}
+    profile = {"areas": [{"label": "RAG", "role": "primary"}], "hypothesis": None, "meta": {}}
+    msg = _build_user_message(paper, profile)
+    assert "faithful AI clone" not in msg
+    assert "No additional profile context" in msg
