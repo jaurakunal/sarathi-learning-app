@@ -115,7 +115,7 @@ def actual_engagement_label(engagement: dict) -> str:
 
 _JUDGE_SYSTEM = """You are a careful research evaluator for a tool called Sarathi.
 
-The user is a builder/practitioner who routes around dense math, wants applied angles, and dislikes flattery. They are working on faithful AI clones (memory + agentic harness).
+The specific user's profile (areas, level, learning style, hypothesis) is provided in each request. Judge every card RELATIVE TO THAT USER — do not assume any particular persona.
 
 You will be shown two feed cards (Card A and Card B) for the SAME paper. Your job is to score each card on four dimensions and predict how the user would engage with it.
 
@@ -146,7 +146,7 @@ CARD B:
 For EACH card (a, b) score 1-5 (5 = best) on:
 - relevance: does the hook connect to the user's research interests / frontiers?
 - specificity: is it about THIS paper's actual contribution, not generic?
-- calibration: does the explanation match the user's level (math route-around, applied lead)?
+- calibration: does the explanation match the user's stated level and learning style (see the profile above)?
 - actionability: does it surface "why now" / what to do with this?
 
 Then predict engagement: one of "read" | "bookmark" | "dismiss" | "view" | "none".
@@ -174,17 +174,41 @@ Return ONLY this JSON shape:
 
 
 def _profile_brief(profile: dict) -> str:
-    """Compact profile snippet — areas + hypothesis only — for the judge prompt."""
+    """Compact profile snippet for the judge prompt: areas (with level + intent),
+    hypothesis, and user-level learning signals — so the judge calibrates to THIS
+    user rather than an assumed persona."""
     parts: list[str] = []
     for area in (profile.get("areas") or [])[:5]:
         label = area.get("label", area.get("id", ""))
         role = area.get("role", "secondary")
         frontier = area.get("frontier", "")
-        parts.append(f"  - [{role}] {label}" + (f" (frontier: {frontier})" if frontier else ""))
-    hyp = (profile.get("hypothesis") or {}).get("statement", "")
+        level = area.get("current_level", "")
+        intent = area.get("intent", "")
+        tags = ", ".join(t for t in (f"level: {level}" if level else "",
+                                     f"intent: {intent}" if intent else "") if t)
+        line = f"  - [{role}] {label}"
+        if tags:
+            line += f" ({tags})"
+        if frontier:
+            line += f" — frontier: {frontier}"
+        parts.append(line)
     out = "Areas:\n" + ("\n".join(parts) if parts else "  (none)")
+
+    hyp = (profile.get("hypothesis") or {}).get("statement", "")
     if hyp:
         out += f"\nHypothesis: {hyp}"
+
+    um = profile.get("user_meta", {}) or {}
+    def _flat(v):
+        if isinstance(v, dict):
+            return "; ".join(f"{k}: {val}" for k, val in v.items() if val)
+        return str(v or "").strip()
+    learning = _flat(um.get("learning_style"))
+    math = _flat(um.get("math_comfort"))
+    if learning:
+        out += f"\nLearning style: {learning}"
+    if math:
+        out += f"\nMath comfort: {math}"
     return out
 
 
@@ -479,6 +503,7 @@ def run_judge(
     profile = db.get_full_profile(table, user_id, "")
     if not profile.get("meta"):
         raise RuntimeError(f"No profile for user {user_id} — run setup first")
+    profile["user_meta"] = db.get_user_meta(table, user_id) or {}
 
     dataset_entries = {
         e["paper_id"]: e for e in eval_dataset.load_dataset(table)

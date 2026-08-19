@@ -307,3 +307,25 @@ def test_run_judge_marks_no_candidate_card_as_error(
     assert mock_llm.call_count == 0
     # Aggregate has zero valid judgments
     assert result["papers_judged"] == 0
+
+
+def test_judge_system_prompt_has_no_hardcoded_persona():
+    from backend.eval.judge import _JUDGE_SYSTEM
+    assert "faithful AI clone" not in _JUDGE_SYSTEM
+    assert "routes around dense math" not in _JUDGE_SYSTEM
+    assert "RELATIVE TO THAT USER" in _JUDGE_SYSTEM
+
+
+def test_profile_brief_includes_level_intent_and_learning_signals():
+    from backend.eval.judge import _profile_brief
+    profile = {
+        "areas": [{"label": "Agents", "role": "primary",
+                   "current_level": "advanced", "intent": "produce"}],
+        "hypothesis": {"statement": "H"},
+        "user_meta": {"learning_style": "theory-first", "math_comfort": "high"},
+    }
+    brief = _profile_brief(profile)
+    assert "level: advanced" in brief
+    assert "intent: produce" in brief
+    assert "theory-first" in brief
+    assert "high" in brief

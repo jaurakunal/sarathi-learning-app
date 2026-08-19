@@ -41,6 +41,7 @@ def test_happy_path_writes_new_papers(
             "label": "Memory Architecture",
             "status": "active",
             "role": "spine",
+            "intent": "produce",  # keep all sources active for this test
             "links": [],
             "frontier": "episodic memory",
             "too_basic": [],
@@ -97,7 +98,7 @@ def test_source_failure_isolation(
 
     mock_db.get_profile_areas.return_value = [
         {"id": "a1", "user_id": user_id, "label": "Test", "status": "active",
-         "role": "spine", "links": [], "frontier": "", "too_basic": [],
+         "role": "spine", "intent": "produce", "links": [], "frontier": "", "too_basic": [],
          "just_right": [], "added_at": None}
     ]
     mock_db.paper_exists.return_value = False
@@ -381,3 +382,44 @@ def test_db_calls_receive_correct_arguments(
     assert paper_record["status"] == "candidate"
     assert paper_record["triage_score"] == 0
     assert paper_record["worth_my_hours"] is False
+
+
+# ---------------------------------------------------------------------------
+# Intent-aware discovery posture (levers 2 + 3)
+# ---------------------------------------------------------------------------
+
+class _A:
+    """Minimal area stand-in with an intent attribute."""
+    def __init__(self, intent):
+        self.intent = intent
+
+
+class TestDiscoveryPosture:
+    def test_workspace_intent_produce_if_any_area_produces(self):
+        from backend.pipeline.discover import _workspace_intent
+        assert _workspace_intent([_A("consume"), _A("produce")]) == "produce"
+        assert _workspace_intent([_A("both")]) == "produce"
+
+    def test_workspace_intent_consume_when_all_consume(self):
+        from backend.pipeline.discover import _workspace_intent
+        assert _workspace_intent([_A("consume"), _A("consume")]) == "consume"
+        assert _workspace_intent([]) == "consume"
+
+    def test_effective_since_days_widens_for_consume(self):
+        from backend.pipeline.discover import _effective_since_days, CONSUME_WINDOW_DAYS
+        assert _effective_since_days("produce", 14) == 14
+        assert _effective_since_days("consume", 14) == CONSUME_WINDOW_DAYS
+        # never shrink below the requested window
+        assert _effective_since_days("consume", CONSUME_WINDOW_DAYS + 30) == CONSUME_WINDOW_DAYS + 30
+
+    def test_select_sources_drops_recent_only_feeds_for_consume(self):
+        from backend.pipeline.discover import _select_sources
+        produce_names = {s.name for s in _select_sources("produce", None)}
+        consume_names = {s.name for s in _select_sources("consume", None)}
+        # produce keeps the freshness feeds
+        assert any("rss" in n.lower() or "arxiv_rss" in n.lower() for n in produce_names) or len(produce_names) == 6
+        assert len(produce_names) > len(consume_names)
+        # consume drops the recent-only feeds (arxiv rss + HF daily)
+        joined = " ".join(consume_names).lower()
+        assert "rss" not in joined
+        assert "daily" not in joined and "huggingface" not in joined

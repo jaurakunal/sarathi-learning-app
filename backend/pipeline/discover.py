@@ -39,6 +39,57 @@ def _area_from_dict(item: dict) -> Area:
     )
 
 
+def _workspace_intent(areas: list) -> str:
+    """Derive a workspace-level discovery posture from per-area intent.
+
+    Queries and sources are pooled across areas, so we collapse to one posture:
+    "produce" if ANY area wants to produce/build/publish (freshness matters),
+    else "consume" (favor established, foundational work). Coarser than per-area
+    but a real, contained improvement.
+    """
+    for a in areas:
+        if str(getattr(a, "intent", "consume") or "consume").lower() in ("produce", "both"):
+            return "produce"
+    return "consume"
+
+
+# Consume mode widens the recency window so seminal/established work (not just
+# the last two weeks of preprints) can enter the candidate pool.
+CONSUME_WINDOW_DAYS = int(os.environ.get("CONSUME_WINDOW_DAYS", "180"))
+
+
+def _effective_since_days(posture: str, since_days: int) -> int:
+    """Recency window by posture: produce stays recent; consume looks back further."""
+    if posture == "produce":
+        return since_days
+    return max(since_days, CONSUME_WINDOW_DAYS)
+
+
+def _select_sources(posture: str, s2_api_key):
+    """Source mix by posture.
+
+    produce -> everything, weighted to freshness + implementations (arXiv RSS,
+    Papers With Code, HF daily). consume -> drop the recent-only feeds (arXiv
+    RSS, HF daily) that can't surface older established work; keep the
+    date-filterable / citation-rich / venue sources.
+    """
+    if posture == "produce":
+        return [
+            ArxivRssSource(),
+            ArxivSource(),
+            PapersWithCodeSource(),
+            SemanticScholarSource(api_key=s2_api_key),
+            HFDailyPapersSource(),
+            OpenReviewSource(),
+        ]
+    return [
+        ArxivSource(),
+        SemanticScholarSource(api_key=s2_api_key),
+        PapersWithCodeSource(),
+        OpenReviewSource(),
+    ]
+
+
 def _deduplicate_by_title(papers: list[dict]) -> list[dict]:
     """Deduplicate papers by case-insensitive title, keeping the first occurrence."""
     seen_titles: set[str] = set()
@@ -125,8 +176,14 @@ def handler(event: dict, context) -> dict:
     areas = [_area_from_dict(item) for item in area_items]
     logger.info("Loaded %d areas for user %s", len(areas), user_id)
 
-    # Step 3: Compute the since datetime
-    since = datetime.now(timezone.utc) - timedelta(days=since_days)
+    # Step 3: Discovery posture (from per-area intent) drives recency + sources.
+    posture = _workspace_intent(areas)
+    effective_since_days = _effective_since_days(posture, since_days)
+    since = datetime.now(timezone.utc) - timedelta(days=effective_since_days)
+    logger.info(
+        "Discovery posture=%s since_days=%d (requested %d)",
+        posture, effective_since_days, since_days,
+    )
 
     # Step 4: Generate search queries ONCE (shared across all sources)
     from backend.shared.query_gen import generate_all_queries
@@ -147,15 +204,9 @@ def handler(event: dict, context) -> dict:
         except Exception:
             logger.warning("Failed to read S2 API key from SSM — using unauthenticated pool")
 
-    # Step 6: Query all sources with the pre-generated queries
-    sources = [
-        ArxivRssSource(),
-        ArxivSource(),
-        PapersWithCodeSource(),
-        SemanticScholarSource(api_key=s2_api_key),
-        HFDailyPapersSource(),
-        OpenReviewSource(),
-    ]
+    # Step 6: Query the posture-selected sources with the pre-generated queries
+    sources = _select_sources(posture, s2_api_key)
+    logger.info("Sources for posture=%s: %s", posture, [s.name for s in sources])
 
     all_papers: list[dict] = []
 
