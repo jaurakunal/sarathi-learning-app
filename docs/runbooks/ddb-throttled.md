@@ -3,6 +3,13 @@ alarm_name: sarathi-ddb-throttled
 severity: sev3
 metric: AWS/DynamoDB/ThrottledRequests (TableName=sarathi)
 auto_fixable: false
+auto_remediation: B
+auto_remediation_note: >
+  Tier B. Throttling is a capacity / access-pattern signal, never an
+  application-logic bug, so there is no code fix to open a CR for. The agent runs
+  the read-only diagnostics (which operation, which source, current capacity
+  mode) and REPORTS findings to Slack for a human to make the capacity/data-model
+  call. Every remediation here is `[manual]` and infra/CDK-owned.
 owning_component: datastore
 related_alarms:
   - sarathi-api-5xx

@@ -3,6 +3,16 @@ alarm_name: sarathi-feed-stale
 severity: sev2
 metric: Sarathi/FeedFreshnessBreach
 auto_fixable: true
+auto_remediation: B
+auto_remediation_note: >
+  Tier B. The root cause here is almost always capacity/external/data (Bedrock
+  throttle, source drought, an auto-paused workspace, or a canary that did not
+  run), so the agent runs the read-only diagnostics and REPORTS findings to
+  Slack only; it makes no code change from this runbook. If diagnostics surface
+  the latent ValidationException code bug (cards generated but not persisted),
+  do not auto-fix it here: hand it to the A-conditional lambda-errors path
+  (via the `settings` handler and `feed-card-meta-null`), where the confidence
+  gate and CR flow apply.
 owning_component: nightly-pipeline
 related_alarms:
   - sarathi-pipeline-failed

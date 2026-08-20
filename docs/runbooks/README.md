@@ -31,8 +31,10 @@ any of these invariants do not hold:
 1. **Frontmatter.** The file opens with a YAML block fenced by `---` lines. The
    required keys are `alarm_name` (or `alarm_name_pattern` for a family),
    `severity` (`sev2` | `sev3` | `sev4`), `metric`, `auto_fixable` (bool),
-   `owning_component`, and `related_alarms` (list, possibly empty). Treat any
-   additional keys as advisory.
+   `auto_remediation` (`A` | `B` | `C`, see below), `owning_component`, and
+   `related_alarms` (list, possibly empty). An optional `auto_remediation_note`
+   (string) qualifies the tier when it is conditional. Treat any additional keys
+   as advisory.
 2. **Sections.** The body is divided by level-2 markdown headings drawn from
    this fixed, ordered set. Every runbook contains all six, in this order:
    `## Symptoms`, `## Likely Causes`, `## Diagnostics`, `## Remediation`,
@@ -65,29 +67,65 @@ any of these invariants do not hold:
 If `auto_fixable: false`, the agent should expect `## Code Fix Candidates` to
 read `None.` and should stop after diagnostics, posting findings for a human.
 
+## Auto-remediation tiers
+
+`auto_remediation` says how far the agent is allowed to act once it has
+diagnosed the incident. It is orthogonal to `auto_fixable` (which only says
+whether a code fix exists): a runbook can have a high-confidence code fix and
+still be tier B when the alarm's usual root cause is capacity or data rather than
+that code path. There are three tiers.
+
+- **A — code/config bug the agent can deterministically fix.** The root cause is
+  a bug in this repo. The agent may branch, implement the fix, run the unit
+  tests (`make test` / `python -m pytest tests/` for the touched area) AND the
+  integration tests (`make api-test` and `make integration-test`), and if green
+  OPEN A CR for human approval. It NEVER auto-merges and NEVER auto-deploys.
+  Tier A is often CONDITIONAL: the agent acts as A only when the diagnosed fault
+  maps to a `Code Fix Candidate` marked `confidence: high`; otherwise it falls
+  back to B (diagnose and report). Each runbook's `auto_remediation_note` states
+  its condition. A fix that would WIDEN an IAM permission on a least-privilege
+  role (for example adding a DynamoDB or AppSync action) is still PR-only and
+  must never be auto-deployed — the human approves the CR, and the deploy happens
+  through the normal CDK path.
+- **B — capacity/external/data, no code fix.** The root cause is a Bedrock
+  throttle/outage, a DynamoDB capacity/access-pattern problem, a source drought,
+  a config/env value, or legitimate volume growth. The agent runs the read-only
+  diagnostics and REPORTS its findings and likely cause to Slack. It makes no
+  code change.
+- **C — human-only, never auto-touch.** Auth/security/IAM blast-radius (for
+  example the Cognito `pre-signup` trigger, where a bad fix blocks all
+  login/signup). The agent stops immediately, pages a human, and takes no
+  automated action — no diagnostics-driven change, no branch, no CR.
+
 ## Alarm → runbook routing table
 
 An incoming alarm name is matched first against exact `alarm_name` values, then
 against `alarm_name_pattern` (glob) for families. First exact match wins.
 
-| Alarm name | Runbook file | Severity | Auto-fixable |
-|---|---|---|---|
-| `sarathi-feed-stale` | `feed-stale.md` | sev2 | yes |
-| `sarathi-pipeline-failed` | `pipeline-failed.md` | sev2 | yes |
-| `sarathi-pipeline-timed-out` | `pipeline-timed-out.md` | sev3 | partial |
-| `sarathi-lambda-errors-*` | `lambda-errors.md` | sev3 | yes |
-| `sarathi-api-5xx` | `api-5xx.md` | sev2 | partial |
-| `sarathi-api-latency` | `api-latency.md` | sev3 | partial |
-| `sarathi-lambda-slow-*` | `api-latency.md` | sev3 | partial |
-| `sarathi-ddb-throttled` | `ddb-throttled.md` | sev3 | no |
-| `sarathi-llm-failures` | `llm-failures.md` | sev2 | no |
-| `sarathi-chat-chunks-not-delivered` | `chat-chunks-not-delivered.md` | sev3 | yes |
-| `sarathi-chat-dispatch-failed` | `chat-dispatch-failed.md` | sev3 | yes |
+| Alarm name | Runbook file | Severity | Auto-fixable | Tier |
+|---|---|---|---|---|
+| `sarathi-feed-stale` | `feed-stale.md` | sev2 | yes | B |
+| `sarathi-pipeline-failed` | `pipeline-failed.md` | sev2 | yes | B (A only if a step raised a code exception mapping to a high-confidence fix) |
+| `sarathi-pipeline-timed-out` | `pipeline-timed-out.md` | sev3 | partial | B |
+| `sarathi-lambda-errors-*` | `lambda-errors.md` | sev3 | yes | A-conditional (else B); `pre-signup` is C |
+| `sarathi-api-5xx` | `api-5xx.md` | sev2 | partial | A-conditional (else B) |
+| `sarathi-api-latency` | `api-latency.md` | sev3 | partial | A only for the N+1 fan-out fix, else B |
+| `sarathi-lambda-slow-*` | `api-latency.md` | sev3 | partial | A only for the N+1 fan-out fix, else B |
+| `sarathi-ddb-throttled` | `ddb-throttled.md` | sev3 | no | B |
+| `sarathi-llm-failures` | `llm-failures.md` | sev2 | no | B |
+| `sarathi-chat-chunks-not-delivered` | `chat-chunks-not-delivered.md` | sev3 | yes | A |
+| `sarathi-chat-dispatch-failed` | `chat-dispatch-failed.md` | sev3 | yes | A |
 
 The `sarathi-lambda-errors-*` family covers all 29 per-function error alarms.
 `lambda-errors.md` carries a per-function annex for the handlers whose failure
 modes are specific enough to have a known code fix: `onboarding`, `settings`,
-`chat-stream`, and `pre-signup`.
+`chat-stream`, and `pre-signup`. That annex also carries per-handler tiers:
+`onboarding`, `settings`, and `chat-stream` are A-conditional (act only on a
+high-confidence candidate, else report), while `pre-signup` is tier C
+(auth/security blast-radius — human-only, the agent never touches it).
+"A-conditional" always means the agent falls back to B (diagnose and report) when
+the fault does not map to a `confidence: high` Code Fix Candidate, and even a
+qualifying A-fix opens a CR rather than merging or deploying.
 
 ## Fixed facts these runbooks assume
 

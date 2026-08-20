@@ -3,6 +3,15 @@ alarm_name: sarathi-pipeline-failed
 severity: sev2
 metric: AWS/States/ExecutionsFailed (sarathi-nightly-pipeline)
 auto_fixable: true
+auto_remediation: B
+auto_remediation_note: >
+  Tier B by default: run diagnostics and REPORT to Slack, no code change.
+  Escalate to A (implement the fix, run tests, open a CR) ONLY if diagnostics
+  show a pipeline step raised a code exception that maps to a confidence:high
+  Code Fix Candidate (e.g. a ValidationException on an UpdateExpression ->
+  `feed-card-meta-null`). Do NOT escalate to A for a Bedrock throttle/outage,
+  an all-fanout-item failure, a DynamoDB throttle, or a timeout — those are
+  capacity/external and stay B.
 owning_component: nightly-pipeline
 related_alarms:
   - sarathi-feed-stale

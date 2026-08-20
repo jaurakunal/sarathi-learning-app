@@ -4,6 +4,21 @@ alarm_name_pattern: "sarathi-lambda-slow-*"
 severity: sev3
 metric: AWS/ApiGateway/Latency (sarathi-api) ; AWS/Lambda/Duration p99 (per fn)
 auto_fixable: partial
+auto_remediation: A
+auto_remediation_note: >
+  Tier A is CONDITIONAL and NARROW: the only fix the agent may implement here is
+  the known N+1 / hot-path fan-out bound (`hotpath-query-bound` — a request-path
+  DynamoDB read that paginates a growing partition or does sequential per-item
+  ops). When diagnostics clearly localize that pattern, implement on a branch,
+  run `make test` for the touched area plus `make api-test` /
+  `make integration-test`, and open a CR for human approval. Everything else is
+  B: Bedrock generation latency, retry/backoff inflation, or a
+  synchronous-LLM-on-the-request-path design issue (onboarding/proposal) is
+  capacity/design, so run diagnostics and REPORT only. NEVER auto-merge or
+  auto-deploy. Note: `hotpath-query-bound` is currently confidence:low, so until
+  it is promoted to high the agent proposes it rather than implements it — it
+  qualifies for A only once the specific fan-out fix is recognized and
+  high-confidence.
 owning_component: rest-api
 related_alarms:
   - sarathi-api-5xx

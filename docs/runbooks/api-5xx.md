@@ -3,6 +3,20 @@ alarm_name: sarathi-api-5xx
 severity: sev2
 metric: AWS/ApiGateway/5XXError (sarathi-api)
 auto_fixable: partial
+auto_remediation: A
+auto_remediation_note: >
+  Tier A is CONDITIONAL, same rule as lambda-errors. This alarm has no code fix
+  of its own; it defers to the backing handler. Act as A (implement on a branch,
+  run `make test` for the touched area plus `make api-test` /
+  `make integration-test`, open a CR) ONLY when diagnostics name a backing
+  handler whose fault maps to a confidence:high Code Fix Candidate in
+  `lambda-errors.md` (`feed-card-meta-null`, `chat-stream-keyerror`). A 504
+  timeout on a synchronous-LLM route (onboarding/proposal), or a Bedrock/DynamoDB
+  throttle, is B: run diagnostics and REPORT only. NEVER auto-merge or
+  auto-deploy; the CR is for human approval. If the backing fix would WIDEN an
+  IAM grant on a least-privilege role, it stays PR-only and is never
+  auto-deployed. If the named handler is `pre-signup`, it is tier C: stop and
+  page a human.
 owning_component: rest-api
 related_alarms:
   - sarathi-api-latency

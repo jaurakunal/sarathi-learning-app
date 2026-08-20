@@ -3,6 +3,19 @@ alarm_name_pattern: "sarathi-lambda-errors-*"
 severity: sev3
 metric: AWS/Lambda/Errors (per function)
 auto_fixable: true
+auto_remediation: A
+auto_remediation_note: >
+  Tier A is CONDITIONAL. Only act as A (implement the fix on a branch, run
+  `make test` for the touched area plus `make api-test` / `make integration-test`,
+  then open a CR) when the traceback maps to a known Code Fix Candidate marked
+  confidence:high (today: `feed-card-meta-null`, `chat-stream-keyerror`).
+  Otherwise fall back to B: run diagnostics and REPORT only. In particular, a
+  ThrottlingException (Bedrock/DynamoDB) or a missing/empty env var is B — it is
+  capacity/config, not a code fix. NEVER auto-merge or auto-deploy; the CR is for
+  human approval. See the per-function annex for handler-specific tiers
+  (pre-signup is C, human-only). If a proposed fix would WIDEN an IAM grant on a
+  least-privilege role (e.g. adding a DynamoDB or AppSync action), it is still
+  PR-only and must never be auto-deployed.
 owning_component: per-function
 related_alarms:
   - sarathi-api-5xx
@@ -156,30 +169,40 @@ aws logs filter-log-events \
 
 ## Per-function annex
 
-**onboarding** (`sarathi-onboarding`): synchronous double-role stage machine
-that calls Bedrock with `max_tokens` up to 24000. Two known classes: history
-ending on an assistant message (Bedrock 400) and JSON-parse failures on the
-completion payload. See `onboarding-history-order`, `onboarding-json-parse`.
-Errors here also tend to trip `sarathi-lambda-slow-onboarding` and
-`sarathi-api-latency` (long generation near the 29s timeout).
+**onboarding** (`sarathi-onboarding`) — tier A-conditional: synchronous
+double-role stage machine that calls Bedrock with `max_tokens` up to 24000. Two
+known classes: history ending on an assistant message (Bedrock 400) and
+JSON-parse failures on the completion payload. See `onboarding-history-order`,
+`onboarding-json-parse`. Both are currently confidence:medium, so they do not
+clear the A gate on their own — propose them for a human, do not auto-implement
+until a candidate is promoted to high. Errors here also tend to trip
+`sarathi-lambda-slow-onboarding` and `sarathi-api-latency` (long generation near
+the 29s timeout).
 
-**settings** (`sarathi-settings`): writes to workspace and feed-card metadata.
-This is the most likely place the latent `update_feed_card_meta` null-value bug
-surfaces in production (clearing a field passes None). Route a `ValidationException`
-here to `feed-card-meta-null`.
+**settings** (`sarathi-settings`) — tier A-conditional: writes to workspace and
+feed-card metadata. This is the most likely place the latent
+`update_feed_card_meta` null-value bug surfaces in production (clearing a field
+passes None). Route a `ValidationException` here to `feed-card-meta-null`
+(confidence:high) — the one settings fault that clears the A gate: implement,
+test, open a CR. Anything else stays B/report.
 
-**chat-stream** (`sarathi-chat-stream`): async streamer. Two classes: `KeyError`
-on a malformed dispatch payload (`chat-stream-keyerror`), and hung streams when
-`APPSYNC_ENDPOINT` is empty (the SigV4 request targets ""), which surfaces as
-`sarathi-chat-chunks-not-delivered` more than as a Lambda error. Empty env var
-is a `[manual]` config fix.
+**chat-stream** (`sarathi-chat-stream`) — tier A-conditional: async streamer.
+Two classes: `KeyError` on a malformed dispatch payload (`chat-stream-keyerror`,
+confidence:high -> qualifies for A), and hung streams when `APPSYNC_ENDPOINT` is
+empty (the SigV4 request targets ""), which surfaces as
+`sarathi-chat-chunks-not-delivered` more than as a Lambda error. The empty env
+var is a `[manual]` config fix (B), not a code fix.
 
-**pre-signup** (`sarathi-pre-signup`): the Cognito pre-sign-up trigger. An error
-here blocks new user registration entirely, so treat it as higher urgency than a
-generic sev3. Failures are usually a validation/allowlist rule raising on an
-input it should reject cleanly, or a DynamoDB error on the dedupe check. Confirm
-whether it is correctly rejecting a disallowed signup (working as intended) or
-erroring on a valid one (a fix) before branching.
+**pre-signup** (`sarathi-pre-signup`) — tier C (human-only, never auto-touch):
+the Cognito pre-sign-up trigger. This is on the auth/security path — a bad fix
+here blocks ALL login/signup, so its blast radius is too large for any
+autonomous change. An error here blocks new user registration entirely, so treat
+it as higher urgency than a generic sev3, but the agent stops immediately and
+pages a human; it takes no automated action and opens no branch or CR. Failures
+are usually a validation/allowlist rule raising on an input it should reject
+cleanly, or a DynamoDB error on the dedupe check. A human confirms whether it is
+correctly rejecting a disallowed signup (working as intended) or erroring on a
+valid one before any change.
 
 ## Escalation
 

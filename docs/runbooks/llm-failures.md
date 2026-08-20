@@ -3,6 +3,16 @@ alarm_name: sarathi-llm-failures
 severity: sev2
 metric: Sarathi/LlmCallFailed
 auto_fixable: false
+auto_remediation: B
+auto_remediation_note: >
+  Tier B. This is a Bedrock dependency signal — throttle, regional outage, or
+  model-access change — so the agent runs diagnostics and REPORTS only; there is
+  no code fix at the dependency layer and changing the shared client's retry
+  behavior during a live throttle would make it worse. If diagnostics show the
+  "failures" are actually malformed-request ValidationExceptions (a caller bug,
+  not an outage), that is not remediated here: hand it to the A-conditional
+  `lambda-errors.md` path (`onboarding-history-order`), where the confidence gate
+  and CR flow apply. This alarm's own tier stays B.
 owning_component: bedrock-dependency
 related_alarms:
   - sarathi-feed-stale

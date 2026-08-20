@@ -3,6 +3,17 @@ alarm_name: sarathi-chat-dispatch-failed
 severity: sev3
 metric: Sarathi/ChatStreamDispatchFailed
 auto_fixable: true
+auto_remediation: A
+auto_remediation_note: >
+  Tier A. When the fault maps to the confidence:high `dispatch-retry-and-shape`
+  candidate (inconsistent failure return shape plus a missing retry on transient
+  invoke errors), implement it on a branch, run `make test` for the touched area
+  plus `make api-test` / `make integration-test`, and open a CR for human
+  approval. Never auto-merge or auto-deploy. Config drift
+  (`STREAM_FUNCTION_NAME`), a concurrency-limit increase, and restoring a lost
+  `lambda:InvokeFunction` grant are all `[manual]` infra/CDK actions (B) — an
+  A-fix that WIDENS an IAM grant on a least-privilege role stays PR-only and is
+  never auto-deployed.
 owning_component: streaming-chat
 related_alarms:
   - sarathi-chat-chunks-not-delivered

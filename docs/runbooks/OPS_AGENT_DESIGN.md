@@ -37,6 +37,35 @@ change. When no high-confidence code fix applies, or the remediation step is
 tagged `[manual]`, it stops after diagnostics and posts findings for a human to
 act on. It never merges and never deploys.
 
+## Remediation tiering and the CR-not-deploy stance
+
+Not every alarm deserves the same amount of autonomy, so each runbook now carries
+an `auto_remediation` tier in its frontmatter that says how far the agent may act
+once it has diagnosed the fault. Tier A is for a root cause that is a
+deterministic code or config bug the agent can fix: it branches, implements the
+fix, runs the unit tests and the integration tests (`make test`, `make api-test`,
+`make integration-test`), and if they pass it opens a CR for a human to review.
+Tier A is usually conditional, gated on the diagnosed fault mapping to a
+`Code Fix Candidate` marked `confidence: high`; when that condition is not met the
+agent drops to tier-B behavior and only reports. Tier B is for a root cause that
+is capacity, an external dependency, or data (a Bedrock throttle, a DynamoDB hot
+partition, a source drought, an empty config value), where there is nothing to
+fix in code, so the agent runs the read-only diagnostics and posts its findings
+and likely cause. Tier C is for the auth, security, and IAM blast-radius cases,
+the clearest being the Cognito `pre-signup` trigger where a wrong fix would block
+every login and signup; here the agent takes no automated action at all and pages
+a human immediately.
+
+The line I care about most in this tiering is that tier A stops at a CR.
+Auto-deploy is explicitly out of scope. The most autonomous thing the agent ever
+does is open a code review with a passing test attached, and a human still reads
+it, approves it, and lets it flow to production through the normal CDK deploy
+path. This holds even when the fix would widen an IAM permission on a
+least-privilege role (adding a DynamoDB or AppSync action, for example): the
+change can be written and reviewed, but it is never deployed by the agent.
+Opening the CR is the handoff, not the finish line, and keeping the irreversible
+step (the merge and the deploy) with a person is the whole point of the design.
+
 ## Incident-to-agent trigger wiring
 
 For v1 the trigger is manual. A human (or the main Claude session) invokes the
@@ -78,12 +107,14 @@ The guardrails are the point of the design, not an afterthought, so they are
 enforced in three places: the agent's own instructions, the tools it is granted,
 and the runbook contract it reads from.
 
-**Branch-only, human merge.** The agent creates a branch named
-`ops/<alarm>-<yyyymmdd>-<short>` off the current default branch, commits the fix
-and test there, and pushes it. It is explicitly forbidden from checking out,
-committing to, or merging into `mainline`, and from running any deploy (`cdk
-deploy`, pipeline promotion, or equivalent). The current repo default branch is
-`mainline`, so any attempt to commit there is a hard stop.
+**Branch-only, CR for review, human merge.** For a tier-A fix the agent creates a
+branch named `ops/<alarm>-<yyyymmdd>-<short>` off the current default branch,
+commits the fix and test there, pushes it, and opens a CR for a human to review.
+It is explicitly forbidden from merging that CR, from checking out or committing
+to `mainline`, and from running any deploy (`cdk deploy`, pipeline promotion, or
+equivalent). The current repo default branch is `mainline`, so any attempt to
+commit there is a hard stop. Opening the CR is as far as the autonomy goes; the
+human approves it and the deploy happens through the normal CDK path.
 
 **No production mutation.** Everything in a runbook's `Diagnostics` section is
 read-only by construction (the parsing contract requires it), so the agent may

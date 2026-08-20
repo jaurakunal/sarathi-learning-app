@@ -3,6 +3,17 @@ alarm_name: sarathi-chat-chunks-not-delivered
 severity: sev3
 metric: Sarathi/PublishChunkFailed
 auto_fixable: true
+auto_remediation: A
+auto_remediation_note: >
+  Tier A. When the fault maps to the confidence:high `appsync-endpoint-guard`
+  candidate, implement it on a branch, run `make test` for the touched area plus
+  `make api-test` / `make integration-test`, and open a CR for human approval.
+  Never auto-merge or auto-deploy. Two things stay out of A: an empty/wrong
+  `APPSYNC_ENDPOINT` itself is a `[manual]` CDK config fix (B), and restoring a
+  lost `appsync:GraphQL` IAM grant is human-owned — an A-fix that WIDENS an IAM
+  grant on a least-privilege role is still PR-only and must never be
+  auto-deployed. The `publish-chunk-retry` candidate is confidence:medium, so
+  propose it, do not auto-implement.
 owning_component: streaming-chat
 related_alarms:
   - sarathi-chat-dispatch-failed

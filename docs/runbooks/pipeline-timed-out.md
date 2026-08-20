@@ -3,6 +3,13 @@ alarm_name: sarathi-pipeline-timed-out
 severity: sev3
 metric: AWS/States/ExecutionsTimedOut (sarathi-nightly-pipeline)
 auto_fixable: partial
+auto_remediation: B
+auto_remediation_note: >
+  Tier B. A timeout is a slow-dependency / volume signal (Bedrock latency,
+  DynamoDB backoff, legitimate fanout growth), not a deterministic code bug, so
+  the agent runs diagnostics and REPORTS findings only. The one code candidate
+  here (`unbounded-query`) is confidence:low, so it never clears the A gate;
+  surface it as a proposal for a human, do not implement it.
 owning_component: nightly-pipeline
 related_alarms:
   - sarathi-pipeline-failed
