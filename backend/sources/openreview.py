@@ -31,6 +31,13 @@ _SEARCH_URL = f"{_API_BASE}/notes/search"
 _NOTES_URL = f"{_API_BASE}/notes"
 _PDF_BASE = "https://openreview.net/pdf"
 
+# The openreview.net web endpoint blocks the API bot User-Agent with a 403;
+# PDF downloads use a browser-like UA.
+_BROWSER_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+)
+
 
 def _build_search_terms(areas: list[Area]) -> list[str]:
     """Build search term strings from areas — one per area for targeted queries.
@@ -390,15 +397,31 @@ class OpenReviewSource:
             return None
 
     def _download_pdf(self, url: str) -> Optional[bytes]:
-        """Download a PDF from OpenReview with rate-limit courtesy."""
+        """Download a PDF from OpenReview with rate-limit courtesy.
+
+        The openreview.net web endpoint 403s the bot User-Agent used for the
+        API, so PDF requests send a browser-like UA + Accept/Referer. Without
+        this, every OpenReview paper fails full-text fetch and never becomes a
+        feed card (a major stale-feed cause).
+        """
         logger.info("Downloading PDF: %s", url)
         time.sleep(_OPENREVIEW_DELAY_S)
 
+        pdf_headers = {
+            "User-Agent": _BROWSER_UA,
+            "Accept": "application/pdf,*/*",
+            "Referer": url.replace("/pdf?id=", "/forum?id="),
+        }
+
         try:
-            resp = self._session.get(url, timeout=60)
+            resp = self._session.get(url, timeout=60, headers=pdf_headers)
 
             if resp.status_code == 429:
                 logger.warning("OpenReview rate-limited on PDF download, skipping")
+                return None
+
+            if resp.status_code == 403:
+                logger.warning("OpenReview 403 (blocked) on PDF download %s — skipping", url)
                 return None
 
             if resp.status_code == 404:

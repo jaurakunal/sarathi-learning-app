@@ -484,7 +484,11 @@ class TestOpenReviewFetchFullText:
             result = openreview_source.fetch_full_text("note123ABC")
 
         assert result == "OpenReview paper full text."
-        mock_get.assert_called_once_with("https://openreview.net/pdf?id=note123ABC", timeout=60)
+        assert mock_get.call_count == 1
+        args, kwargs = mock_get.call_args
+        assert args[0] == "https://openreview.net/pdf?id=note123ABC"
+        assert kwargs["timeout"] == 60
+        assert "Mozilla/5.0" in kwargs["headers"]["User-Agent"]
         mock_extract.assert_called_once_with(b"%PDF-1.5 fake content")
 
     @patch("backend.sources.openreview.time.sleep")
@@ -727,3 +731,32 @@ class TestReviewScoring:
             result = openreview_source._get_review_score(note, content)
 
         assert result == 6.0
+
+
+# ---------------------------------------------------------------------------
+# PDF download: browser UA to dodge OpenReview's 403 on the bot UA
+# ---------------------------------------------------------------------------
+
+class TestDownloadPdf:
+    @patch("backend.sources.openreview.time.sleep", lambda *_: None)
+    def test_sends_browser_user_agent_and_referer(self, openreview_source):
+        with patch.object(openreview_source._session, "get") as mock_get:
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.headers = {"Content-Type": "application/pdf"}
+            resp.content = b"%PDF-1.7 data"
+            mock_get.return_value = resp
+            out = openreview_source._download_pdf("https://openreview.net/pdf?id=ABC")
+            assert out == b"%PDF-1.7 data"
+            headers = mock_get.call_args.kwargs["headers"]
+            assert "Mozilla/5.0" in headers["User-Agent"]
+            assert "Sarathi-ResearchBot" not in headers["User-Agent"]
+            assert headers["Referer"].endswith("/forum?id=ABC")
+
+    @patch("backend.sources.openreview.time.sleep", lambda *_: None)
+    def test_returns_none_on_403(self, openreview_source):
+        with patch.object(openreview_source._session, "get") as mock_get:
+            resp = MagicMock()
+            resp.status_code = 403
+            mock_get.return_value = resp
+            assert openreview_source._download_pdf("https://openreview.net/pdf?id=X") is None

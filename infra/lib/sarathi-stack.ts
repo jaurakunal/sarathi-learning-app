@@ -439,9 +439,12 @@ export class SarathiStack extends cdk.Stack {
       memorySize: 512,
     });
 
-    // Briefs Lambda has its own least-privilege role: dynamodb:Query only.
-    // The handler scopes every query to PK=USER#<authed-cognito-sub>#BRIEF, so this role
-    // cannot read engagement, profile, or other users' data.
+    // Briefs Lambda has its own least-privilege role: read-only on the table.
+    // Query for the brief list; GetItem because resolve_workspace_id reads the
+    // active-workspace pointer + workspace record (get_active_workspace /
+    // get_workspace) — without GetItem those 500 with AccessDenied. Still no
+    // write / scan / cross-service access; the handler scopes keys to the
+    // authed sub.
     const briefsLambdaRole = new iam.Role(this, 'BriefsLambdaRole', {
       assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
       managedPolicies: [
@@ -449,8 +452,8 @@ export class SarathiStack extends cdk.Stack {
       ],
     });
     briefsLambdaRole.addToPolicy(new iam.PolicyStatement({
-      actions: ['dynamodb:Query'],
-      resources: [table.tableArn],
+      actions: ['dynamodb:Query', 'dynamodb:GetItem'],
+      resources: [table.tableArn, `${table.tableArn}/index/*`],
     }));
 
     const briefsFn = new lambda.Function(this, 'BriefsApiFn', {
@@ -1092,9 +1095,12 @@ export class SarathiStack extends cdk.Stack {
     }
 
     const alarmAction = new cwActions.SnsAction(alarmTopic);
-    const wire = (alarm: cloudwatch.Alarm): cloudwatch.Alarm => {
+    // notifyOk defaults OFF: recovery ("back to OK") posts roughly double the
+    // Slack volume, and for the ~30 per-Lambda alarms that's noise. Enable it
+    // only on the high-signal alarms where knowing it recovered matters.
+    const wire = (alarm: cloudwatch.Alarm, notifyOk = false): cloudwatch.Alarm => {
       alarm.addAlarmAction(alarmAction);
-      alarm.addOkAction(alarmAction);
+      if (notifyOk) alarm.addOkAction(alarmAction);
       return alarm;
     };
     const sarathiMetric = (
@@ -1164,18 +1170,20 @@ export class SarathiStack extends cdk.Stack {
       targets: [new targets.LambdaFunction(productDigestFn)],
     });
 
-    // THE feed-stale alarm. Canary emits FeedFreshnessBreach=1 when there are
-    // active workspaces but zero fresh cards. Missing data (canary didn't run)
-    // is itself a breach.
+    // THE feed-stale alarm. The canary emits FeedFreshnessBreach=0/1 every run,
+    // so we alarm only on a real breach datapoint (=1). treatMissingData=MISSING
+    // avoids the false-fire when the metric has no data yet (e.g. right after a
+    // deploy, before the canary's first run); a canary that stops running is
+    // caught separately by sarathi-lambda-errors-freshness-canary.
     wire(new cloudwatch.Alarm(this, 'FeedFreshnessAlarm', {
       alarmName: 'sarathi-feed-stale',
-      alarmDescription: 'Feed produced zero new cards in the last 24h despite active workspaces (or the canary failed to run). The pipeline likely succeeded silently — check triage/discover for a Bedrock outage.',
+      alarmDescription: 'Feed produced zero new cards in the last 24h despite active workspaces. The pipeline likely succeeded silently — check triage/discover for a Bedrock outage or all-fail digest.',
       metric: sarathiMetric('FeedFreshnessBreach', cdk.Duration.hours(24), 'Maximum'),
       threshold: 1,
       evaluationPeriods: 1,
       comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
-      treatMissingData: cloudwatch.TreatMissingData.BREACHING,
-    }));
+      treatMissingData: cloudwatch.TreatMissingData.MISSING,
+    }), true);
 
     // ─── Step Functions pipeline ─────────────────────────────────────────
     wire(new cloudwatch.Alarm(this, 'PipelineFailedAlarm', {
@@ -1186,7 +1194,7 @@ export class SarathiStack extends cdk.Stack {
       evaluationPeriods: 1,
       comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-    }));
+    }), true);
     wire(new cloudwatch.Alarm(this, 'PipelineTimedOutAlarm', {
       alarmName: 'sarathi-pipeline-timed-out',
       alarmDescription: 'A pipeline execution hit the 2h state-machine timeout.',
@@ -1195,7 +1203,7 @@ export class SarathiStack extends cdk.Stack {
       evaluationPeriods: 1,
       comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-    }));
+    }), true);
 
     // ─── Per-Lambda error alarms (all functions) ─────────────────────────
     const allFns: { fn: lambda.Function; name: string }[] = [
@@ -1269,7 +1277,7 @@ export class SarathiStack extends cdk.Stack {
       evaluationPeriods: 1,
       comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-    }));
+    }), true);
     wire(new cloudwatch.Alarm(this, 'ApiLatencyAlarm', {
       alarmName: 'sarathi-api-latency',
       alarmDescription: 'API Gateway p99 latency approaching the 29s integration timeout.',
