@@ -651,3 +651,35 @@ class TestProfileFields:
             }
             body = json.loads(handler(event, None)["body"])
             assert body.get("profile_complete") is not True
+
+
+class TestUserLevelCloseOutContract:
+    """Regression guard for the stall bug: kavmur/niravaga answered every
+    user-level trait but the model drifted into tutoring (paper recs, concept
+    explainers) and never emitted user_meta_complete, so the confirm panel
+    never appeared. Both user-level prompts must carry the close-out discipline
+    and the anti-tangent rule that prevent that drift.
+    """
+
+    def test_system_prompt_has_close_out_and_anti_tangent(self):
+        from backend.api.onboarding import USER_LEVEL_SYSTEM_PROMPT as p
+        low = p.lower()
+        # Names all five traits it must close on.
+        for trait in ("background", "learning_style", "math_comfort",
+                      "paper_preference", "time_per_week"):
+            assert trait in low
+        # Explicit "close when you have them" discipline.
+        assert "close-out" in low
+        assert "close" in low
+        # Anti-drift: recommending papers / explaining / "propose something"
+        # must not turn the intake into an open Q&A.
+        assert "recommend papers" in low or "paper recommendations" in low
+        assert "tutor" in low
+
+    def test_continue_prompt_has_close_out_and_anti_tangent(self):
+        from backend.api.onboarding import USER_LEVEL_CONTINUE_PROMPT as p
+        low = p.lower()
+        assert "close-out" in low
+        assert "when in doubt" in low and "close" in low
+        assert "tutor" in low
+        assert "paper recommendations" in low or "recommend" in low
