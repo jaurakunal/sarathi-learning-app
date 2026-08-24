@@ -189,14 +189,28 @@ Respond with ONLY a JSON object (no markdown, no explanation) with these exact k
 - suggested_questions (array of strings): 3-5 questions this user would want to ask about this paper."""
 
 
-def _build_user_prompt(paper: dict, full_text: str) -> str:
-    """Build the user prompt with paper metadata and full text."""
+def _build_user_prompt(paper: dict, full_text: str, degraded: bool = False) -> str:
+    """Build the user prompt with paper metadata and full text.
+
+    When `degraded` is True the body is the abstract rather than the full text
+    (the PDF could not be retrieved). The section is labelled accordingly and
+    the model is told to stay within what the abstract supports.
+    """
     # Truncate full text if extremely long to stay within context window
     # Claude supports large contexts but we want to be cost-conscious
     max_text_chars = 150_000  # ~37K tokens, plenty for most papers
     text_for_prompt = full_text[:max_text_chars]
     if len(full_text) > max_text_chars:
         text_for_prompt += "\n\n[... text truncated for length ...]"
+
+    if degraded:
+        body = (
+            "ABSTRACT ONLY (full text could not be retrieved — base the digest on "
+            "the abstract, do not invent details the abstract does not support):\n"
+            f"{text_for_prompt}"
+        )
+    else:
+        body = f"FULL TEXT:\n{text_for_prompt}"
 
     return f"""PAPER METADATA:
 Title: {paper.get('title', 'Unknown')}
@@ -207,8 +221,7 @@ URL: {paper.get('url', '')}
 Areas matched: {', '.join(paper.get('areas_matched', []))}
 Triage reasoning: {paper.get('triage_reasoning', '')}
 
-FULL TEXT:
-{text_for_prompt}"""
+{body}"""
 
 
 def _generate_card(
@@ -348,18 +361,36 @@ def run(event: dict) -> dict:
                 continue
 
             full_text = source.fetch_full_text(paper_id)
+
+            # Fall back to the abstract when the PDF can't be retrieved (e.g.
+            # OpenReview PDFs sit behind a Cloudflare challenge). A thinner
+            # abstract-only card beats an empty feed and a failed pipeline.
+            degraded = False
             if not full_text:
-                logger.warning(
-                    "Could not fetch full text for paper %s — skipping", paper_id
-                )
-                papers_failed += 1
-                continue
+                abstract = (paper.get("abstract") or "").strip()
+                if abstract:
+                    logger.warning(
+                        "Full text unavailable for paper %s — generating abstract-only card",
+                        paper_id,
+                    )
+                    full_text = abstract
+                    degraded = True
+                else:
+                    logger.warning(
+                        "No full text or abstract for paper %s — skipping", paper_id
+                    )
+                    papers_failed += 1
+                    continue
 
-            # 3b. Store full text in S3
-            s3_key = _upload_full_text(s3_client, s3_bucket, user_id, paper_id, full_text)
+            # 3b. Store full text in S3 (skipped for abstract-only cards — the
+            # abstract already lives on the paper record).
+            s3_key = ""
+            if not degraded:
+                s3_key = _upload_full_text(s3_client, s3_bucket, user_id, paper_id, full_text)
 
-            # 3b-ii. Chunk + embed for RAG (skip if already embedded globally)
-            if not db.is_paper_embedded(table, paper_id):
+            # 3b-ii. Chunk + embed for RAG (skip if already embedded globally, or
+            # for abstract-only cards — an abstract isn't worth chunking for RAG).
+            if not degraded and not db.is_paper_embedded(table, paper_id):
                 try:
                     from backend.shared.chunker import chunk_paper_into_sections
                     from backend.shared.embeddings import embed_batch
@@ -376,7 +407,7 @@ def run(event: dict) -> dict:
                     logger.warning("Embedding failed for paper %s — continuing without RAG", paper_id)
 
             # 3c. Call LLM to generate feed card content
-            user_prompt = _build_user_prompt(paper, full_text)
+            user_prompt = _build_user_prompt(paper, full_text, degraded=degraded)
             llm_result = _generate_card(model, system_prompt, user_prompt)
 
             if llm_result is None:
@@ -405,7 +436,17 @@ def run(event: dict) -> dict:
                 "hypothesis_relevance": llm_result.get("hypothesis_relevance", ""),
                 "honesty_note": llm_result.get("honesty_note", ""),
                 "suggested_questions": llm_result.get("suggested_questions", []),
+                "content_basis": "abstract" if degraded else "full_text",
             }
+
+            # Make the abstract-only basis explicit to the reader.
+            if degraded:
+                note = (
+                    "This digest is based on the abstract only — the full text "
+                    "could not be retrieved for this source."
+                )
+                existing = feed_card.get("honesty_note", "")
+                feed_card["honesty_note"] = f"{existing} {note}".strip() if existing else note
 
             db.put_feed_card(table, user_id, workspace_id, feed_card)
             logger.info(

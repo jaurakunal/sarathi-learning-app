@@ -88,7 +88,7 @@ def test_happy_path_card_generated(mock_db, mock_boto3, mock_call_llm, mock_sour
 @patch("backend.pipeline.digest.boto3")
 @patch("backend.pipeline.digest.db")
 def test_full_text_fetch_fails_skips_paper(mock_db, mock_boto3, mock_call_llm, mock_sources, user_id, table_name, sample_profile, sample_surfaced_papers):
-    """When fetch_full_text returns empty, paper is skipped."""
+    """When fetch_full_text returns empty AND there is no abstract, skip."""
     from backend.pipeline.digest import run
 
     mock_table = MagicMock()
@@ -98,7 +98,10 @@ def test_full_text_fetch_fails_skips_paper(mock_db, mock_boto3, mock_call_llm, m
     mock_boto3.client.return_value = mock_s3
 
     mock_db.get_full_profile.return_value = sample_profile
-    mock_db.list_papers_by_status.return_value = sample_surfaced_papers[:2]
+    # Paper 1 has no abstract, so a fetch failure leaves nothing to work with.
+    papers = [dict(sample_surfaced_papers[0]), dict(sample_surfaced_papers[1])]
+    papers[0]["abstract"] = ""
+    mock_db.list_papers_by_status.return_value = papers
 
     # First paper: fetch fails (returns empty string)
     # Second paper: fetch succeeds
@@ -127,6 +130,59 @@ def test_full_text_fetch_fails_skips_paper(mock_db, mock_boto3, mock_call_llm, m
 
     assert result["cards_generated"] == 1
     assert result["papers_failed"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Full text unavailable but abstract present → degraded abstract-only card
+# ---------------------------------------------------------------------------
+
+@patch("backend.pipeline.digest._build_sources")
+@patch("backend.pipeline.digest.call_llm_with_fallback")
+@patch("backend.pipeline.digest.boto3")
+@patch("backend.pipeline.digest.db")
+def test_full_text_unavailable_falls_back_to_abstract(mock_db, mock_boto3, mock_call_llm, mock_sources, user_id, table_name, sample_profile, sample_surfaced_papers):
+    """When the PDF can't be fetched but an abstract exists, generate an
+    abstract-only card instead of skipping (OpenReview-behind-Cloudflare case)."""
+    from backend.pipeline.digest import run
+
+    mock_table = MagicMock()
+    mock_boto3.resource.return_value.Table.return_value = mock_table
+    mock_db.get_active_workspace.return_value = ""
+    mock_s3 = MagicMock()
+    mock_boto3.client.return_value = mock_s3
+
+    mock_db.get_full_profile.return_value = sample_profile
+    paper = dict(sample_surfaced_papers[0])
+    paper["abstract"] = "A substantial abstract describing the method and results."
+    mock_db.list_papers_by_status.return_value = [paper]
+
+    mock_source = MagicMock()
+    mock_source.fetch_full_text.return_value = ""  # PDF blocked
+    mock_sources.return_value = {"semantic_scholar": mock_source, "arxiv": mock_source, "arxiv_rss": mock_source, "openreview": mock_source, "hf_daily_papers": mock_source, "papers_with_code": mock_source}
+
+    mock_call_llm.return_value = json.dumps({
+        "hook": "Hook", "why_you_now": "Because", "time_estimate": "5 min",
+        "digest": {"gist": "G", "key_ideas": ["I"], "deep": "D"},
+        "glossary": [], "math_notes": [], "hypothesis_relevance": "R",
+        "honesty_note": "", "suggested_questions": ["Q?"],
+    })
+
+    result = run({"user_id": user_id, "table_name": table_name, "s3_bucket": "sarathi-test-bucket"})
+
+    # A card is produced, not counted as a failure.
+    assert result["cards_generated"] == 1
+    assert result["papers_failed"] == 0
+    # No S3 full-text upload for an abstract-only card.
+    mock_s3.put_object.assert_not_called()
+    # No embedding attempt for an abstract-only card.
+    mock_db.is_paper_embedded.assert_not_called()
+    # The written card is flagged as abstract-based and says so to the reader.
+    card = mock_db.put_feed_card.call_args[0][3]
+    assert card["content_basis"] == "abstract"
+    assert "abstract only" in card["honesty_note"].lower()
+
+    # The LLM prompt was told it only had the abstract.
+    assert "ABSTRACT ONLY" in mock_call_llm.call_args.kwargs["user_message"]
 
 
 # ---------------------------------------------------------------------------
