@@ -250,3 +250,73 @@ class TestOnboardingConfirmHandler:
         handler(event, None)
 
         mock_db.put_profile_hypothesis.assert_not_called()
+
+
+class TestConfirmUserMetaCreatesWorkspace:
+    """Regression: stage-1 confirm used to leave the user with zero workspaces,
+    so the immediate stage-2 chat POST 400'd with "No active workspace" and the
+    UI rendered "Something went wrong". A Default workspace must exist by the
+    time stage-1 confirm returns.
+    """
+
+    @staticmethod
+    def _event(sub: str, user_meta: dict) -> dict:
+        return {
+            "httpMethod": "POST",
+            "requestContext": {"authorizer": {"claims": {"sub": sub}}},
+            "body": json.dumps({"stage": "user", "user_meta": user_meta}),
+        }
+
+    @patch("backend.api.onboarding_confirm.boto3")
+    @patch("backend.api.onboarding_confirm.db")
+    def test_creates_default_workspace_when_none_exists(self, mock_db, mock_boto3, user_id):
+        mock_boto3.resource.return_value.Table.return_value = MagicMock()
+        mock_db.get_active_workspace.return_value = None
+        mock_db.list_workspaces.return_value = []
+
+        from backend.api.onboarding_confirm import handler
+
+        resp = handler(self._event(user_id, {"background": "SDE"}), None)
+
+        # user META was saved and onboarding was marked complete.
+        mock_db.put_user_meta.assert_called_once()
+        mock_db.set_user_onboarding_complete.assert_called_once_with(mock_boto3.resource.return_value.Table.return_value, user_id)
+        # A Default workspace was created and made active.
+        mock_db.create_workspace.assert_called_once()
+        create_args = mock_db.create_workspace.call_args
+        assert create_args.kwargs.get("name") == "Default" or "Default" in create_args.args
+        mock_db.set_active_workspace.assert_called_once()
+        # Response carries the new workspace_id so the client can chat against it.
+        body = json.loads(resp["body"])
+        assert body["status"] == "user_meta_saved"
+        assert body.get("workspace_id")
+
+    @patch("backend.api.onboarding_confirm.boto3")
+    @patch("backend.api.onboarding_confirm.db")
+    def test_reuses_existing_active_workspace(self, mock_db, mock_boto3, user_id):
+        mock_boto3.resource.return_value.Table.return_value = MagicMock()
+        mock_db.get_active_workspace.return_value = "ws-existing"
+
+        from backend.api.onboarding_confirm import handler
+
+        resp = handler(self._event(user_id, {"background": "SDE"}), None)
+
+        mock_db.create_workspace.assert_not_called()
+        mock_db.set_active_workspace.assert_not_called()
+        assert json.loads(resp["body"]).get("workspace_id") == "ws-existing"
+
+    @patch("backend.api.onboarding_confirm.boto3")
+    @patch("backend.api.onboarding_confirm.db")
+    def test_adopts_first_workspace_when_no_active(self, mock_db, mock_boto3, user_id):
+        """User has a workspace but no active pointer — adopt it, don't create a duplicate."""
+        mock_boto3.resource.return_value.Table.return_value = MagicMock()
+        mock_db.get_active_workspace.return_value = None
+        mock_db.list_workspaces.return_value = [{"workspace_id": "ws-orphan", "name": "X"}]
+
+        from backend.api.onboarding_confirm import handler
+
+        resp = handler(self._event(user_id, {"background": "SDE"}), None)
+
+        mock_db.create_workspace.assert_not_called()
+        mock_db.set_active_workspace.assert_called_once()
+        assert json.loads(resp["body"]).get("workspace_id") == "ws-orphan"

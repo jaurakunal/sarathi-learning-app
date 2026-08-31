@@ -64,10 +64,34 @@ def _confirm_user_meta(table, user_id: str, body: dict) -> dict:
     db.put_user_meta(table, user_id, payload)
     db.set_user_onboarding_complete(table, user_id)
 
+    # Stage 2 (workspace onboarding) needs a workspace to chat against, but the
+    # user has none yet on their first pass. Create a Default one and make it
+    # active so the immediate workspace-stage request doesn't 400 with
+    # "No active workspace". Mirrors the fallback in _confirm_workspace_profile.
+    workspace_id = _ensure_workspace(table, user_id)
+
     from backend.shared import metrics
     metrics.emit("OnboardingCompleted", 1, dimensions={"stage": "user"})
 
-    return _response(200, {"status": "user_meta_saved"})
+    return _response(200, {"status": "user_meta_saved", "workspace_id": workspace_id})
+
+
+def _ensure_workspace(table, user_id: str) -> str:
+    """Return the user's active workspace, creating a Default one if none exists."""
+    workspace_id = db.get_active_workspace(table, user_id)
+    if workspace_id:
+        return workspace_id
+    workspaces = db.list_workspaces(table, user_id)
+    if workspaces:
+        workspace_id = workspaces[0].get("workspace_id", "")
+        if workspace_id:
+            db.set_active_workspace(table, user_id, workspace_id)
+            return workspace_id
+    from backend.api.workspaces import _new_workspace_id
+    workspace_id = _new_workspace_id()
+    db.create_workspace(table, user_id, workspace_id, name="Default")
+    db.set_active_workspace(table, user_id, workspace_id)
+    return workspace_id
 
 
 def _confirm_workspace_profile(table, user_id: str, event: dict, body: dict) -> dict:
