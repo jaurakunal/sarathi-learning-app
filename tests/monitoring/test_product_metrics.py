@@ -47,8 +47,8 @@ def test_handler_writes_snapshot(mock_boto3, mock_db, mock_list_users):
 
     created = datetime(2026, 8, 18, 12, 0, tzinfo=timezone.utc)
     mock_list_users.return_value = [
-        {"sub": "u1", "created": created, "provider": "oidc"},
-        {"sub": "u2", "created": datetime(2026, 8, 1, tzinfo=timezone.utc), "provider": "oidc"},
+        {"sub": "u1", "created": created, "provider": "federated"},
+        {"sub": "u2", "created": datetime(2026, 8, 1, tzinfo=timezone.utc), "provider": "federated"},
     ]
     mock_db.get_user_meta.return_value = {"x": 1}
     table.get_item.return_value = {"Item": {"x": 1}}

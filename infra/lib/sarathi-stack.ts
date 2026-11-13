@@ -97,55 +97,21 @@ export class SarathiStack extends cdk.Stack {
     vectorIndex.addDependency(vectorBucket);
 
     // ─── Cognito ─────────────────────────────────────────────────────
-    const preSignUpFn = new lambda.Function(this, 'PreSignUpFn', {
-      functionName: 'sarathi-pre-signup',
-      runtime: lambda.Runtime.PYTHON_3_12,
-      handler: 'pre_signup.handler',
-      code: lambda.Code.fromAsset(path.resolve(REPO_ROOT, 'backend', 'auth')),
-      timeout: cdk.Duration.seconds(10),
-      memorySize: 256,
-    });
-    // Pre-signup needs to list users and link providers
-    preSignUpFn.addToRolePolicy(new iam.PolicyStatement({
-      actions: ['cognito-idp:ListUsers', 'cognito-idp:AdminLinkProviderForUser'],
-      resources: [`arn:aws:cognito-idp:${this.region}:${this.account}:userpool/*`],
-    }));
-
     const userPool = new cognito.UserPool(this, 'SarathiUserPool', {
       userPoolName: 'sarathi-users',
       selfSignUpEnabled: true,
       signInAliases: { email: true },
       autoVerify: { email: true },
-      lambdaTriggers: { preSignUp: preSignUpFn },
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
     // Force self-signup via CFN escape hatch (CDK drift workaround)
     const cfnUserPool = userPool.node.defaultChild as cdk.CfnResource;
     cfnUserPool.addPropertyOverride('AdminCreateUserConfig.AllowAdminCreateUserOnly', false);
 
-    // Corporate SSO OIDC provider
-    const oidcClientSecret = ssm.StringParameter.valueFromLookup(
-      this, '/sarathi/oidc-client-secret',
-    );
-    const oidcProvider = new cognito.UserPoolIdentityProviderOidc(this, 'OIDCProvider', {
-      userPool,
-      name: 'OidcSSO',
-      clientId: 'sarathi-app',
-      clientSecret: oidcClientSecret,
-      issuerUrl: 'https://idp.example.com',
-      scopes: ['openid', 'profile', 'email'],
-      attributeMapping: {
-        email: cognito.ProviderAttribute.other('email'),
-        givenName: cognito.ProviderAttribute.other('given_name'),
-        familyName: cognito.ProviderAttribute.other('family_name'),
-      },
-    });
-
     const userPoolClient = userPool.addClient('SarathiAppClient', {
       authFlows: { userPassword: true, userSrp: true },
       supportedIdentityProviders: [
         cognito.UserPoolClientIdentityProvider.COGNITO,
-        cognito.UserPoolClientIdentityProvider.custom('OidcSSO'),
       ],
       oAuth: {
         flows: { authorizationCodeGrant: true },
@@ -157,7 +123,6 @@ export class SarathiStack extends cdk.Stack {
         ],
       },
     });
-    userPoolClient.node.addDependency(oidcProvider);
 
     userPool.addDomain('SarathiDomain', {
       cognitoDomain: { domainPrefix: 'sarathi-auth' },
@@ -1207,7 +1172,6 @@ export class SarathiStack extends cdk.Stack {
 
     // ─── Per-Lambda error alarms (all functions) ─────────────────────────
     const allFns: { fn: lambda.Function; name: string }[] = [
-      { fn: preSignUpFn, name: 'pre-signup' },
       { fn: discoverFn, name: 'discover' }, { fn: triageFn, name: 'triage' },
       { fn: selectFn, name: 'select' }, { fn: lensFn, name: 'lens' },
       { fn: learnFn, name: 'learn' }, { fn: feedFn, name: 'feed' },

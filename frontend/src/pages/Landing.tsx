@@ -1,5 +1,5 @@
 import { Sparkles, Compass, Newspaper, MessageCircle, TrendingUp } from 'lucide-react'
-import { getOIDCLoginUrl } from '../auth/cognito'
+import { getLoginUrl } from '../auth/cognito'
 
 const STEPS = [
   {
@@ -26,7 +26,7 @@ const STEPS = [
 
 export function Landing() {
   const goToLogin = () => {
-    window.location.href = getOIDCLoginUrl()
+    window.location.href = getLoginUrl()
   }
 
   return (
@@ -61,9 +61,9 @@ export function Landing() {
         <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-3">
           <button
             onClick={goToLogin}
-            className="px-6 py-3 bg-[#FF9900] hover:bg-[#FFa822] text-black font-medium rounded-xl transition-all"
+            className="px-6 py-3 bg-accent hover:bg-accent-light text-white font-medium rounded-xl shadow-glow transition-all"
           >
-            Sign in with SSO
+            Get started
           </button>
           <a
             href="#how-it-works"
@@ -100,7 +100,7 @@ export function Landing() {
         <div className="glass-card rounded-2xl p-8 space-y-4">
           <h3 className="text-2xl font-semibold">Ready to try it?</h3>
           <p className="text-zinc-400 text-sm">
-            One-click sign-in with SSO. The onboarding chat takes about 5 minutes.
+            Create an account in a minute. The onboarding chat takes about 5 minutes.
           </p>
           <button
             onClick={goToLogin}

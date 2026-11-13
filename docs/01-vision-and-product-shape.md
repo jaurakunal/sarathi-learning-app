@@ -16,7 +16,7 @@ The reasons I don't read papers — lazy, deprioritized, too dense — are **all
 | Delivery | **Web UI**, frontend hosted on **S3 static website hosting**; real backend (API + DB + S3 for data/history). Mobile later. |
 | Cadence | **Both** — a scrollable feed (daily micro-doses) *and* a weekly deep brief |
 | The bar | The feed must **out-compete social media for my thumb**. A generic "top papers this week" list loses to that bar — personalization *is* the product. |
-| Sources | Internal + external public (arXiv etc.) |
+| Sources | External public (arXiv etc.) |
 | Onboarding | A **conversation that runs until the bot is ≥90% confident** it understands my level (not time-boxed) |
 | Stack | **Python** backend + pipeline, deployed AWS-native (see [05](05-research-spine.md) for the Rust reasoning) |
 

@@ -99,10 +99,3 @@ export function getLoginUrl(): string {
   const redirectUri = import.meta.env.VITE_REDIRECT_URI
   return `https://${domain}/login?client_id=${clientId}&response_type=code&scope=openid+email+profile&redirect_uri=${encodeURIComponent(redirectUri)}`
 }
-
-export function getOIDCLoginUrl(): string {
-  const domain = import.meta.env.VITE_COGNITO_DOMAIN
-  const clientId = import.meta.env.VITE_COGNITO_CLIENT_ID
-  const redirectUri = `${window.location.origin}/callback`
-  return `https://${domain}/oauth2/authorize?client_id=${clientId}&response_type=code&scope=openid+email+profile&identity_provider=OidcSSO&redirect_uri=${encodeURIComponent(redirectUri)}`
-}

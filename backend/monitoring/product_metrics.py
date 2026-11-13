@@ -50,8 +50,8 @@ def _list_cognito_users(pool_id: str) -> list[dict]:
         for u in resp.get("Users", []):
             attrs = {a["Name"]: a["Value"] for a in u.get("Attributes", [])}
             provider = "cognito"
-            if "OidcSSO" in (u.get("Username") or "") or "identities" in attrs:
-                provider = "oidc"
+            if "identities" in attrs:
+                provider = "federated"
             users.append({
                 "sub": attrs.get("sub", u.get("Username", "")),
                 "created": u.get("UserCreateDate"),

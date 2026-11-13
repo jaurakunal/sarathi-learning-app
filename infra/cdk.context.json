@@ -6,6 +6,5 @@
     "us-east-1d",
     "us-east-1e",
     "us-east-1f"
-  ],
-  "ssm:account=123456789012:parameterName=/sarathi/oidc-client-secret:region=us-east-1": "REDACTED"
+  ]
 }

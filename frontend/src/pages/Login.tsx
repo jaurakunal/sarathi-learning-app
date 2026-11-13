@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
-import { getSession, login, forgotPassword, confirmNewPassword, getOIDCLoginUrl } from '../auth/cognito'
+import { getSession, login, forgotPassword, confirmNewPassword, getLoginUrl } from '../auth/cognito'
 
 type AuthView = 'login' | 'forgot' | 'reset'
 
@@ -89,18 +89,6 @@ export function Login() {
         )}
 
         {view === 'login' && (
-          <>
-            <button
-              onClick={() => { window.location.href = getOIDCLoginUrl() }}
-              className="w-full py-3 bg-[#FF9900] hover:bg-[#FFa822] text-black font-medium rounded-xl transition-all flex items-center justify-center gap-2"
-            >
-              Sign in with SSO
-            </button>
-            <div className="flex items-center gap-3">
-              <div className="flex-1 h-px bg-zinc-800" />
-              <span className="text-xs text-zinc-600">or</span>
-              <div className="flex-1 h-px bg-zinc-800" />
-            </div>
             <form onSubmit={handleLogin} className="space-y-4">
               <input
                 type="email"
@@ -131,10 +119,10 @@ export function Login() {
                 </button>
               </p>
               <p className="text-center text-xs text-zinc-600">
-                New to Sārathi? Sign in with SSO above.
+                New to Sārathi?{' '}
+                <a href={getLoginUrl()} className="text-accent hover:text-accent-light">Create an account</a>
               </p>
             </form>
-          </>
         )}
 
         {view === 'forgot' && (

@@ -8,7 +8,7 @@ vi.mock('../auth/cognito', () => ({
   login: vi.fn(),
   forgotPassword: vi.fn(),
   confirmNewPassword: vi.fn(),
-  getOIDCLoginUrl: vi.fn(() => 'https://sso.example/login'),
+  getLoginUrl: vi.fn(() => 'https://auth.example/login'),
 }))
 
 import { getSession, login } from '../auth/cognito'
@@ -27,12 +27,11 @@ function renderLogin() {
 describe('Login', () => {
   beforeEach(() => vi.resetAllMocks())
 
-  it('renders SSO and password form', async () => {
+  it('renders password form', async () => {
     mockGetSession.mockResolvedValue(null)
     renderLogin()
 
     await waitFor(() => {
-      expect(screen.getByText('Sign in with SSO')).toBeInTheDocument()
       expect(screen.getByPlaceholderText('Email')).toBeInTheDocument()
       expect(screen.getByPlaceholderText('Password')).toBeInTheDocument()
     })

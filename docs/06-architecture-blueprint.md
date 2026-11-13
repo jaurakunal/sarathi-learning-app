@@ -66,14 +66,6 @@ class NoOpInterruptionHandler:
     """v0: on-demand, no interruptions. Fill when Spot is added."""
     def checkpoint(self, state): pass
     def resume(self): return None
-
-class InternalSource(PaperSource):
-    """v0: external-only. Needs SSO auth to implement."""
-    name = "internal"
-    def discover(self, areas, since):
-        raise NotImplementedError("v0 is external-only")
-    def fetch_full_text(self, paper_id):
-        raise NotImplementedError
 ```
 
 ### Cost estimate (v0, monthly, 1 user)
@@ -151,7 +143,6 @@ Each source normalizes to the same `paper` record. Source-specific value capture
 | Semantic Scholar | Citation graph, "papers that cite the one you liked," influence metrics |
 | OpenReview | Peer-reviewed ML/AI + reviewer scores (feeds `honesty_note`) |
 | HF Daily Papers | Curated, trending, social signal — best fit for "scroll instead of Twitter" |
-| *(stub)* Internal | Needs SSO auth; `NotImplementedError` for v0 |
 
 Adding a source = one new class implementing `PaperSource`, zero pipeline changes.
 
@@ -748,7 +739,6 @@ sarathi/
 | Capability | When to add | Stub location |
 |---|---|---|
 | Spot instances | When compute bill justifies (~$10+/mo on digest) | `InterruptionHandler` protocol |
-| Internal sources | When SSO auth is wired | `InternalSource` class |
 | Area-wide Q&A (RAG) | When library has ~10+ papers | Conversation scope: "area" |
 | Library-wide Q&A (RAG) | When library has ~20+ papers | Conversation scope: "library" |
 | Weekly deep brief | After M1 (needs engagement data to synthesize) | Pipeline step |
