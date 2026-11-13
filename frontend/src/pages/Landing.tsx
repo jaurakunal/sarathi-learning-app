@@ -1,5 +1,4 @@
 import { Sparkles, Compass, Newspaper, MessageCircle, TrendingUp } from 'lucide-react'
-import { getLoginUrl } from '../auth/cognito'
 
 const STEPS = [
   {
@@ -25,8 +24,8 @@ const STEPS = [
 ]
 
 export function Landing() {
-  const goToLogin = () => {
-    window.location.href = getLoginUrl()
+  const goToSignUp = () => {
+    window.location.href = '/login?signup'
   }
 
   return (
@@ -60,7 +59,7 @@ export function Landing() {
         </p>
         <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-3">
           <button
-            onClick={goToLogin}
+            onClick={goToSignUp}
             className="px-6 py-3 bg-accent hover:bg-accent-light text-white font-medium rounded-xl shadow-glow transition-all"
           >
             Get started
@@ -103,7 +102,7 @@ export function Landing() {
             Create an account in a minute. The onboarding chat takes about 5 minutes.
           </p>
           <button
-            onClick={goToLogin}
+            onClick={goToSignUp}
             className="px-6 py-3 bg-accent hover:bg-accent-light text-white font-medium rounded-xl shadow-glow transition-all"
           >
             Get started

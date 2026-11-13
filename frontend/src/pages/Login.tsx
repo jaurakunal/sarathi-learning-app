@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
-import { getSession, login, forgotPassword, confirmNewPassword, getLoginUrl } from '../auth/cognito'
+import { getSession, login, signUp, confirmSignUp, forgotPassword, confirmNewPassword } from '../auth/cognito'
 
-type AuthView = 'login' | 'forgot' | 'reset'
+type AuthView = 'login' | 'signup' | 'verify' | 'forgot' | 'reset'
 
 export function Login() {
   const navigate = useNavigate()
-  const [view, setView] = useState<AuthView>('login')
+  const [searchParams] = useSearchParams()
+  const [view, setView] = useState<AuthView>(searchParams.has('signup') ? 'signup' : 'login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [verifyCode, setVerifyCode] = useState('')
@@ -29,7 +30,41 @@ export function Login() {
       await login(email, password)
       navigate('/', { replace: true })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed')
+      if (err instanceof Error && err.name === 'UserNotConfirmedException') {
+        // Signed up earlier but never entered the emailed code.
+        setView('verify')
+      } else {
+        setError(err instanceof Error ? err.message : 'Login failed')
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleSignUp = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    setLoading(true)
+    try {
+      await signUp(email, password)
+      setView('verify')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Sign up failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleVerify = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    setLoading(true)
+    try {
+      await confirmSignUp(email, verifyCode)
+      await login(email, password)
+      navigate('/', { replace: true })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Verification failed')
     } finally {
       setLoading(false)
     }
@@ -118,11 +153,68 @@ export function Login() {
                   Forgot password?
                 </button>
               </p>
-              <p className="text-center text-xs text-zinc-600">
-                New to Sārathi?{' '}
-                <a href={getLoginUrl()} className="text-accent hover:text-accent-light">Create an account</a>
+              <p className="text-center text-sm text-zinc-500">
+                Don't have an account?{' '}
+                <button type="button" onClick={() => { setView('signup'); setError('') }} className="text-accent hover:text-accent-light">
+                  Sign up
+                </button>
               </p>
             </form>
+        )}
+
+        {view === 'signup' && (
+          <form onSubmit={handleSignUp} className="space-y-4">
+            <input
+              type="email"
+              placeholder="Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full px-4 py-3 glass-card rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:border-accent/50"
+              autoComplete="email"
+            />
+            <input
+              type="password"
+              placeholder="Password (min 8 chars)"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full px-4 py-3 glass-card rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:border-accent/50"
+              autoComplete="new-password"
+            />
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3 bg-accent hover:bg-accent-light text-white font-medium rounded-xl disabled:opacity-50 transition-all shadow-glow"
+            >
+              {loading ? 'Creating account...' : 'Create account'}
+            </button>
+            <p className="text-center text-sm text-zinc-500">
+              Already have an account?{' '}
+              <button type="button" onClick={() => { setView('login'); setError('') }} className="text-accent hover:text-accent-light">
+                Sign in
+              </button>
+            </p>
+          </form>
+        )}
+
+        {view === 'verify' && (
+          <form onSubmit={handleVerify} className="space-y-4">
+            <p className="text-sm text-zinc-400 text-center">Check your email for a verification code.</p>
+            <input
+              type="text"
+              placeholder="Verification code"
+              value={verifyCode}
+              onChange={(e) => setVerifyCode(e.target.value)}
+              className="w-full px-4 py-3 glass-card rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:border-accent/50 text-center tracking-widest"
+              autoComplete="one-time-code"
+            />
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3 bg-accent hover:bg-accent-light text-white font-medium rounded-xl disabled:opacity-50 transition-all shadow-glow"
+            >
+              {loading ? 'Verifying...' : 'Verify & continue'}
+            </button>
+          </form>
         )}
 
         {view === 'forgot' && (
