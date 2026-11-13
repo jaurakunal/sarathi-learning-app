@@ -1,3 +1,4 @@
+import * as crypto from 'crypto';
 import * as path from 'path';
 import * as cdk from 'aws-cdk-lib/core';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
@@ -108,6 +109,12 @@ export class SarathiStack extends cdk.Stack {
     const cfnUserPool = userPool.node.defaultChild as cdk.CfnResource;
     cfnUserPool.addPropertyOverride('AdminCreateUserConfig.AllowAdminCreateUserOnly', false);
 
+    // Extra OAuth callback URLs (e.g. a custom domain), comma-separated:
+    //   cdk deploy -c extraCallbackUrls=https://app.example.com/callback
+    // The CloudFront distribution's own /callback is added further down.
+    const extraCallbackUrls: string[] = (this.node.tryGetContext('extraCallbackUrls') ?? '')
+      .split(',').map((u: string) => u.trim()).filter(Boolean);
+
     const userPoolClient = userPool.addClient('SarathiAppClient', {
       authFlows: { userPassword: true, userSrp: true },
       supportedIdentityProviders: [
@@ -116,16 +123,17 @@ export class SarathiStack extends cdk.Stack {
       oAuth: {
         flows: { authorizationCodeGrant: true },
         scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL, cognito.OAuthScope.PROFILE],
-        callbackUrls: [
-          'http://localhost:3000/callback',
-          'https://d0000000000000.cloudfront.net/callback',
-          'https://sarathi.example.com/callback',
-        ],
+        callbackUrls: ['http://localhost:3000/callback', ...extraCallbackUrls],
       },
     });
 
+    // Cognito hosted-UI domain prefixes are unique per region across all AWS
+    // accounts, so derive a stable per-account default. Override with
+    //   cdk deploy -c cognitoDomainPrefix=my-prefix
+    const cognitoDomainPrefix: string = this.node.tryGetContext('cognitoDomainPrefix')
+      ?? `sarathi-auth-${crypto.createHash('sha256').update(this.account).digest('hex').slice(0, 8)}`;
     userPool.addDomain('SarathiDomain', {
-      cognitoDomain: { domainPrefix: 'sarathi-auth' },
+      cognitoDomain: { domainPrefix: cognitoDomainPrefix },
     });
 
     // ─── Lambda: shared role + env ───────────────────────────────────
@@ -168,16 +176,17 @@ export class SarathiStack extends cdk.Stack {
       description: 'Semantic Scholar API key (free tier, apply at semanticscholar.org/product/api)',
     });
 
-    // SSM Parameter for VAPID keys (Web Push) — created manually, referenced here
-    const vapidKeysParam = ssm.StringParameter.fromStringParameterName(
-      this, 'VapidKeysParam', '/sarathi/vapid-keys',
-    );
+    // SSM parameter holding the Web Push VAPID keys as JSON:
+    //   {"private_key": "...", "public_key": "...", "contact_email": "..."}
+    // Created manually and referenced by name only, so the stack deploys
+    // without it; push notifications stay disabled until it exists.
+    const vapidKeysParamName = '/sarathi/vapid-keys';
 
     const lambdaEnv = {
       TABLE_NAME: table.tableName,
       BUCKET_NAME: bucket.bucketName,
       S2_API_KEY_PARAM: s2ApiKeyParam.parameterName,
-      VAPID_KEYS_PARAM: vapidKeysParam.parameterName,
+      VAPID_KEYS_PARAM: vapidKeysParamName,
       VECTOR_BUCKET_NAME: `sarathi-vectors-${this.account}-${this.region}`,
       VECTOR_INDEX_NAME: 'paper-sections',
       USER_POOL_ID: userPool.userPoolId,
@@ -985,6 +994,14 @@ export class SarathiStack extends cdk.Stack {
       ],
     });
 
+    // Allow the hosted UI to redirect back to the deployed frontend.
+    const cfnUserPoolClient = userPoolClient.node.defaultChild as cognito.CfnUserPoolClient;
+    cfnUserPoolClient.callbackUrLs = [
+      'http://localhost:3000/callback',
+      ...extraCallbackUrls,
+      `https://${distribution.distributionDomainName}/callback`,
+    ];
+
     new s3deploy.BucketDeployment(this, 'DeployFrontend', {
       sources: [s3deploy.Source.asset(path.resolve(REPO_ROOT, 'frontend', 'dist'))],
       destinationBucket: frontendBucket,
@@ -1348,6 +1365,9 @@ export class SarathiStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'BucketName', { value: bucket.bucketName });
     new cdk.CfnOutput(this, 'UserPoolId', { value: userPool.userPoolId });
     new cdk.CfnOutput(this, 'UserPoolClientId', { value: userPoolClient.userPoolClientId });
+    new cdk.CfnOutput(this, 'CognitoDomain', {
+      value: `${cognitoDomainPrefix}.auth.${this.region}.amazoncognito.com`,
+    });
     new cdk.CfnOutput(this, 'ApiUrl', { value: api.url });
     new cdk.CfnOutput(this, 'StateMachineArn', { value: stateMachine.stateMachineArn });
     new cdk.CfnOutput(this, 'AppSyncUrl', { value: chatApi.graphqlUrl });
