@@ -77,4 +77,4 @@ This was confirmed against actual AWS Cost Explorer data:
 
 - Run ID: `2026-06-26T18:18:09.000Z` (run 6 in eval history)
 - Judge model: `us.anthropic.claude-sonnet-4-6`
-- Generated report: `sarathi_eval_us-anthropic-claude-sonnet-4-6_20260626_182033.md`
+- Generated report: `runs/sarathi_eval_us-anthropic-claude-sonnet-4-6_20260626_182033.md`

@@ -28,9 +28,46 @@ A scrollable feed (web UI) I'd open *instead of* brain-numbing social media, bac
 
 ## Status
 
-- ✅ Vision & onboarding interview complete (≥90% confidence on my level).
-- ⬜ v0 architecture blueprint (next).
-- ⬜ Build.
+Working end to end for a small number of users: nightly discovery → triage →
+digest pipeline, personalised feed, grounded chat over paper full text, an
+onboarding interview, and an engagement-driven learning loop. Still a personal
+project — expect rough edges and opinionated defaults.
+
+## Repository layout
+
+| Path | What lives there |
+|---|---|
+| [`backend/`](backend/) | Python Lambda + container code: `api/` handlers, the nightly `pipeline/`, paper `sources/`, `research/` chat, `eval/` harness, `monitoring/`, `shared/` utilities |
+| [`frontend/`](frontend/) | React + TypeScript + Vite single-page app |
+| [`infra/`](infra/) | AWS CDK (TypeScript) stack: DynamoDB, S3, Cognito, Step Functions, API Gateway, AppSync, CloudFront |
+| [`scripts/`](scripts/) | Eval runners, backfills, migrations, and integration tests against a deployed stack |
+| [`tests/`](tests/) | Backend unit tests (mirrors `backend/`) |
+| [`docs/`](docs/) | Design docs, eval reports (`docs/evals/`), and operational runbooks (`docs/runbooks/`) |
+
+## Quick start
+
+Requires Python 3.12+, Node 22+, and (to deploy) an AWS account with
+[CDK bootstrapped](https://docs.aws.amazon.com/cdk/v2/guide/bootstrapping.html)
+and Amazon Bedrock model access.
+
+```bash
+# Backend unit tests
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt -r requirements-dev.txt
+make test
+
+# Deploy the stack to your own account
+cd infra && npm ci && npx cdk deploy
+
+# Frontend
+cd frontend && npm ci
+cp .env.example .env.local    # fill in values from the stack outputs
+npm run dev
+```
+
+Scripts and runbooks use `123456789012` as a placeholder AWS account ID;
+substitute your own (most scripts also accept `BUCKET_NAME` / `SARATHI_BUCKET`
+environment overrides).
 
 ## Docs
 
@@ -39,4 +76,17 @@ A scrollable feed (web UI) I'd open *instead of* brain-numbing social media, bac
 - [03 — Onboarding Interview Methodology](docs/03-onboarding-interview-methodology.md)
 - [04 — My Learner Profile](docs/04-learner-profile.md)
 - [05 — The Research Spine (the real thesis)](docs/05-research-spine.md)
-- [06 — Architecture Blueprint](docs/06-architecture-blueprint.md) *(to be written next)*
+- [06 — Architecture Blueprint](docs/06-architecture-blueprint.md)
+- [07 — M0 Build Plan](docs/07-m0-build-plan.md)
+- [08 — M0 Frontend Plan](docs/08-m0-frontend-plan.md)
+- [Model evaluation reports](docs/evals/final-report.md)
+- [Operational runbooks](docs/runbooks/README.md)
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md).
+Report security issues per [SECURITY.md](SECURITY.md).
+
+## License
+
+[MIT](LICENSE)

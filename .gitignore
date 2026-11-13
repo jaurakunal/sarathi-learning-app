@@ -12,6 +12,7 @@ env/
 # Environment / secrets
 .env
 .env.*
+!.env.example
 *.local
 
 # Node / frontend (when added)
@@ -36,3 +37,7 @@ Thumbs.db
 # Project data (local working data — not source)
 data/
 *.log
+
+# Eval reports written to the repo root by scripts/eval_*.py
+# (move the ones worth keeping into docs/evals/runs/)
+/sarathi_eval_*.md

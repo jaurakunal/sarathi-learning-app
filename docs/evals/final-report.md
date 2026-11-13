@@ -292,13 +292,13 @@ Eval reports generated during this work:
 
 | Date | Phase | Models | Report |
 |---|---|---|---|
-| 2026-06-26 | Digest baseline (Sonnet judge) | Sonnet 4.6 | `sarathi_eval_us-anthropic-claude-sonnet-4-6_20260626_182033.md` |
-| 2026-06-26 | Digest candidate sweep | GLM-5, Kimi K2.5, Qwen3, DeepSeek | `sarathi_eval_*_20260626_18*.md` (5 files) |
+| 2026-06-26 | Digest baseline (Sonnet judge) | Sonnet 4.6 | `runs/sarathi_eval_us-anthropic-claude-sonnet-4-6_20260626_182033.md` |
+| 2026-06-26 | Digest candidate sweep | GLM-5, Kimi K2.5, Qwen3, DeepSeek | `runs/sarathi_eval_*_20260626_18*.md` (5 files) |
 | 2026-06-26 | Cross-judge with Opus 4.8 | All 5 models | (re-judged in place) |
 | 2026-06-26 | 3-seed judge replication | All 5 models | (logged) |
-| 2026-06-26 | 3-run digest replication (Option A) | All 5 models | `docs/eval-option-a-raw.log` |
-| 2026-06-26 | Pipeline steps eval (positives only) | Sonnet, Kimi, GLM | `sarathi_eval_pipeline_steps_20260626_223337.md` |
-| 2026-06-26 | Pipeline steps eval (with 50 negatives) | Sonnet, Kimi, GLM | `sarathi_eval_pipeline_steps_20260626_235038.md` |
+| 2026-06-26 | 3-run digest replication (Option A) | All 5 models | `docs/evals/option-a-raw.log` (local only, not committed) |
+| 2026-06-26 | Pipeline steps eval (positives only) | Sonnet, Kimi, GLM | `runs/sarathi_eval_pipeline_steps_20260626_223337.md` |
+| 2026-06-26 | Pipeline steps eval (with 50 negatives) | Sonnet, Kimi, GLM | `runs/sarathi_eval_pipeline_steps_20260626_235038.md` |
 
 Underlying data persisted under DDB:
 - `EVAL#DATASET` — 18 positive papers

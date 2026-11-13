@@ -3,7 +3,7 @@
 _Updated: 2026-06-26_
 
 This document tracks how candidate models compare against the Sonnet 4.6 baseline
-on Sārathi's digest task. Baseline details: see `docs/eval-baseline-sonnet-4-6.md`.
+on Sārathi's digest task. Baseline details: see [baseline-sonnet-4-6.md](baseline-sonnet-4-6.md).
 
 ## Summary table
 
@@ -304,4 +304,4 @@ metrics + spot-check 5-10 cards for calibration drift, then commit.
 | Candidate | Qwen3 VL 235B | 2026-06-26 | `2026-06-26T18:34:28.000Z` |
 | Candidate | DeepSeek V3.2 | 2026-06-26 | `2026-06-26T18:39:42.000Z` |
 
-Generated reports under `sarathi_eval_*.md` in repo root.
+Generated reports are under [`runs/`](runs/) (`sarathi_eval_*.md`).
