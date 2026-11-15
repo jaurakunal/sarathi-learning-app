@@ -446,10 +446,13 @@ class TestArxivFetchFullText:
         url = arxiv_source._resolve_pdf_url("http://arxiv.org/pdf/2401.12345v1.pdf")
         assert url == "http://arxiv.org/pdf/2401.12345v1.pdf"
 
-    def test_fetch_full_text_no_fitz_installed(self):
-        """fetch_full_text returns None if pymupdf is not importable."""
+    def test_fetch_full_text_returns_none_when_extraction_fails(self):
+        """fetch_full_text returns None when no text can be extracted from the PDF.
+
+        Fully offline: the download is stubbed, so this never touches the network.
+        """
         source = ArxivSource()
-        # Remove fitz from sys.modules if present, then make import fail
-        with patch.dict(sys.modules, {"fitz": None}):
+        with patch.object(source, "_download_pdf", return_value=b"%PDF-fake"), \
+             patch("backend.shared.pdf.extract_text_from_pdf", return_value=None):
             result = source.fetch_full_text("2401.12345")
         assert result is None

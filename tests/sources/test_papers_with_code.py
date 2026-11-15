@@ -10,6 +10,14 @@ import pytest
 
 from backend.sources.papers_with_code import PapersWithCodeSource
 
+
+
+def _days_ago(days: int) -> str:
+    """A publication date relative to today, so fixtures never age out of the
+    discovery window the tests query with."""
+    return (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+
+
 SAMPLE_RESPONSE = {
     "count": 2,
     "results": [
@@ -18,7 +26,7 @@ SAMPLE_RESPONSE = {
             "title": "Memory-Augmented Agents for Long Tasks",
             "abstract": "We present a novel memory architecture for long-running agents.",
             "url_abs": "https://arxiv.org/abs/2606.99999",
-            "published": "2026-06-18",
+            "published": _days_ago(2),
             "authors": ["Alice Smith", "Bob Jones"],
         },
         {
@@ -26,7 +34,7 @@ SAMPLE_RESPONSE = {
             "title": "Graph-Based Memory for LLM Agents",
             "abstract": "We use property graphs as a memory substrate for conversational AI.",
             "url_abs": "https://arxiv.org/abs/2606.88888",
-            "published": "2026-06-15",
+            "published": _days_ago(5),
             "authors": ["Carol White"],
         },
     ],
@@ -70,7 +78,8 @@ class TestPapersWithCodeSource:
 
     def test_filters_old_papers(self):
         source = PapersWithCodeSource()
-        since = datetime(2026, 6, 17, tzinfo=timezone.utc)  # Only papers from Jun 17+
+        # Cutoff falls between the two fixture papers (2 and 5 days old).
+        since = datetime.now(timezone.utc) - timedelta(days=3)
 
         with patch("backend.sources.papers_with_code.requests.get") as mock_get:
             mock_resp = MagicMock()
@@ -81,7 +90,7 @@ class TestPapersWithCodeSource:
 
             papers = source.discover([], since, queries=["test"])
 
-        # Only the Jun 18 paper should pass (Jun 15 is before since)
+        # Only the 2-day-old paper should pass (the 5-day-old one is before since)
         assert len(papers) == 1
         assert papers[0]["title"] == "Memory-Augmented Agents for Long Tasks"
 
@@ -138,7 +147,7 @@ class TestPapersWithCodeSource:
                 "title": "A Paper Without ArXiv",
                 "abstract": "Description",
                 "url_abs": "https://paperswithcode.com/paper/some-paper-slug",
-                "published": "2026-06-18",
+                "published": _days_ago(2),
                 "authors": [],
             }]
         }

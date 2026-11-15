@@ -155,7 +155,6 @@ function ConversationItem({ conv, index, editing, editTitle, onNavigate, onStart
 export function Conversations() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [creating, setCreating] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editTitle, setEditTitle] = useState('')
 

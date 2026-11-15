@@ -520,10 +520,15 @@ class TestSemanticScholarFetchFullText:
 
         assert result is None
 
-    def test_fetch_full_text_no_fitz_installed(self):
-        """fetch_full_text returns None if pymupdf is not importable."""
+    def test_fetch_full_text_returns_none_when_extraction_fails(self):
+        """fetch_full_text returns None when no text can be extracted from the PDF.
+
+        Fully offline: the download is stubbed, so this never touches the network.
+        """
         source = SemanticScholarSource()
-        with patch.dict(sys.modules, {"fitz": None}):
+        with patch.object(source, "_download_pdf", return_value=b"%PDF-fake"), \
+             patch.object(source, "_resolve_pdf_url", return_value="https://example.org/p.pdf"), \
+             patch("backend.shared.pdf.extract_text_from_pdf", return_value=None):
             result = source.fetch_full_text("abc123def456")
         assert result is None
 
