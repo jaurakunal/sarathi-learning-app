@@ -110,6 +110,7 @@ def query_vectors(
     query_embedding: list[float],
     paper_ids: Optional[set[str]] = None,
     top_k: int = 10,
+    return_distance: bool = False,
 ) -> list[dict]:
     """Query S3 Vectors for chunks similar to the query embedding.
 
@@ -117,6 +118,7 @@ def query_vectors(
         query_embedding: The embedded query vector (1024-dim).
         paper_ids: If provided, filter to only these papers (tenant isolation).
         top_k: Number of results to return.
+        return_distance: If True, each result also carries its cosine ``distance``.
 
     Returns:
         List of {key, metadata, score} dicts, sorted by similarity.
@@ -136,6 +138,8 @@ def query_vectors(
         "topK": top_k,
         "returnMetadata": True,
     }
+    if return_distance:
+        kwargs["returnDistance"] = True
 
     if paper_ids:
         kwargs["filter"] = {"$or": [{"paper_id": pid} for pid in paper_ids]}

@@ -1,3 +1,19 @@
+export type ConnectionRelation = 'supports' | 'contradicts' | 'extends'
+
+export interface ConnectionSide {
+  paper_id: string
+  card_id: string
+  title: string
+  claim: string
+}
+
+/** Present on `connect` cards: links today's paper to one already in the library. */
+export interface Connection {
+  relation: ConnectionRelation
+  new: ConnectionSide
+  related: ConnectionSide
+}
+
 export interface FeedCardSummary {
   card_id: string
   paper_id: string
@@ -10,6 +26,8 @@ export interface FeedCardSummary {
   bookmarked: boolean
   rating: number | null
   dismissed?: boolean
+  /** Set on `connect` cards: how the new paper relates to a library paper. */
+  relation?: ConnectionRelation | ''
 }
 
 export interface CardDetail {
@@ -35,6 +53,7 @@ export interface CardDetail {
   rating?: number | null
   relevance?: string
   tags?: string[]
+  connection?: Connection
 }
 
 export interface FeedResponse {

@@ -566,7 +566,11 @@ def get_feed_card(table, user_id: str, workspace_id: str, card_id: str) -> Optio
 def get_feed_card_by_paper(
     table, user_id: str, workspace_id: str, paper_id: str
 ) -> Optional[dict]:
-    """Get the most recent feed card for a given paper_id."""
+    """Get the most recent feed card for a given paper_id.
+
+    Prefers the paper's own digest card over derived cards (e.g. ``connect``)
+    that are anchored to the same paper.
+    """
     resp = table.query(
         KeyConditionExpression=(
             Key("PK").eq(_feed_pk(user_id, workspace_id))
@@ -578,6 +582,9 @@ def get_feed_card_by_paper(
         Limit=5,
     )
     items = resp.get("Items", [])
+    for item in items:
+        if item.get("card_type", "new_paper") in ("new_paper", ""):
+            return item
     return items[0] if items else None
 
 

@@ -49,7 +49,6 @@ export function Callback() {
         // Parse the ID token to get the user sub
         const payload = JSON.parse(atob(idToken.split('.')[1]))
         const sub = payload.sub
-        const poolId = import.meta.env.VITE_COGNITO_USER_POOL_ID
 
         // Store in the format cognito-identity-js expects
         const keyPrefix = `CognitoIdentityServiceProvider.${clientId}`

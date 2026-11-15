@@ -13,8 +13,9 @@ describe('ChatMessage', () => {
   it('renders assistant message with correct styling', () => {
     render(<ChatMessage message={{ role: 'assistant', content: 'Hi there.' }} />)
     expect(screen.getByText('Hi there.')).toBeInTheDocument()
-    const bubble = screen.getByText('Hi there.').closest('div[class*="glass-card"]')
-    expect(bubble?.className).toContain('glass-card')
+    const bubble = screen.getByText('Hi there.').closest('div[class*="rounded-2xl"]')
+    expect(bubble?.className).toContain('backdrop-blur')
+    expect(bubble?.className).not.toContain('bg-accent/20')
   })
 
   it('shows streaming indicator when streaming', () => {

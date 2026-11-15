@@ -149,6 +149,8 @@ def handler(event: dict, context) -> dict:
     card_by_paper: dict[str, dict] = {}
     for card in cards:
         pid = card.get("paper_id", "")
+        if card.get("card_type", "new_paper") not in ("new_paper", ""):
+            continue  # derived cards (connect, ...) reuse a paper_id
         if pid and pid not in card_by_paper:
             card_by_paper[pid] = card
 

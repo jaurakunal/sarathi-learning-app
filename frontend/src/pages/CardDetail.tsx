@@ -62,6 +62,12 @@ export function CardDetail() {
 
   const navigatingToChatRef = useRef(false)
 
+  // Derived cards (connect, ...) are anchored to a paper but are not the paper:
+  // opening one must not count as having read that paper.
+  const isDerivedCard = !!card?.card_type && card.card_type !== 'new_paper'
+  const isDerivedCardRef = useRef(false)
+  isDerivedCardRef.current = isDerivedCard
+
   // Track scroll depth
   const handleScroll = useCallback(() => {
     if (!contentRef.current) return
@@ -89,7 +95,7 @@ export function CardDetail() {
 
   // Check dwell time every 5s
   useEffect(() => {
-    if (!card) return
+    if (!card || isDerivedCard) return
     const interval = setInterval(() => {
       if (firedReadRef.current) return
       const eng = engagementRef.current
@@ -110,7 +116,7 @@ export function CardDetail() {
 
   // Check scroll threshold on every scroll event
   const handleScrollForRead = useCallback(() => {
-    if (firedReadRef.current) return
+    if (firedReadRef.current || isDerivedCardRef.current) return
     const eng = engagementRef.current
     if (eng.scrollDepthRef.current > 50) {
       firedReadRef.current = true
@@ -227,12 +233,36 @@ export function CardDetail() {
           )}
         </div>
 
+        {/* Connection: today's paper vs. one already in the library */}
+        {card.connection && (
+          <div className="mb-4 pb-6 border-b border-white/[0.06] space-y-3">
+            <p className="text-[11px] font-medium tracking-wide uppercase text-zinc-500">
+              Today's paper {card.connection.relation} one in your library
+            </p>
+            {([
+              ['In your library', card.connection.related],
+              ['New today', card.connection.new],
+            ] as const).map(([label, side]) => (
+              <button
+                key={label}
+                onClick={() => side.card_id && navigate(`/card/${side.card_id}`)}
+                disabled={!side.card_id}
+                className="w-full text-left glass-card rounded-xl p-4 space-y-1.5 transition-colors enabled:hover:bg-white/[0.04] disabled:cursor-default"
+              >
+                <span className="text-[11px] font-medium tracking-wide uppercase text-accent-light">{label}</span>
+                <p className="text-sm font-medium text-white/90 leading-snug">{side.title}</p>
+                <p className="text-sm text-zinc-400 leading-relaxed">{side.claim}</p>
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Sections — two columns on desktop */}
         <div className="lg:flex lg:gap-8">
           {/* Main reading content (left) */}
           <div className="lg:flex-1 space-y-0">
             {card.digest.gist && (
-              <CollapsibleSection title="Gist" defaultOpen>
+              <CollapsibleSection title={card.connection ? 'How They Connect' : 'Gist'} defaultOpen>
                 <p className="text-sm text-zinc-300 leading-relaxed">
                   {card.digest.gist}
                 </p>

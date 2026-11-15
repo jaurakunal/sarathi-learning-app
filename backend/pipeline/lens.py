@@ -86,6 +86,9 @@ def _annotate_card(
 
 def _needs_annotation(card: dict) -> bool:
     """Check whether a card still needs hypothesis_relevance annotation."""
+    # Derived cards (connect, resurface, ...) carry no hypothesis annotation.
+    if card.get("card_type", "new_paper") not in ("new_paper", ""):
+        return False
     relevance = card.get("hypothesis_relevance")
     return not relevance or not relevance.strip()
 

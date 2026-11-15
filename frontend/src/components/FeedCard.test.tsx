@@ -55,6 +55,11 @@ describe('FeedCard', () => {
     expect(screen.getByText('resurface')).toBeInTheDocument()
   })
 
+  it('labels connect cards with their relation', () => {
+    renderCard({ card_type: 'connect', relation: 'contradicts' })
+    expect(screen.getByText('Connection · contradicts')).toBeInTheDocument()
+  })
+
   it('handles empty why_you_now gracefully', () => {
     renderCard({ why_you_now: '' })
     expect(screen.getByText(/You built this cold/)).toBeInTheDocument()

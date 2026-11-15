@@ -76,7 +76,8 @@ describe('Feed page', () => {
     renderFeed()
 
     await waitFor(() => {
-      expect(screen.getByText('Sārathi')).toBeInTheDocument()
+      // The layout renders the title twice (mobile header + desktop sidebar).
+      expect(screen.getAllByText('Sārathi').length).toBeGreaterThan(0)
     })
   })
 

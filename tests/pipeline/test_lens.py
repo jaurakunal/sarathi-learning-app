@@ -426,3 +426,15 @@ def test_default_model_when_event_omits_it(
 
     kwargs = mock_fallback.call_args.kwargs
     assert kwargs["primary_model"] == DEFAULT_MODEL
+
+
+# ---------------------------------------------------------------------------
+# Derived cards (connect, ...) are never annotated
+# ---------------------------------------------------------------------------
+
+def test_derived_cards_do_not_need_annotation():
+    from backend.pipeline.lens import _needs_annotation
+
+    assert _needs_annotation({"card_type": "new_paper", "hypothesis_relevance": ""})
+    assert _needs_annotation({"hypothesis_relevance": ""})  # legacy card, no type
+    assert not _needs_annotation({"card_type": "connect", "hypothesis_relevance": ""})

@@ -17,6 +17,16 @@ def user_id():
     return "user-1"
 
 
+def _partition_key(condition) -> str:
+    """Pull the partition-key value out of a boto3 key condition.
+
+    str(condition) is just an object repr, so match on the real value. For
+    ``Key(pk).eq(v) & Key(sk)...`` the partition condition is the left operand.
+    """
+    values = condition.get_expression()["values"]
+    return values[1] if isinstance(values[1], str) else _partition_key(values[0])
+
+
 def test_split_meta_separates_user_and_workspace_fields():
     from scripts.migrate_workspaces import _split_meta
 
@@ -76,6 +86,10 @@ def test_migrate_user_dry_run_does_not_write(mock_db, mock_table, user_id):
     from scripts.migrate_workspaces import migrate_user
 
     mock_db.list_workspaces.return_value = []
+    # A bare MagicMock response has a truthy LastEvaluatedKey, so pagination
+    # in _query_all would never terminate.
+    mock_table.query.return_value = {"Items": []}
+    mock_table.get_item.return_value = {}
 
     summary = migrate_user(mock_table, user_id, apply=False)
 
@@ -112,8 +126,7 @@ def test_migrate_user_copies_areas(mock_db, mock_table, user_id):
 
     # Helper to return area items for the legacy profile query
     def query_side(**kwargs):
-        cond = str(kwargs.get("KeyConditionExpression"))
-        if "PROFILE" in cond and "FEED" not in cond:
+        if _partition_key(kwargs.get("KeyConditionExpression")) == f"USER#{user_id}#PROFILE":
             return {"Items": [
                 {"PK": "USER#u1#PROFILE", "SK": "META",
                  "learning_style": {"depth": "practitioner"}, "paper_goal": "x"},

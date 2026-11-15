@@ -4,7 +4,7 @@ Usage:
     source .venv/bin/activate
     AWS_PROFILE=poc AWS_DEFAULT_REGION=us-east-1 python scripts/test_local_pipeline.py [step]
 
-Steps: discover, triage, select, digest, lens, all (default: discover)
+Steps: discover, triage, select, digest, lens, connect, all (default: discover)
 """
 
 import json
@@ -59,6 +59,13 @@ def run_lens():
     return result
 
 
+def run_connect():
+    from backend.pipeline.connect import handler
+    result = handler(EVENT, None)
+    print(json.dumps(result, indent=2))
+    return result
+
+
 if __name__ == "__main__":
     step = sys.argv[1] if len(sys.argv) > 1 else "discover"
 
@@ -68,6 +75,7 @@ if __name__ == "__main__":
         "select": run_select,
         "digest": run_digest,
         "lens": run_lens,
+        "connect": run_connect,
     }
 
     if step == "all":

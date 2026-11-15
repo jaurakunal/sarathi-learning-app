@@ -10,5 +10,10 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: './src/test/setup.ts',
+    // The Cognito pool is constructed at import time; give tests placeholder IDs.
+    env: {
+      VITE_COGNITO_USER_POOL_ID: 'us-east-1_testpool',
+      VITE_COGNITO_CLIENT_ID: 'test-client-id',
+    },
   },
 })

@@ -1,7 +1,7 @@
 import { useRef, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Clock, Check, X, Undo2 } from 'lucide-react'
+import { Clock, Check, X, Undo2, Link2 } from 'lucide-react'
 import { postEngagement } from '../api/engagement'
 import type { FeedCardSummary } from '../types/feed'
 
@@ -123,6 +123,15 @@ export function FeedCard({ card, index, showRestore, onDismiss, onRestore }: Fee
             </button>
           )}
         </AnimatePresence>
+      )}
+
+      {card.card_type && card.card_type !== 'new_paper' && (
+        <span className="inline-flex items-center gap-1.5 mb-3 text-[11px] font-medium tracking-wide uppercase text-accent-light px-2 py-0.5 rounded-full bg-accent-dim">
+          {card.card_type === 'connect' && <Link2 size={12} />}
+          {card.card_type === 'connect'
+            ? (card.relation ? `Connection · ${card.relation}` : 'Connection')
+            : card.card_type.replace(/_/g, ' ')}
+        </span>
       )}
 
       <p className={`text-lg lg:text-xl leading-[1.35] font-semibold tracking-tight ${

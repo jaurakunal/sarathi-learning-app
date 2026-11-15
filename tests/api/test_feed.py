@@ -203,6 +203,29 @@ def test_list_feed_marks_read_cards(mock_db, mock_boto3):
 
 @patch("backend.api.feed.boto3")
 @patch("backend.api.feed.db")
+def test_list_feed_connect_card_read_state_and_relation(mock_db, mock_boto3):
+    """A connect card shares a paper_id with a paper card: reading the paper
+    must not mark the connect card read — only opening the card does."""
+    mock_boto3.resource.return_value.Table.return_value = MagicMock()
+    connect_card = {
+        **SAMPLE_CARD,
+        "card_id": "20260615_030000_conn0001",
+        "card_type": "connect",
+        "connection": {"relation": "contradicts"},
+    }
+    opened = {**connect_card, "card_id": "20260615_030100_conn0002", "view_count": 2}
+    mock_db.list_feed_cards.return_value = ([connect_card, opened, SAMPLE_CARD], None)
+    mock_db.get_read_paper_ids.return_value = {SAMPLE_CARD["paper_id"]}
+
+    body = json.loads(handler(_make_event(), None)["body"])
+
+    assert [c["read"] for c in body["cards"]] == [False, True, True]
+    assert body["cards"][0]["relation"] == "contradicts"
+    assert body["cards"][2]["relation"] == ""
+
+
+@patch("backend.api.feed.boto3")
+@patch("backend.api.feed.db")
 def test_cors_headers_present(mock_db, mock_boto3):
     mock_table = MagicMock()
     mock_boto3.resource.return_value.Table.return_value = mock_table
