@@ -127,6 +127,13 @@ def _list_feed(table, user_id: str, workspace_id: str, event: dict) -> dict:
 
     response_cards = []
     for card in cards:
+        is_paper_card = card.get("card_type", "new_paper") in ("new_paper", "")
+        # Derived cards (connect, ...) share a paper_id with a paper card, so
+        # "read" for them means this card was opened, not that the paper was read.
+        read = (
+            card.get("paper_id", "") in read_paper_ids if is_paper_card
+            else int(card.get("view_count", 0)) > 0
+        )
         response_cards.append({
             "card_id": card.get("card_id", ""),
             "paper_id": card.get("paper_id", ""),
@@ -135,7 +142,8 @@ def _list_feed(table, user_id: str, workspace_id: str, event: dict) -> dict:
             "time_estimate": card.get("time_estimate", ""),
             "card_type": card.get("card_type", ""),
             "created_at": card.get("created_at", ""),
-            "read": card.get("paper_id", "") in read_paper_ids,
+            "read": read,
+            "relation": (card.get("connection") or {}).get("relation", ""),
             "bookmarked": bool(card.get("bookmarked", False)),
             "rating": int(card["rating"]) if card.get("rating") and int(card.get("rating", 0)) != 0 else None,
             "view_count": int(card.get("view_count", 0)),

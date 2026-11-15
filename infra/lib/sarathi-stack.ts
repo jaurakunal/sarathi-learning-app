@@ -250,6 +250,20 @@ export class SarathiStack extends cdk.Stack {
       memorySize: 512,
     });
 
+    // Connect: links a newly digested paper to one already in the user's
+    // library (vector prefilter + LLM gate). Emits at most a couple of
+    // `connect` feed cards per week; never fails the pipeline.
+    const connectFn = new lambda.Function(this, 'ConnectFn', {
+      functionName: 'sarathi-connect',
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'backend.pipeline.connect.handler',
+      code: lambdaCode,
+      environment: { ...lambdaEnv, CONNECT_MODEL: 'moonshotai.kimi-k2.5' },
+      role: lambdaRole,
+      timeout: cdk.Duration.minutes(5),
+      memorySize: 512,
+    });
+
     const learnFn = new lambda.Function(this, 'LearnFn', {
       functionName: 'sarathi-learn',
       runtime: lambda.Runtime.PYTHON_3_12,
@@ -575,6 +589,11 @@ export class SarathiStack extends cdk.Stack {
       resultPath: '$.lensResult',
     });
 
+    const connectTask = new sfnTasks.LambdaInvoke(this, 'ConnectStep', {
+      lambdaFunction: connectFn,
+      payload: sfn.TaskInput.fromObject(pipelinePayload),
+      resultPath: '$.connectResult',
+    });
     const learnTask = new sfnTasks.LambdaInvoke(this, 'LearnStep', {
       lambdaFunction: learnFn,
       payload: sfn.TaskInput.fromObject(pipelinePayload),
@@ -596,6 +615,9 @@ export class SarathiStack extends cdk.Stack {
     digestTask.addRetry(llmRetry);
     lensTask.addRetry(llmRetry);
     learnTask.addRetry(llmRetry);
+    // Connect is an optional enrichment: if the Lambda itself errors or times
+    // out, carry on to Learn rather than failing the night's run.
+    connectTask.addCatch(learnTask, { resultPath: '$.connectError' });
 
     // Jitter: spread the nightly burst so a growing user base doesn't hit
     // Bedrock all at once at 02:00 UTC. The fan-out injects a per-execution
@@ -613,6 +635,7 @@ export class SarathiStack extends cdk.Stack {
       .next(selectTask)
       .next(digestTask)
       .next(lensTask)
+      .next(connectTask)
       .next(learnTask);
 
     const stateMachine = new sfn.StateMachine(this, 'SarathiPipeline', {
@@ -1190,7 +1213,7 @@ export class SarathiStack extends cdk.Stack {
     // ─── Per-Lambda error alarms (all functions) ─────────────────────────
     const allFns: { fn: lambda.Function; name: string }[] = [
       { fn: discoverFn, name: 'discover' }, { fn: triageFn, name: 'triage' },
-      { fn: selectFn, name: 'select' }, { fn: lensFn, name: 'lens' },
+      { fn: selectFn, name: 'select' }, { fn: lensFn, name: 'lens' }, { fn: connectFn, name: 'connect' },
       { fn: learnFn, name: 'learn' }, { fn: feedFn, name: 'feed' },
       { fn: engagementFn, name: 'engagement' }, { fn: profileFn, name: 'profile' },
       { fn: libraryFn, name: 'library' }, { fn: convFn, name: 'conversations' },

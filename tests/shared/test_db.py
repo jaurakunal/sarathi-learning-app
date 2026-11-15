@@ -907,6 +907,19 @@ class TestGetFeedCardByPaper:
         assert result is not None
         assert result["card_id"] == "c1"
 
+    def test_prefers_paper_card_over_newer_derived_card(self, mock_table, user_id):
+        # Newest first: a connect card anchored to p1 sits above p1's own card.
+        mock_table.query.return_value = {
+            "Items": [
+                {"card_id": "c2", "paper_id": "p1", "card_type": "connect"},
+                {"card_id": "c1", "paper_id": "p1", "card_type": "new_paper"},
+            ]
+        }
+
+        result = db.get_feed_card_by_paper(mock_table, user_id, "", "p1")
+
+        assert result["card_id"] == "c1"
+
     def test_returns_none_when_no_match(self, mock_table, user_id):
         mock_table.query.return_value = {"Items": []}
 
